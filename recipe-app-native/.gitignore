@@ -1,0 +1,35 @@
+# Dépendances
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Metro
+.metro-health-check*
+
+# Natif
+/ios
+/android
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Journaux de débogage
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Système
+.DS_Store
+*.pem
+
+# Variables d'environnement locales
+.env
+.env*.local

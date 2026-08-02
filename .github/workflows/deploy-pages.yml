@@ -1,4 +1,13 @@
-name: Déployer l'export web sur GitHub Pages
+name: Déployer sur GitHub Pages
+
+# Le dépôt contient deux versions de l'application :
+#   recipe-app-native/  v2 Expo (mobile + export web)  -> publiée à la racine du site
+#   recipe-app/         v1 web statique                -> publiée sous /classique/
+# Les deux partagent le même jeu de 17 recettes ; le job vérifie qu'elles ne
+# divergent pas avant de construire.
+#
+# Ce fichier doit rester à la racine du dépôt : GitHub Actions ne lit les workflows
+# que dans .github/workflows/ à la racine, jamais dans un sous-dossier de projet.
 
 on:
   push:
@@ -17,6 +26,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: recipe-app-native
     steps:
       - name: Récupérer le dépôt
         uses: actions/checkout@v4
@@ -25,24 +37,42 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: recipe-app-native/package-lock.json
 
-      # npm install plutôt que "npm ci" : aucun package-lock.json n'a encore été généré
-      # (voir README, section "Limites de la vérification effectuée"). Une fois un
-      # package-lock.json committé après un premier "npm install" en local, cette ligne
-      # peut être remplacée par : npm ci
+      # npm ci et non npm install : le package-lock.json est committé, les versions
+      # installées en CI sont donc exactement celles testées en local.
       - name: Installer les dépendances
-        run: npm install
+        run: npm ci
 
-      - name: Exporter la version web (Metro, sortie statique)
-        run: npx expo export --platform web
+      - name: Tests de la logique métier et synchronisation des deux versions
+        run: npm test
+
+      - name: Exporter la version web (Metro, monopage + repli 404.html)
+        run: npm run export:web
+
+      # La v1 est un site statique sans build : tous ses chemins sont relatifs, elle
+      # fonctionne donc telle quelle depuis un sous-dossier.
+      - name: Ajouter la v1 web sous /classique/
+        run: cp -r ../recipe-app dist/classique
+
+      - name: Vérifier que l'export contient bien les deux versions
+        run: |
+          test -f dist/index.html
+          test -f dist/404.html
+          test -f dist/favicon.svg
+          test -f dist/classique/index.html
+          test -f dist/classique/data/recipes.json
+          echo "Contenu de dist/ :"
+          ls -la dist
 
       - name: Configurer GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Uploader l'artefact (dossier dist/)
+      - name: Uploader l'artefact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: recipe-app-native/dist
 
   deploy:
     needs: build

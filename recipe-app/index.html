@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mon carnet de recettes</title>
+    <meta
+      name="description"
+      content="Carnet personnel de recettes : recherche, filtres, fiches détaillées et liste de courses."
+    />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <a class="lien-evitement" href="#contenu">Aller au contenu</a>
+
+    <header class="entete">
+      <div class="conteneur entete__interieur">
+        <a class="marque" href="#/">
+          <span class="marque__trait" aria-hidden="true"></span>
+          <span>Mon carnet de recettes</span>
+        </a>
+        <nav class="entete__nav">
+          <a class="bouton-entete" href="#/liste-de-courses">
+            Liste de courses
+            <span class="badge" id="badge-courses" hidden>0</span>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="conteneur" id="contenu">
+      <!-- Un seul point de montage : le routage par ancre remplace ce contenu. -->
+      <div id="vue" aria-live="polite">
+        <p class="etat-chargement">Chargement des recettes…</p>
+      </div>
+    </main>
+
+    <footer class="pied">
+      <div class="conteneur">
+        <p>
+          Recettes rassemblées depuis leurs sites d'origine, chaque fiche cite sa source. Usage
+          personnel.
+        </p>
+      </div>
+    </footer>
+
+    <script src="js/app.js"></script>
+  </body>
+</html>
