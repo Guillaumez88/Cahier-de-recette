@@ -1,0 +1,56 @@
+name: Déployer l'export web sur GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # npm install plutôt que "npm ci" : aucun package-lock.json n'a encore été généré
+      # (voir README, section "Limites de la vérification effectuée"). Une fois un
+      # package-lock.json committé après un premier "npm install" en local, cette ligne
+      # peut être remplacée par : npm ci
+      - name: Installer les dépendances
+        run: npm install
+
+      - name: Exporter la version web (Metro, sortie statique)
+        run: npx expo export --platform web
+
+      - name: Configurer GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Uploader l'artefact (dossier dist/)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Déployer sur GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
