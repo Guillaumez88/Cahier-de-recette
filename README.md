@@ -348,6 +348,10 @@ Ces écarts viennent des sources. Ils sont signalés plutôt que masqués, et le
 
 Un quatrième écart, mineur : pour `lasagnes-bolognaise`, le tableau de flux détaille 15 lignes d'ingrédients contre 14 dans la liste `ingredients`, parce qu'il isole « sel, poivre » pour la béchamel.
 
+## Refonte du design en cours
+
+`docs/BRIEF-UX-2026-08-03.md` réunit tout ce qu'il faut pour reprendre le design de l'application : contexte d'usage, contraintes techniques non négociables, inventaire des écrans et de leurs états, modèle de données mesuré, identité visuelle actuelle, problèmes constatés avec leurs preuves, et critères d'acceptation. Les captures de l'état au 3 août 2026 sont dans `docs/captures-2026-08-03/`.
+
 ## Historique
 
 Une seconde version, en React Native / Expo (mobile plus export web), a existé dans `recipe-app-native/`. Elle a été retirée : cette version web statique est plus aboutie, et maintenir deux bases pour un carnet personnel coûtait plus qu'elle n'apportait. Le code reste consultable dans l'historique Git, jusqu'au commit précédant sa suppression.
