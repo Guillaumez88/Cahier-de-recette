@@ -188,11 +188,11 @@ async function attendreTexte(page, motif, limite = 8000) {
   let etatStub = await (await pageA.request.get(new URL('__stub/etat', BASE).href)).json();
   verifier('un document recette a ete ecrit', etatStub.nbRecettes === 1, `${etatStub.nbRecettes} documents`);
 
-  // --- 4. L accueil reflete la modification -----------------------------------
+  // --- 4. Le livre reflete la modification -------------------------------------
 
-  await pageA.goto(BASE, { waitUntil: 'networkidle' });
+  await pageA.goto(`${BASE}#/livre`, { waitUntil: 'networkidle' });
   await attendre(1000);
-  verifier("l accueil affiche le nouveau titre", /Lasagnes pour douze/.test(await texteDe(pageA)));
+  verifier("le livre affiche le nouveau titre", /Lasagnes pour douze/.test(await texteDe(pageA)));
   verifier('le carnet compte toujours 20 recettes', (await pageA.locator('.carte').count()) === 20);
 
   // --- 5. La modification est partagee ----------------------------------------
@@ -206,7 +206,7 @@ async function attendreTexte(page, motif, limite = 8000) {
 
   await pageB.getByText('Tout ajouter à la liste', { exact: true }).click();
   await attendre(1000);
-  await pageB.locator('.bouton-entete').click();
+  await pageB.locator('.bouton-entete[href="#/liste-de-courses"]').click();
   await attendre(1000);
   const courses = await texteDe(pageB);
   verifier('la liste reprend la quantite recalculee', /600 g/.test(courses), courses.slice(0, 400));

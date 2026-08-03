@@ -54,8 +54,22 @@ function verifier(nom, condition, detail = '') {
   verifier('aucune requete en echec', requetesEchouees.length === 0, requetesEchouees.join(' | '));
   verifier('aucune erreur console', erreursConsole.length === 0, erreursConsole.slice(0, 3).join(' | '));
 
+  // L'accueil est desormais le semainier : le livre a son propre ecran.
+  let accueil = await texte();
+  verifier("le carnet s'affiche", /Mon carnet de recettes/.test(accueil));
+  verifier('l accueil annonce les repas de la semaine', /Les repas de la semaine/.test(accueil));
+  verifier('l accueil donne acces au livre', (await page.locator('a[href="#/livre"]').count()) >= 1);
+  verifier(
+    'l accueil donne acces a la liste de courses',
+    (await page.locator('a[href="#/liste-de-courses"]').count()) >= 1
+  );
+  verifier('aucune carte de recette sur l accueil', (await page.locator('.carte').count()) === 0);
+
+  // Le livre de cuisine
+  await page.locator('.acces[href="#/livre"]').click();
+  await page.waitForTimeout(400);
   let corps = await texte();
-  verifier("le carnet s'affiche", /Mon carnet de recettes/.test(corps));
+  verifier('le livre s ouvre', page.url().includes('#/livre'), page.url());
   verifier('20 recettes annoncees', /20 recettes rassemblées/.test(corps), corps.slice(0, 150));
   // Lu sur l'element plutot que dans tout le texte de la page : « 17 recettes »
   // apparait aussi dans l'accroche, l'assertion ne prouverait rien.
@@ -97,7 +111,7 @@ function verifier(nom, condition, detail = '') {
   const combine = await page.locator('.carte').count();
   verifier('les filtres se combinent', combine > 0 && combine < 3, `${combine} recettes`);
 
-  await page.getByText('Tout effacer', { exact: true }).click();
+  await page.locator('.barre-resultats').getByText('Tout effacer', { exact: true }).click();
   await page.waitForTimeout(300);
   verifier('« Tout effacer » remet les 20 recettes', (await page.locator('.carte').count()) === 20);
 
@@ -169,8 +183,8 @@ function verifier(nom, condition, detail = '') {
     (await page.locator('.case-ingredient[disabled]').count()) === 14
   );
 
-  // Le lien d'en-tete contient aussi le badge : cibler la classe, pas le texte exact.
-  await page.locator('.bouton-entete').click();
+  // Le lien d'en-tete contient aussi le badge : cibler l'ancre, pas le texte exact.
+  await page.locator('.bouton-entete[href="#/liste-de-courses"]').click();
   await page.waitForTimeout(700);
   const courses = await texte();
   verifier('la liste de courses est atteinte', page.url().includes('#/liste-de-courses'), page.url());

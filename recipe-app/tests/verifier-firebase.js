@@ -39,6 +39,8 @@ global.localStorage = {
 const config = require(path.join(racine, 'js/firebase-config.js'));
 const Sync = require(path.join(racine, 'js/sync.js'));
 const Storage = require(path.join(racine, 'js/storage.js'));
+const Semainier = require(path.join(racine, 'js/semainier.js'));
+const Photos = require(path.join(racine, 'js/photos.js'));
 
 const RECETTE = {
   id: '__verification__',
@@ -68,6 +70,12 @@ async function test(nom, fn) {
   }
 }
 
+// Créneau de vérification, posé très loin dans le futur pour ne jamais tomber sur
+// une semaine affichée à l'écran : ce contrôle écrit dans la vraie base, il ne doit
+// pas faire apparaître un plat fantôme dans le semainier de la maison.
+const JOUR_TEST = '2099-12-28';
+const CRENEAU_TEST = `${JOUR_TEST}::diner`;
+
 /** Supprime tout ce que ce contrôle a pu laisser derrière lui. */
 async function nettoyer() {
   const distants = await Sync.lireArticles();
@@ -81,12 +89,23 @@ async function nettoyer() {
   } catch (erreur) {
     /* collection refusee ou deja propre : sans consequence */
   }
+  try {
+    await Sync.supprimerCreneau(CRENEAU_TEST);
+  } catch (erreur) {
+    /* collection refusee ou deja propre */
+  }
+  try {
+    await Sync.supprimerPhoto('__verification__');
+  } catch (erreur) {
+    /* collection refusee ou deja propre */
+  }
   return residus.length;
 }
 
 (async () => {
   console.log(`\nProjet : ${config.projectId}`);
-  console.log(`Liste  : listes/${config.listeId}/articles\n`);
+  console.log(`Liste  : listes/${config.listeId}/articles`);
+  console.log(`Menus  : semainiers/${config.semainierId}/creneaux\n`);
 
   try {
     // Nettoyage préalable, au cas où une exécution précédente ait été interrompue.
@@ -226,6 +245,92 @@ async function nettoyer() {
     await Recettes.reinitialiser(ID_TEST);
     const apres = await Sync.lireRecettesModifiees();
     assert.ok(!apres[ID_TEST], 'la recette de verification n a pas ete supprimee');
+  });
+
+  // --- Semainier -------------------------------------------------------------
+
+  await test('un créneau du semainier est écrit, relu puis vidé', async () => {
+    await Semainier.poser(JOUR_TEST, 'diner', { type: 'libre', titre: 'Vérification technique' });
+    assert.strictEqual(Semainier.etatSync().enAttente, 0, 'la file du semainier n a pas été vidée');
+    assert.strictEqual(
+      Semainier.etatSync().enLigne,
+      true,
+      `écriture refusée : ${Semainier.etatSync().erreur}. Les règles de firestore.rules ` +
+        'couvrant semainiers/{id}/creneaux doivent être publiées.'
+    );
+
+    const distants = await Sync.lireCreneaux();
+    const mien = distants.find((c) => c.cle === CRENEAU_TEST);
+    assert.ok(mien, 'créneau introuvable côté serveur');
+    assert.strictEqual(mien.titre, 'Vérification technique');
+    assert.strictEqual(mien.jour, JOUR_TEST);
+    assert.strictEqual(mien.moment, 'diner');
+    assert.strictEqual(mien.type, 'libre');
+
+    await Semainier.vider(JOUR_TEST, 'diner');
+    const apres = await Sync.lireCreneaux();
+    assert.ok(!apres.find((c) => c.cle === CRENEAU_TEST), 'le créneau de vérification n a pas été supprimé');
+  });
+
+  await test('les règles refusent un créneau au moment inconnu', async () => {
+    // Contrôle de la règle elle-même, pas du client : « goûter » n'est pas dans la
+    // liste autorisée, le serveur doit refuser. Si ce contrôle passe, les règles
+    // publiées ne sont pas celles du dépôt.
+    let refuse = false;
+    try {
+      await Sync.ecrireCreneau({
+        cle: `${JOUR_TEST}::gouter`,
+        jour: JOUR_TEST,
+        moment: 'gouter',
+        type: 'libre',
+        titre: 'Vérification technique',
+      });
+    } catch (erreur) {
+      refuse = true;
+    }
+    if (!refuse) {
+      await Sync.supprimerCreneau(`${JOUR_TEST}::gouter`);
+    }
+    assert.ok(refuse, 'un moment inconnu a été accepté : les règles publiées ne sont pas celles du dépôt');
+  });
+
+  // --- Photos ---------------------------------------------------------------
+
+  await test('une photo est écrite en deux tailles, relue par masque, puis supprimée', async () => {
+    // Une data URL minuscule mais bien formée : ce contrôle vérifie le transport et
+    // les règles, pas la compression, déjà couverte par les tests navigateur.
+    const vignette = 'data:image/jpeg;base64,' + 'A'.repeat(600);
+    const grande = 'data:image/jpeg;base64,' + 'B'.repeat(6000);
+
+    await Photos.enregistrer('__verification__', { vignette, grande });
+
+    const vignettes = await Sync.lireVignettes();
+    assert.strictEqual(vignettes['__verification__'], vignette, 'vignette introuvable ou altérée');
+    // Le masque de lecture doit vraiment masquer : sans cela, afficher le livre
+    // téléchargerait toutes les grandes images.
+    assert.ok(
+      !JSON.stringify(vignettes).includes('BBBB'),
+      'la grande image est descendue avec les vignettes : le masque de lecture est inopérant'
+    );
+    assert.strictEqual(await Sync.lireGrandePhoto('__verification__'), grande);
+
+    await Photos.supprimer('__verification__');
+    assert.strictEqual(await Sync.lireGrandePhoto('__verification__'), null, 'la photo n a pas été supprimée');
+  });
+
+  await test('les règles refusent une photo dépassant la borne de taille', async () => {
+    // 800 001 caractères : au-delà des 700 000 autorisés pour `grande`. Le serveur
+    // doit refuser, sinon un envoi trop lourd remplirait la base.
+    let refuse = false;
+    try {
+      await Sync.ecrirePhoto('__verification__', 'data:image/jpeg;base64,AAAA', 'x'.repeat(800001));
+    } catch (erreur) {
+      refuse = true;
+    }
+    if (!refuse) {
+      await Sync.supprimerPhoto('__verification__');
+    }
+    assert.ok(refuse, 'une photo hors borne a été acceptée : les règles publiées ne sont pas celles du dépôt');
   });
 
   // Filet de sécurité : quoi qu'il se soit passé, on ne laisse rien.

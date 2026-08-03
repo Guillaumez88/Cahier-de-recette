@@ -331,6 +331,68 @@
     return addItemsToList(recette, items);
   }
 
+  /**
+   * Ajoute les ingredients de plusieurs recettes en une seule salve.
+   *
+   * Appeler addRecipeToList en boucle marcherait, mais provoquerait un rendu et un
+   * envoi par recette : en ajoutant les cinq plats de la semaine, l'ecran clignote
+   * cinq fois et cinq lots partent en sequence. Ici tout est applique d'un coup,
+   * puis une seule file part.
+   *
+   * Retourne { articles, ajoutes, deja } : `deja` compte les articles qui etaient
+   * deja en liste, pour que l'ecran puisse le dire plutot que de laisser croire que
+   * rien ne s'est passe.
+   */
+  function addRecipesToList(recettes) {
+    var articles = getShoppingList();
+    var presents = {};
+    articles.forEach(function (a) {
+      presents[a.cle] = true;
+    });
+
+    var ajoutes = [];
+    var deja = 0;
+
+    (recettes || []).forEach(function (recette) {
+      if (!recette || !recette.id) return;
+      (recette.ingredients || []).forEach(function (groupe) {
+        (groupe.items || []).forEach(function (item) {
+          var cle = cleArticle(recette.id, item.nom);
+          if (presents[cle]) {
+            deja += 1;
+            return;
+          }
+          presents[cle] = true;
+          var article = {
+            cle: cle,
+            nom: item.nom,
+            quantite: item.quantite || '',
+            groupe: groupe.groupe || null,
+            recetteId: recette.id,
+            recetteTitre: recette.titre,
+            coche: false,
+            ajouteLe: horodatage(),
+          };
+          articles.push(article);
+          ajoutes.push(article);
+        });
+      });
+    });
+
+    if (ajoutes.length === 0) {
+      return Promise.resolve({ articles: articles, ajoutes: 0, deja: deja });
+    }
+
+    return appliquer(
+      articles,
+      ajoutes.map(function (article) {
+        return { type: 'ecrire', article: article };
+      })
+    ).then(function (apres) {
+      return { articles: apres, ajoutes: ajoutes.length, deja: deja };
+    });
+  }
+
   /** Ajoute un article saisi a la main, hors recette. */
   function addFreeItem(nom, quantite) {
     var propre = String(nom || '').trim();
@@ -612,6 +674,7 @@
 
     addItemsToList: addItemsToList,
     addRecipeToList: addRecipeToList,
+    addRecipesToList: addRecipesToList,
     addFreeItem: addFreeItem,
     toggleArticle: toggleArticle,
     removeArticle: removeArticle,

@@ -48,10 +48,22 @@ jobs:
       - name: Vérifier que le site est complet
         run: |
           cd recipe-app
-          for f in index.html favicon.svg css/style.css js/logic.js js/quantites.js js/rayons.js js/flux.js js/sync.js js/recettes.js js/storage.js js/firebase-config.js js/app.js data/recipes.json; do
+          for f in index.html favicon.svg css/style.css js/logic.js js/quantites.js js/rayons.js js/flux.js js/semaine.js js/icones.js js/sync.js js/recettes.js js/storage.js js/semainier.js js/photos.js js/firebase-config.js js/app.js data/recipes.json; do
             test -f "$f" || { echo "manquant : $f"; exit 1; }
           done
           node -e "const r=require('./data/recipes.json'); if(r.length!==20) throw new Error(r.length+' recettes au lieu de 20'); console.log(r.length+' recettes')"
+          # L'ordre de chargement dans index.html est significatif : chaque module
+          # consomme les precedents. Un script oublie dans la page passerait les tests
+          # Node, qui chargent les modules directement, et casserait le site.
+          node -e "
+            const html = require('fs').readFileSync('index.html', 'utf8');
+            const attendus = ['firebase-config', 'logic', 'quantites', 'rayons', 'flux', 'semaine', 'icones', 'sync', 'recettes', 'storage', 'semainier', 'photos', 'app'];
+            const presents = [...html.matchAll(/<script src=\"js\/([a-z-]+)\.js\">/g)].map((m) => m[1]);
+            if (presents.join(',') !== attendus.join(',')) {
+              throw new Error('scripts de index.html : ' + presents.join(',') + '\nattendu : ' + attendus.join(','));
+            }
+            console.log(presents.length + ' scripts, dans l ordre attendu');
+          "
 
       - name: Configurer GitHub Pages
         uses: actions/configure-pages@v5

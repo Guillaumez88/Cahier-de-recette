@@ -327,6 +327,146 @@
     }
   }
 
+  // --- Semainier ---------------------------------------------------------------
+  //
+  // Un document par creneau de repas, dans semainiers/<semainierId>/creneaux.
+  // Meme raison que pour les articles de la liste : deux personnes qui posent deux
+  // plats differents au meme moment modifient deux documents distincts. Avec un
+  // document unique par semaine, le dernier qui ecrit effacerait le plat de l'autre.
+  //
+  // La cle d'un creneau est « 2026-08-03::dejeuner » : elle porte la date et le
+  // moment, donc un creneau vide n'est pas un document vide, c'est un document
+  // absent. Vider un creneau est une suppression.
+
+  function cheminCreneaux() {
+    return `projects/${config.projectId}/databases/(default)/documents/semainiers/${config.semainierId}/creneaux`;
+  }
+
+  /** Lit tous les creneaux planifies. */
+  async function lireCreneaux() {
+    var creneaux = [];
+    var pageSuivante = null;
+
+    do {
+      var url = `${cheminCreneaux()}?pageSize=300${pageSuivante ? `&pageToken=${encodeURIComponent(pageSuivante)}` : ''}`;
+      var corps = await requete(url, { method: 'GET' });
+      (corps && corps.documents ? corps.documents : []).forEach(function (document_) {
+        var objet = champsVersObjet(document_.fields);
+        objet.idDocument = String(document_.name).split('/').pop();
+        creneaux.push(objet);
+      });
+      pageSuivante = corps && corps.nextPageToken;
+    } while (pageSuivante);
+
+    return creneaux;
+  }
+
+  /** Pose un plat sur un creneau, en remplacant ce qui s'y trouvait. */
+  async function ecrireCreneau(creneau) {
+    var id = idDocument(creneau.cle);
+    var aEcrire = Object.assign({}, creneau);
+    delete aEcrire.idDocument;
+    return requete(`${cheminCreneaux()}/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: objetVersChamps(aEcrire) }),
+    });
+  }
+
+  /** Vide un creneau. Un creneau deja vide n'est pas une erreur. */
+  async function supprimerCreneau(cle) {
+    var id = idDocument(cle);
+    try {
+      return await requete(`${cheminCreneaux()}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch (erreur) {
+      if (erreur.statut === 404) return null;
+      throw erreur;
+    }
+  }
+
+  // --- Photos des recettes -----------------------------------------------------
+  //
+  // Un document par recette dans `photos`, avec deux tailles dans le meme document :
+  // `vignette` (cote 320 px) et `grande` (cote 1200 px), toutes deux en data URL.
+  //
+  // Pourquoi deux tailles et pourquoi un masque de lecture : le livre affiche une
+  // vingtaine de vignettes d'un coup. Lire les documents entiers ferait descendre
+  // autant de grandes images, soit plusieurs megaoctets pour afficher des cases de
+  // 320 px. L'API REST accepte `mask.fieldPaths` : la liste ne demande donc que les
+  // vignettes, et la grande image n'est lue qu'a l'ouverture d'une fiche.
+  //
+  // Pourquoi pas Firebase Storage : il faudrait le SDK ou une seconde API a signer,
+  // alors que Firestore est deja en place et qu'une photo de plat compressee tient
+  // largement sous la limite de 1 Mio par document.
+
+  function cheminPhotos() {
+    return `projects/${config.projectId}/databases/(default)/documents/photos`;
+  }
+
+  /** Lit uniquement les vignettes. Retourne { recetteId: dataUrl }. */
+  async function lireVignettes() {
+    var resultat = {};
+    var pageSuivante = null;
+
+    do {
+      var url =
+        `${cheminPhotos()}?pageSize=300&mask.fieldPaths=recetteId&mask.fieldPaths=vignette` +
+        (pageSuivante ? `&pageToken=${encodeURIComponent(pageSuivante)}` : '');
+      var corps = await requete(url, { method: 'GET' });
+      (corps && corps.documents ? corps.documents : []).forEach(function (document_) {
+        var champs = champsVersObjet(document_.fields);
+        if (champs.recetteId && champs.vignette) resultat[champs.recetteId] = champs.vignette;
+      });
+      pageSuivante = corps && corps.nextPageToken;
+    } while (pageSuivante);
+
+    return resultat;
+  }
+
+  /** Lit la grande image d'une recette. Rend null si la recette n'a pas de photo. */
+  async function lireGrandePhoto(recetteId) {
+    var id = idDocument('photo::' + recetteId);
+    try {
+      var corps = await requete(
+        `${cheminPhotos()}/${encodeURIComponent(id)}?mask.fieldPaths=grande`,
+        { method: 'GET' }
+      );
+      var champs = champsVersObjet(corps && corps.fields);
+      return champs.grande || null;
+    } catch (erreur) {
+      if (erreur.statut === 404) return null;
+      throw erreur;
+    }
+  }
+
+  /** Enregistre les deux tailles d'une photo. */
+  async function ecrirePhoto(recetteId, vignette, grande) {
+    var id = idDocument('photo::' + recetteId);
+    return requete(`${cheminPhotos()}/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: objetVersChamps({
+          recetteId: recetteId,
+          vignette: vignette,
+          grande: grande,
+          modifieLe: new Date().toISOString(),
+        }),
+      }),
+    });
+  }
+
+  /** Retire la photo d'une recette. */
+  async function supprimerPhoto(recetteId) {
+    var id = idDocument('photo::' + recetteId);
+    try {
+      return await requete(`${cheminPhotos()}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch (erreur) {
+      if (erreur.statut === 404) return null;
+      throw erreur;
+    }
+  }
+
   var api = {
     idDocument: idDocument,
     cheminRecettes: cheminRecettes,
@@ -344,6 +484,15 @@
     modifierArticle: modifierArticle,
     supprimerArticle: supprimerArticle,
     cheminCollection: cheminCollection,
+    cheminCreneaux: cheminCreneaux,
+    lireCreneaux: lireCreneaux,
+    ecrireCreneau: ecrireCreneau,
+    supprimerCreneau: supprimerCreneau,
+    cheminPhotos: cheminPhotos,
+    lireVignettes: lireVignettes,
+    lireGrandePhoto: lireGrandePhoto,
+    ecrirePhoto: ecrirePhoto,
+    supprimerPhoto: supprimerPhoto,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

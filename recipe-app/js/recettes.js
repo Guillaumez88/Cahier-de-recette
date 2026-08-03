@@ -79,16 +79,46 @@
     return base;
   }
 
+  function idsDeBase() {
+    var index = {};
+    base.forEach(function (r) {
+      index[r.id] = true;
+    });
+    return index;
+  }
+
   /**
-   * Liste effective : les recettes d'origine, celles modifiees remplacant les leurs.
-   * L'ordre du fichier d'origine est conserve, pour que l'accueil ne se reorganise
-   * pas a chaque modification.
+   * Liste effective : les recettes d'origine, celles modifiees remplacant les leurs,
+   * suivies de celles creees depuis l'application.
+   *
+   * L'ordre du fichier d'origine est conserve pour que le livre ne se reorganise pas
+   * a chaque modification. Les recettes ajoutees viennent ensuite, par titre : elles
+   * n'ont pas de rang dans le fichier d'origine, il faut donc un ordre stable qui ne
+   * depende pas de l'ordre de lecture de Firestore.
    */
   function toutes() {
     var modifiees = lireCache();
-    return base.map(function (recette) {
+    var deBase = idsDeBase();
+
+    var liste = base.map(function (recette) {
       return modifiees[recette.id] || recette;
     });
+
+    var ajoutees = Object.keys(modifiees)
+      .filter(function (id) {
+        return !deBase[id];
+      })
+      .map(function (id) {
+        return modifiees[id];
+      })
+      .filter(function (recette) {
+        return recette && recette.id && recette.titre;
+      })
+      .sort(function (a, b) {
+        return String(a.titre).localeCompare(String(b.titre), 'fr');
+      });
+
+    return liste.concat(ajoutees);
   }
 
   function parId(id) {
@@ -110,6 +140,16 @@
 
   function estModifiee(id) {
     return Object.prototype.hasOwnProperty.call(lireCache(), id);
+  }
+
+  /**
+   * Une recette ajoutee depuis l'application n'existe pas dans data/recipes.json.
+   * La distinction compte a l'ecran : une recette d'origine modifiee peut etre
+   * reinitialisee, une recette ajoutee ne peut qu'etre supprimee, et le dire
+   * evite de proposer un « Rétablir l'original » qui n'a pas d'original.
+   */
+  function estAjoutee(id) {
+    return estModifiee(id) && !idsDeBase()[id];
   }
 
   /** Relit les modifications depuis Firestore. Hors ligne, garde le cache local. */
@@ -149,6 +189,89 @@
     }
     notifier();
     return recette;
+  }
+
+  // --- Creation ---------------------------------------------------------------
+
+  function slug(texte) {
+    return String(texte || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/œ/g, 'oe')
+      .replace(/[^A-Za-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80)
+      .toLowerCase();
+  }
+
+  /**
+   * Identifiant libre derive du titre. Si le slug est deja pris, un rang est
+   * ajoute : deux recettes portant le meme nom sont possibles et ne doivent pas
+   * s'ecraser l'une l'autre.
+   */
+  function idLibre(titre) {
+    var racine = slug(titre) || 'recette';
+    var pris = idsDeBase();
+    Object.keys(lireCache()).forEach(function (id) {
+      pris[id] = true;
+    });
+    if (!pris[racine]) return racine;
+    for (var n = 2; n < 200; n += 1) {
+      if (!pris[racine + '-' + n]) return racine + '-' + n;
+    }
+    return racine + '-' + Date.now();
+  }
+
+  /** Squelette d'une recette vide, pour l'ecran de creation. */
+  function recetteVide() {
+    return {
+      id: '',
+      titre: '',
+      categorie: 'Plat',
+      origine: 'Non indiquée',
+      difficulte: 'Non indiquée',
+      portions: '4 personnes',
+      temps: { preparation: 'Non indiqué', cuisson: 'Non indiqué', repos: 'Non indiqué', total: 'Non indiqué' },
+      calories: null,
+      source: { label: 'Recette de la maison', url: '' },
+      ingredients: [{ groupe: null, items: [] }],
+      instructions: [],
+      astuces: { recette: [], commentaires: [] },
+      variantes: { recette: [], associees: [] },
+      manquants: [],
+      // Pas de tableau fourni : l'application reconstitue le deroule depuis les
+      // etapes, comme pour les recettes des extractions recentes.
+      flowTable: { headers: [], rows: [] },
+    };
+  }
+
+  /**
+   * Enregistre une nouvelle recette. Le titre est obligatoire : c'est la seule
+   * donnee sans laquelle la fiche serait introuvable dans le livre.
+   * Retourne la recette creee, avec son identifiant.
+   */
+  async function creer(brouillon) {
+    var titre = String((brouillon && brouillon.titre) || '').trim();
+    if (titre === '') throw new Error('une recette a besoin d’un titre');
+
+    var recette = JSON.parse(JSON.stringify(brouillon));
+    recette.titre = titre;
+    recette.id = idLibre(titre);
+    await enregistrer(recette);
+    return recette;
+  }
+
+  /**
+   * Supprime definitivement une recette ajoutee depuis l'application.
+   * Refuse de toucher a une recette d'origine : celle-ci vit dans le fichier servi
+   * avec le site, la supprimer de Firestore la ferait simplement reapparaitre a la
+   * prochaine lecture. Pour celles-la, c'est `reinitialiser` qu'il faut.
+   */
+  async function supprimer(id) {
+    if (idsDeBase()[id]) {
+      throw new Error('cette recette vient du carnet d’origine : elle peut être rétablie, pas supprimée');
+    }
+    return reinitialiser(id);
   }
 
   /** Supprime la version modifiee : la recette d'origine reprend sa place. */
@@ -243,11 +366,17 @@
     parId: parId,
     originale: originale,
     estModifiee: estModifiee,
+    estAjoutee: estAjoutee,
     rafraichir: rafraichir,
     etatChargement: etatChargement,
     enregistrer: enregistrer,
     reinitialiser: reinitialiser,
     echelonner: echelonner,
+    slug: slug,
+    idLibre: idLibre,
+    recetteVide: recetteVide,
+    creer: creer,
+    supprimer: supprimer,
   };
 
   if (estNode) module.exports = api;

@@ -56,6 +56,7 @@ function attendre(url, restants = 40) {
     ['Parcours general', 'test-web.js'],
     ['Liste commune, partage et hors ligne', 'test-partage.js'],
     ['Modification des recettes et nombre de parts', 'test-edition.js'],
+    ['Semainier, photos et création de recettes', 'test-semainier.js'],
   ];
 
   let echecs = 0;

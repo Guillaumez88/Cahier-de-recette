@@ -262,8 +262,21 @@ body {
   background: var(--ocre);
 }
 
+/* Les elements du corps sont des span, imposes par le fait que la carte est un
+   lien : un <a> ne peut pas contenir de <div>. Sans passage en bloc, le titre, la
+   ligne de meta et le decompte se suivent sur la meme ligne et se collent. */
 .carte__corps {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 16px;
+}
+
+.carte__titre,
+.carte__meta,
+.carte__meta-faible {
+  display: block;
 }
 
 .carte__haut {
@@ -1272,5 +1285,934 @@ textarea.champ-edition {
   .deroule__action,
   .deroule__reste {
     color: #000;
+  }
+}
+
+/* --- Pictogrammes ---------------------------------------------------------- */
+
+.icone {
+  flex: 0 0 auto;
+  display: block;
+}
+
+/* --- Vignettes de recette --------------------------------------------------
+   Deux formes : la photo quand il y en a une, sinon un aplat de la couleur de la
+   catégorie portant son pictogramme. Un espace blanc laisserait croire à une image
+   qui n'a pas fini de charger. */
+
+.vignette {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex: 0 0 auto;
+  background: var(--surface-creuse);
+}
+
+.vignette__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Pictogramme de categorie affiche a la place d'une photo absente : un trait de
+   couleur, pas un aplat. */
+.marque-plat {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--terracotta);
+}
+.marque-plat--olive {
+  color: var(--olive);
+}
+.marque-plat--ocre {
+  color: var(--ocre);
+}
+
+.vignette--carte {
+  width: 84px;
+  align-self: stretch;
+  height: auto;
+  border-radius: 0;
+}
+.vignette--creneau {
+  width: 100%;
+  height: 42px;
+  border-radius: var(--rayon-sm);
+  margin-bottom: 4px;
+}
+.vignette--choix {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--rayon-sm);
+}
+.vignette--pastille {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+}
+
+/* --- Accueil : entrée et accès --------------------------------------------- */
+
+.entree {
+  padding: 26px 0 4px;
+}
+
+.entree__salut {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--terracotta);
+}
+
+.entree__titre {
+  margin: 0 0 6px;
+  font-size: 34px;
+  line-height: 1.15;
+}
+
+.entree__resume {
+  margin: 0;
+  color: var(--texte-doux);
+}
+
+.acces-liste {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin: 22px 0 30px;
+}
+
+.acces {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-lg);
+  text-decoration: none;
+  color: inherit;
+}
+.acces:hover {
+  border-color: var(--terracotta);
+}
+
+.acces__icone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 46px;
+  height: 46px;
+  color: var(--blanc);
+  background: var(--terracotta);
+  border-radius: var(--rayon-md);
+}
+
+.acces__texte {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.acces__titre {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.acces__detail {
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-doux);
+}
+
+.acces__fleche {
+  color: var(--texte-faible);
+}
+.acces:hover .acces__fleche {
+  color: var(--terracotta);
+}
+
+/* --- Semainier ------------------------------------------------------------- */
+
+.semainier__entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.semainier__titre {
+  margin: 0;
+  font-size: 24px;
+}
+
+.onglets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.semainier__aide {
+  margin: 8px 0 12px;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-doux);
+}
+
+.semaine {
+  margin-bottom: 26px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-lg);
+}
+.semaine--courante {
+  border-color: var(--bordure-forte);
+}
+
+.semaine__entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.semaine__titre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  color: var(--terracotta);
+}
+
+.semaine__dates {
+  flex: 1 1 auto;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-doux);
+}
+
+.bouton--sobre {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  font-size: 14px;
+  color: var(--terracotta);
+  background: var(--surface-creuse);
+  border-color: var(--bordure-forte);
+}
+.bouton--sobre:hover {
+  background: var(--terracotta-clair);
+}
+
+.bouton--danger {
+  color: var(--blanc);
+  background: #a4352b;
+  border-color: #a4352b;
+}
+.bouton--danger:hover {
+  background: #862a22;
+}
+
+/* Sept colonnes sur grand écran, une par jour. En dessous, un jour par ligne :
+   sept colonnes de trois cases seraient illisibles sur un téléphone, et c'est
+   là que le semainier sert le plus. */
+.grille-semaine {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.jour {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.jour__entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 5px;
+  /* Hauteur reservee pour deux lignes : le jour courant porte en plus la mention
+     « aujourd'hui », qui passe a la ligne dans une colonne de 150 px. Sans cette
+     reserve, la colonne du jour serait plus basse que les six autres et la grille
+     deviendrait irreguliere. */
+  min-height: 38px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--bordure);
+  font-family: system-ui, sans-serif;
+}
+
+.jour__marque {
+  flex: 0 0 100%;
+}
+
+.jour__nom {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--texte-doux);
+}
+
+.jour__numero {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.jour--aujourdhui .jour__nom,
+.jour--aujourdhui .jour__numero {
+  color: var(--terracotta);
+}
+.jour--aujourdhui .jour__entete {
+  border-bottom-color: var(--terracotta);
+}
+
+.jour__marque {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--terracotta);
+}
+
+.jour--passe .jour__entete {
+  opacity: 0.6;
+}
+
+.creneau {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  padding: 7px;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--texte);
+  background: var(--fond);
+  border: 1px dashed var(--bordure-forte);
+  border-radius: var(--rayon-md);
+  cursor: pointer;
+}
+.creneau:hover {
+  border-color: var(--terracotta);
+  background: var(--surface-creuse);
+}
+.creneau--courte {
+  min-height: 56px;
+}
+.creneau--haute {
+  min-height: 104px;
+}
+.creneau--rempli {
+  border-style: solid;
+  border-color: var(--bordure);
+  background: var(--surface-creuse);
+}
+.creneau--passe {
+  opacity: 0.62;
+}
+.creneau--cible {
+  border-style: solid;
+  border-color: var(--terracotta);
+  background: var(--terracotta-clair);
+}
+.creneau--enleve {
+  opacity: 0.4;
+}
+
+.creneau__moment {
+  font-family: system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--texte-faible);
+}
+
+/* Le pictogramme et le nom du plat sur une meme ligne : dans une colonne, un
+   pictogramme seul sur sa ligne gaspille la hauteur utile de la case. */
+.creneau__plat {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.creneau__titre {
+  font-size: 13px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.creneau__note {
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  color: #a4352b;
+}
+
+.creneau__vide,
+.creneau__libre {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  color: var(--texte-faible);
+}
+.creneau__libre {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+  color: var(--terracotta);
+}
+.creneau__plat .marque-plat,
+.creneau__plat .creneau__libre {
+  margin-top: 1px;
+}
+/* La photo, quand il y en a une, occupe toute la largeur de la case et se place
+   au-dessus du nom : c'est le seul cas ou la ligne se coupe en deux. */
+.creneau__plat:has(.vignette--creneau) {
+  flex-direction: column;
+  gap: 4px;
+}
+.creneau:hover .creneau__vide {
+  color: var(--terracotta);
+}
+
+/* --- Réserve de plats glissables ------------------------------------------
+   Masquée au tactile et sur écran étroit. Deux raisons distinctes : le glisser-
+   déposer HTML5 n'existe pas sur mobile, et sous 700 px le semainier devient une
+   liste d'un jour par ligne où viser une case en glissant n'est plus praticable.
+   Dans les deux cas l'appui sur une case ouvre le sélecteur, qui fait le travail. */
+
+.reserve {
+  margin-bottom: 22px;
+  padding: 14px 16px;
+  background: var(--surface-creuse);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-lg);
+}
+
+.reserve__titre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--texte-doux);
+}
+
+.champ-recherche--fin {
+  max-width: 320px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  font-size: 15px;
+}
+
+.reserve__plats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  /* Deux rangees visibles, le reste defile : la reserve est un outil d'appoint, elle
+     ne doit pas repousser le semainier hors de l'ecran. */
+  max-height: 78px;
+  overflow-y: auto;
+}
+
+.reserve__vide {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-doux);
+}
+
+.pastille {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 260px;
+  padding: 5px 12px 5px 6px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--texte);
+  background: var(--surface);
+  border: 1px solid var(--bordure-forte);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.pastille:hover {
+  border-color: var(--terracotta);
+}
+.pastille > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pastille--glissable {
+  cursor: grab;
+}
+.pastille--enlevee {
+  opacity: 0.4;
+}
+
+@media (pointer: coarse), (max-width: 700px) {
+  .reserve {
+    display: none;
+  }
+}
+
+/* --- Boîte de dialogue ----------------------------------------------------- */
+
+.voile {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  /* Feuille remontant du bas : c'est le geste attendu sur telephone, ou le pouce
+     est en bas de l'ecran. Centree au-dela, voir plus bas. */
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  background: rgba(58, 46, 40, 0.55);
+}
+
+@media (min-width: 641px) {
+  .voile {
+    align-items: center;
+    padding: 24px;
+  }
+  .boite {
+    border-radius: var(--rayon-lg);
+    max-height: 86vh;
+  }
+}
+
+.corps--voile {
+  overflow: hidden;
+}
+
+.boite {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  max-height: 92vh;
+  background: var(--surface);
+  border: 1px solid var(--bordure-forte);
+  border-radius: var(--rayon-lg) var(--rayon-lg) 0 0;
+}
+.boite--large {
+  max-width: 680px;
+}
+
+.boite__entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--bordure);
+}
+
+.boite__titre {
+  margin: 0;
+  font-size: 20px;
+}
+
+.boite__fermer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  height: 36px;
+  color: var(--texte-doux);
+  background: var(--surface-creuse);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-md);
+  cursor: pointer;
+}
+.boite__fermer:hover {
+  color: var(--terracotta);
+  border-color: var(--terracotta);
+}
+
+.boite__corps {
+  overflow-y: auto;
+  padding: 16px 18px 22px;
+}
+
+.boite__section {
+  margin: 18px 0 8px;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--texte-doux);
+}
+.boite__corps > .boite__section:first-child {
+  margin-top: 0;
+}
+
+.boite__intro,
+.boite__vide {
+  margin: 0 0 12px;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--texte-doux);
+}
+
+.boite__actuel {
+  padding: 12px 14px;
+  margin-bottom: 4px;
+  background: var(--surface-creuse);
+  border-radius: var(--rayon-md);
+}
+.boite__actuel p {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+
+.boite__etiquette {
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--terracotta);
+}
+
+.boite__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.boite__succes {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--olive);
+  font-weight: 600;
+}
+
+.pastilles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.choix-plats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.choix-plat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px;
+  font-family: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-md);
+  cursor: pointer;
+}
+.choix-plat:hover {
+  border-color: var(--terracotta);
+  background: var(--surface-creuse);
+}
+
+.choix-plat__texte {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.choix-plat__titre {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.choix-plat__meta {
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--texte-doux);
+}
+
+.validation-plats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.validation-plat__label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-creuse);
+  border-radius: var(--rayon-md);
+  cursor: pointer;
+}
+
+.validation-plat--inerte .validation-plat__label {
+  background: none;
+  cursor: default;
+  opacity: 0.75;
+}
+
+.validation-plat__titre {
+  display: block;
+  font-weight: 600;
+}
+
+.validation-plat__note {
+  display: block;
+  font-family: system-ui, sans-serif;
+  font-size: 12.5px;
+  color: var(--texte-doux);
+}
+
+/* --- Photo d'une recette --------------------------------------------------- */
+
+.fiche__photo {
+  margin: 0 0 20px;
+  overflow: hidden;
+  border-radius: var(--rayon-lg);
+  border: 1px solid var(--bordure);
+  background: var(--surface-creuse);
+}
+.fiche__photo img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: cover;
+}
+
+.bloc-photo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.bloc-photo__apercu {
+  flex: 0 0 auto;
+  width: 160px;
+  height: 120px;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--rayon-md);
+  border: 1px solid var(--bordure);
+  background: var(--surface-creuse);
+}
+.bloc-photo__apercu img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.bloc-photo__apercu--vide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-style: dashed;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--texte-faible);
+}
+
+.bloc-photo__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.bloc-photo__actions .bouton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Le champ de fichier est piloté par le libellé, qui a l'apparence d'un bouton.
+   Il reste dans le flux pour rester atteignable au clavier et par les tests. */
+.champ-fichier {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.bloc-photo__aide,
+.bloc-photo__message,
+.bloc-photo__erreur {
+  flex: 1 1 100%;
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-doux);
+}
+.bloc-photo__message {
+  color: var(--olive);
+  font-weight: 600;
+}
+.bloc-photo__erreur {
+  color: #a4352b;
+  font-weight: 600;
+}
+
+/* --- En-tête du livre ------------------------------------------------------ */
+
+.livre__entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.livre__entete .bouton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.livre__entete .fiche__titre {
+  margin-bottom: 4px;
+}
+
+.sync--fine {
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+/* --- Petits écrans, semainier et boîte ------------------------------------- */
+
+@media (max-width: 900px) {
+  .grille-semaine {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .jour {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .jour__entete {
+    grid-column: 1 / -1;
+  }
+  .creneau--courte {
+    min-height: 72px;
+  }
+  .creneau--haute {
+    min-height: 92px;
+  }
+}
+
+@media (max-width: 640px) {
+  .entree__titre {
+    font-size: 27px;
+  }
+  /* La case devient une ligne : la photo revient a gauche du nom, et non au-dessus. */
+  .creneau__plat:has(.vignette--creneau) {
+    flex-direction: row;
+    align-items: center;
+  }
+  .semaine {
+    padding: 12px;
+  }
+  .jour {
+    grid-template-columns: 1fr;
+  }
+  .creneau {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    min-height: 0 !important;
+  }
+  .creneau__moment {
+    flex: 0 0 42px;
+  }
+  .vignette--creneau {
+    width: 46px;
+    height: 40px;
+    margin-bottom: 0;
+  }
+  .creneau__titre {
+    flex: 1 1 auto;
+    font-size: 15px;
+  }
+  .creneau__vide,
+  .creneau__libre {
+    flex: 0 0 auto;
+  }
+  .vignette--carte {
+    width: 64px;
+  }
+  .boite {
+    max-height: 88vh;
+  }
+}
+
+@media print {
+  .voile,
+  .acces-liste,
+  .semainier,
+  .semaine,
+  .reserve,
+  .entree,
+  .livre__entete .bouton,
+  .bloc-photo__actions {
+    display: none !important;
+  }
+  .fiche__photo {
+    break-inside: avoid;
+  }
+  .fiche__photo img {
+    max-height: 60mm;
   }
 }

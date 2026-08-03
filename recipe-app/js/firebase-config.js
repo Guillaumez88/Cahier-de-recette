@@ -25,8 +25,22 @@
     // changer cette valeur ouvrirait une liste distincte, sans autre modification.
     listeId: 'commune',
 
+    // Identifiant du semainier partage, meme principe que listeId.
+    semainierId: 'commune',
+
     // Intervalle de rafraichissement automatique, en millisecondes.
     intervalleRafraichissement: 5000,
+
+    // Le semainier est sonde plus lentement que la liste de courses, et c'est
+    // delibere : en magasin on coche a plusieurs mains dans la meme minute, alors
+    // qu'un menu de la semaine change quelques fois par semaine. Firestore facture
+    // a la lecture de document ; sonder le semainier aussi vite que la liste
+    // doublerait la facture pour un confort nul.
+    intervalleSemainier: 20000,
+
+    // Nombre de semaines affichees sur l'accueil : la semaine en cours et la
+    // suivante. Une semaine passee ne sert ni aux courses ni a la cuisine.
+    nbSemaines: 2,
 
     // Bases d'URL, surchargeables pour les tests (voir tests/stub-firestore.js).
     baseFirestore: 'https://firestore.googleapis.com/v1',

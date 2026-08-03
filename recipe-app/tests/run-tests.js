@@ -12,6 +12,8 @@ const L = require(path.join(racine, 'js/logic.js'));
 const Q = require(path.join(racine, 'js/quantites.js'));
 const Ry = require(path.join(racine, 'js/rayons.js'));
 const Fx = require(path.join(racine, 'js/flux.js'));
+const Sn = require(path.join(racine, 'js/semaine.js'));
+const Ic = require(path.join(racine, 'js/icones.js'));
 
 const recettes = JSON.parse(fs.readFileSync(path.join(racine, 'data/recipes.json'), 'utf8'));
 
@@ -744,6 +746,183 @@ test('le seul numero d etape non entier est bien celui repere', () => {
   // Si cette assertion casse apres l'ajout d'une recette, c'est un signal utile :
   // une nouvelle source libelle ses etapes autrement, il faut le constater.
   assert.deepStrictEqual(anomalies, [['lasagnes-bolognaise-la-meilleure-recette', 'Pour finir']]);
+});
+
+// --- semaine.js : calendrier du semainier ------------------------------------
+
+test('cleJour utilise la date locale et non UTC', () => {
+  // 23 h le 3 aout : toISOString() rendrait le 4 dans tout fuseau a l'est de
+  // Greenwich. La cle doit rester le 3, sinon un diner tombe le lendemain.
+  const soir = new Date(2026, 7, 3, 23, 30, 0, 0);
+  assert.strictEqual(Sn.cleJour(soir), '2026-08-03');
+  const matin = new Date(2026, 0, 1, 0, 15, 0, 0);
+  assert.strictEqual(Sn.cleJour(matin), '2026-01-01');
+});
+
+test('depuisCle relit une date locale et rejette les cles invalides', () => {
+  const date = Sn.depuisCle('2026-08-03');
+  assert.strictEqual(date.getFullYear(), 2026);
+  assert.strictEqual(date.getMonth(), 7);
+  assert.strictEqual(date.getDate(), 3, 'le jour a glisse : la cle a ete lue en UTC');
+  assert.strictEqual(date.getHours(), 12, 'midi met la date a l abri des changements d heure');
+  assert.strictEqual(Sn.depuisCle('2026-02-31'), null, 'le 31 fevrier devrait etre refuse');
+  assert.strictEqual(Sn.depuisCle('2026-13-01'), null);
+  assert.strictEqual(Sn.depuisCle('03/08/2026'), null);
+  assert.strictEqual(Sn.depuisCle(''), null);
+  assert.strictEqual(Sn.depuisCle(null), null);
+});
+
+test('lundiDe recule au bon lundi, dimanche compris', () => {
+  // Le 3 aout 2026 est un lundi, le 9 le dimanche suivant.
+  const lundi = new Date(2026, 7, 3, 12);
+  const dimanche = new Date(2026, 7, 9, 12);
+  assert.strictEqual(Sn.cleJour(Sn.lundiDe(lundi)), '2026-08-03');
+  assert.strictEqual(Sn.cleJour(Sn.lundiDe(new Date(2026, 7, 6, 12))), '2026-08-03');
+  // Le piege : getDay() vaut 0 le dimanche, un calcul naif ne reculerait pas.
+  assert.strictEqual(Sn.cleJour(Sn.lundiDe(dimanche)), '2026-08-03');
+  assert.strictEqual(Sn.cleJour(Sn.lundiDe(new Date(2026, 7, 10, 12))), '2026-08-10');
+});
+
+test('lundiDe ne modifie pas la date recue', () => {
+  const origine = new Date(2026, 7, 6, 9, 30);
+  const copie = new Date(origine.getTime());
+  Sn.lundiDe(origine);
+  assert.strictEqual(origine.getTime(), copie.getTime(), 'la date d entree a ete modifiee sur place');
+});
+
+test('une semaine compte sept jours du lundi au dimanche', () => {
+  const sem = Sn.semaine(new Date(2026, 7, 5, 12), new Date(2026, 7, 5, 12));
+  assert.strictEqual(sem.cle, '2026-08-03');
+  assert.strictEqual(sem.jours.length, 7);
+  assert.deepStrictEqual(
+    sem.jours.map((j) => j.nom),
+    ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
+  );
+  assert.deepStrictEqual(
+    sem.jours.map((j) => j.cle),
+    [
+      '2026-08-03',
+      '2026-08-04',
+      '2026-08-05',
+      '2026-08-06',
+      '2026-08-07',
+      '2026-08-08',
+      '2026-08-09',
+    ]
+  );
+  assert.strictEqual(sem.contientAujourdhui, true);
+  assert.deepStrictEqual(
+    sem.jours.filter((j) => j.estAujourdhui).map((j) => j.cle),
+    ['2026-08-05']
+  );
+  assert.deepStrictEqual(
+    sem.jours.filter((j) => j.estPasse).map((j) => j.cle),
+    ['2026-08-03', '2026-08-04']
+  );
+});
+
+test('une semaine a cheval sur deux mois reste correcte', () => {
+  const sem = Sn.semaine(new Date(2026, 7, 31, 12), new Date(2026, 7, 31, 12));
+  assert.strictEqual(sem.cle, '2026-08-31');
+  assert.strictEqual(sem.jours[6].cle, '2026-09-06');
+  assert.strictEqual(sem.libelle, 'du lundi 31 août au dimanche 6 septembre');
+});
+
+test('le libelle ne repete pas le mois quand il ne change pas', () => {
+  assert.strictEqual(Sn.libelleSemaine(new Date(2026, 7, 3, 12)), 'du lundi 3 au dimanche 9 août');
+});
+
+test('une semaine a cheval sur deux annees reste correcte', () => {
+  // 28 decembre 2026 est un lundi : la semaine finit le 3 janvier 2027.
+  const sem = Sn.semaine(new Date(2026, 11, 28, 12), null);
+  assert.strictEqual(sem.cle, '2026-12-28');
+  assert.strictEqual(sem.jours[6].cle, '2027-01-03');
+});
+
+test('semaines rend les semaines demandees a partir de celle du jour', () => {
+  const liste = Sn.semaines(new Date(2026, 7, 5, 12), 2);
+  assert.strictEqual(liste.length, 2);
+  assert.strictEqual(liste[0].cle, '2026-08-03');
+  assert.strictEqual(liste[1].cle, '2026-08-10');
+  assert.strictEqual(liste[0].contientAujourdhui, true);
+  assert.strictEqual(liste[1].contientAujourdhui, false);
+  // Aucune semaine passee : le semainier ne sert ni aux courses ni a la cuisine
+  // pour un repas deja mange.
+  assert.ok(liste.every((s) => s.cle >= '2026-08-03'));
+  assert.strictEqual(Sn.semaines(new Date(2026, 7, 5, 12), 0).length, 1, 'au moins une semaine');
+});
+
+test('les cles de creneau se composent et se decoupent', () => {
+  assert.strictEqual(Sn.cleCreneau('2026-08-03', 'dejeuner'), '2026-08-03::dejeuner');
+  assert.deepStrictEqual(Sn.decouperCreneau('2026-08-03::diner'), {
+    jour: '2026-08-03',
+    moment: 'diner',
+  });
+  assert.strictEqual(Sn.decouperCreneau('2026-08-03'), null);
+  assert.strictEqual(Sn.decouperCreneau('pas-une-date::diner'), null);
+  assert.strictEqual(Sn.decouperCreneau('a::b::c'), null);
+  assert.strictEqual(Sn.decouperCreneau(''), null);
+});
+
+test('les trois moments de la journee sont ordonnes et dimensionnes', () => {
+  assert.deepStrictEqual(
+    Sn.MOMENTS.map((m) => m.cle),
+    ['petit-dejeuner', 'dejeuner', 'diner']
+  );
+  // Le dejeuner et le diner sont les repas qu'on cuisine : ils ont plus de place.
+  assert.deepStrictEqual(
+    Sn.MOMENTS.map((m) => m.taille),
+    ['courte', 'haute', 'haute']
+  );
+  assert.strictEqual(Sn.estMomentConnu('dejeuner'), true);
+  assert.strictEqual(Sn.estMomentConnu('gouter'), false);
+});
+
+test('creneauxDe couvre les 21 repas d une semaine sans doublon', () => {
+  const sem = Sn.semaine(new Date(2026, 7, 3, 12), null);
+  const creneaux = Sn.creneauxDe(sem);
+  assert.strictEqual(creneaux.length, 21);
+  assert.strictEqual(new Set(creneaux.map((c) => c.cle)).size, 21);
+  assert.strictEqual(creneaux[0].cle, '2026-08-03::petit-dejeuner');
+  assert.strictEqual(creneaux[20].cle, '2026-08-09::diner');
+});
+
+test('les repas hors carnet ont tous un pictogramme existant', () => {
+  assert.ok(Sn.REPAS_LIBRES.length >= 3);
+  Sn.REPAS_LIBRES.forEach((repas) => {
+    assert.ok(repas.titre && repas.titre.length > 0);
+    assert.ok(Ic.existe(repas.icone), `pictogramme manquant : ${repas.icone}`);
+  });
+  // Ceux que la demande nomme explicitement doivent y etre.
+  const titres = Sn.REPAS_LIBRES.map((r) => r.titre);
+  ['Restaurant', 'Pizzas', 'Japonais'].forEach((attendu) => {
+    assert.ok(titres.includes(attendu), `${attendu} devrait figurer parmi les repas hors carnet`);
+  });
+});
+
+// --- icones.js ---------------------------------------------------------------
+
+test('chaque rayon et chaque categorie a un pictogramme existant', () => {
+  Ry.RAYONS.forEach((rayon) => {
+    assert.ok(Ic.existe(Ic.pourRayon(rayon)), `rayon sans pictogramme : ${rayon}`);
+  });
+  ['Entrée', 'Plat', 'Dessert'].forEach((categorie) => {
+    assert.ok(Ic.existe(Ic.pourCategorie(categorie)), `categorie sans pictogramme : ${categorie}`);
+  });
+  // Une valeur inconnue ne doit pas rendre un nom inexistant.
+  assert.ok(Ic.existe(Ic.pourRayon('Rayon imaginaire')));
+  assert.ok(Ic.existe(Ic.pourCategorie('Amuse-bouche')));
+});
+
+test('les moments de la journee ont aussi leur pictogramme', () => {
+  Sn.MOMENTS.forEach((moment) => {
+    assert.ok(Ic.existe(moment.cle), `pictogramme manquant pour ${moment.cle}`);
+  });
+});
+
+test('dessiner rend null pour un nom inconnu plutot que de lever', () => {
+  const faux = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
+  assert.strictEqual(Ic.dessiner(faux, 'nom-qui-n-existe-pas'), null);
 });
 
 // --- Restitution -------------------------------------------------------------

@@ -14,6 +14,8 @@
 const etat = {
   articles: new Map(), // idDocument -> { fields }, collection listes/<id>/articles
   recettes: new Map(), // idDocument -> { fields }, collection recettes
+  creneaux: new Map(), // idDocument -> { fields }, semainiers/<id>/creneaux
+  photos: new Map(), // idDocument -> { fields }, collection photos
   sessions: new Map(), // refreshToken -> compteur
   panne: false, // quand vrai, toute requete Firestore repond 503
   // Quand vrai, seule la collection `recettes` est refusee, comme le ferait un
@@ -25,6 +27,8 @@ const etat = {
 function reinitialiser() {
   etat.articles.clear();
   etat.recettes.clear();
+  etat.creneaux.clear();
+  etat.photos.clear();
   etat.sessions.clear();
   etat.panne = false;
   etat.refuserRecettes = false;
@@ -105,9 +109,19 @@ async function traiter(requete, reponse) {
       refuserRecettes: etat.refuserRecettes,
       nbArticles: etat.articles.size,
       nbRecettes: etat.recettes.size,
+      nbCreneaux: etat.creneaux.size,
+      nbPhotos: etat.photos.size,
       appels: etat.appels,
       articles: [...etat.articles.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
       recettes: [...etat.recettes.keys()],
+      creneaux: [...etat.creneaux.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
+      // Les photos sont volumineuses : on n'expose que leur taille, pas leur contenu.
+      photos: [...etat.photos.entries()].map(([id, doc]) => ({
+        id,
+        recetteId: doc.fields.recetteId ? doc.fields.recetteId.stringValue : null,
+        tailleVignette: doc.fields.vignette ? String(doc.fields.vignette.stringValue).length : 0,
+        tailleGrande: doc.fields.grande ? String(doc.fields.grande.stringValue).length : 0,
+      })),
     });
     return true;
   }
@@ -165,12 +179,12 @@ async function traiter(requete, reponse) {
     return true;
   }
 
-  // Deux collections sont emulees : les articles de la liste et les recettes
-  // modifiees. On ne verifie pas la structure complete du chemin, seulement le nom
-  // de la collection visee.
+  // Quatre collections sont emulees : les articles de la liste, les recettes
+  // modifiees, les creneaux du semainier et les photos. On ne verifie pas la
+  // structure complete du chemin, seulement le nom de la collection visee.
   let collection = null;
   let reste = null;
-  ['articles', 'recettes'].forEach((nom) => {
+  ['articles', 'recettes', 'creneaux', 'photos'].forEach((nom) => {
     if (collection) return;
     const morceaux = chemin.split('/' + nom);
     if (morceaux.length >= 2) {
@@ -191,17 +205,42 @@ async function traiter(requete, reponse) {
     return true;
   }
 
+  // Masque de lecture : l'application le demande pour ne pas telecharger les
+  // grandes images quand elle n'affiche que des vignettes. Sans cette prise en
+  // charge, le stub renverrait tout et le test ne verifierait rien de reel.
+  const masqueLecture = url.searchParams.getAll('mask.fieldPaths');
+
+  function projeter(champs) {
+    if (masqueLecture.length === 0) return champs;
+    const reduit = {};
+    masqueLecture.forEach((nom) => {
+      if (champs && nom in champs) reduit[nom] = champs[nom];
+    });
+    return reduit;
+  }
+
   if (requete.method === 'GET' && reste === '') {
     etat.appels.lectures += 1;
     const documents = [...collection.entries()].map(([id, doc]) => ({
       name: `${chemin.replace(/^\/__firestore\/v1\//, '')}/${id}`,
-      fields: doc.fields,
+      fields: projeter(doc.fields),
     }));
     repondre(reponse, 200, documents.length ? { documents } : {});
     return true;
   }
 
   const id = decodeURIComponent(reste);
+
+  if (requete.method === 'GET') {
+    etat.appels.lectures += 1;
+    const document_ = collection.get(id);
+    if (!document_) {
+      repondre(reponse, 404, { error: { code: 404, message: 'document absent' } });
+      return true;
+    }
+    repondre(reponse, 200, { name: id, fields: projeter(document_.fields) });
+    return true;
+  }
 
   if (requete.method === 'PATCH') {
     const corps = await lireCorps(requete);

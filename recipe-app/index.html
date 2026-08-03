@@ -20,7 +20,8 @@
           <span class="marque__trait" aria-hidden="true"></span>
           <span>Mon carnet de recettes</span>
         </a>
-        <nav class="entete__nav">
+        <nav class="entete__nav" aria-label="Navigation principale">
+          <a class="bouton-entete" href="#/livre">Le livre</a>
           <a class="bouton-entete" href="#/liste-de-courses">
             Liste de courses
             <span class="badge" id="badge-courses" hidden>0</span>
@@ -46,15 +47,19 @@
     </footer>
 
     <!-- Ordre significatif : chaque script consomme les precedents.
-         firebase-config.js -> sync.js -> storage.js -> app.js -->
+         firebase-config.js -> sync.js -> storage.js / semainier.js / photos.js -> app.js -->
     <script src="js/firebase-config.js"></script>
     <script src="js/logic.js"></script>
     <script src="js/quantites.js"></script>
     <script src="js/rayons.js"></script>
     <script src="js/flux.js"></script>
+    <script src="js/semaine.js"></script>
+    <script src="js/icones.js"></script>
     <script src="js/sync.js"></script>
     <script src="js/recettes.js"></script>
     <script src="js/storage.js"></script>
+    <script src="js/semainier.js"></script>
+    <script src="js/photos.js"></script>
     <script src="js/app.js"></script>
   </body>
 </html>

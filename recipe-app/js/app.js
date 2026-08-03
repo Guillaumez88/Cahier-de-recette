@@ -15,6 +15,10 @@
   var Rc = window.CarnetRecettes;
   var Q = window.CarnetQuantites;
   var Fx = window.CarnetFlux;
+  var Sem = window.CarnetSemaine;
+  var Sm = window.CarnetSemainier;
+  var Ph = window.CarnetPhotos;
+  var Ic = window.CarnetIcones;
 
   var criteresVides = L.criteresVides;
   var origineCourte = L.origineCourte;
@@ -35,7 +39,14 @@
   var recetteDansListe = S.recetteDansListe;
   var grouperParRecette = S.grouperParRecette;
 
-  var etat = { recettes: [], criteres: criteresVides() };
+  // `semaineSeule` : null pour afficher les deux semaines, sinon leur rang.
+  var etat = { recettes: [], criteres: criteresVides(), semaineSeule: null, rechercheReserve: '' };
+
+  /** Route affichee, sans le dièse. Utilisee pour ne re-rendre que l'ecran courant. */
+  function routeCourante() {
+    var ancre = window.location.hash.replace(/^#/, '');
+    return ancre === '' ? '/' : ancre;
+  }
 
   /* --- rendu : petites aides ---------------------------------------------- */
 
@@ -56,6 +67,41 @@
       noeud.appendChild(typeof enfant === 'string' ? document.createTextNode(enfant) : enfant);
     });
     return noeud;
+  }
+
+  /** Pictogramme. Rend un fragment vide si le nom est inconnu, jamais une erreur. */
+  function icone(nom, options) {
+    var noeud = Ic.dessiner(document, nom, options);
+    return noeud || document.createDocumentFragment();
+  }
+
+  /** Vignette photo d'une recette, ou null si elle n'en a pas. */
+  function vignetteRecette(recette, classe) {
+    var image = Ph.vignette(recette.id);
+    if (!image) return null;
+    return el('span', { class: 'vignette ' + classe }, [
+      el('img', {
+        class: 'vignette__image',
+        src: image,
+        alt: 'Photo de ' + recette.titre,
+        loading: 'lazy',
+      }),
+    ]);
+  }
+
+  /**
+   * Photo de la recette si elle en a une, sinon un petit pictogramme de categorie.
+   *
+   * Volontairement discret en l'absence de photo : un aplat de couleur a la taille
+   * d'une photo, repete vingt fois, sature l'ecran et vole la place du titre, qui est
+   * la seule information dont on a besoin pour reconnaitre un plat.
+   */
+  function vignetteOuMarque(recette, classeVignette, taille) {
+    var image = vignetteRecette(recette, classeVignette);
+    if (image) return image;
+    return el('span', { class: classeCategorie('marque-plat', recette.categorie) }, [
+      icone(Ic.pourCategorie(recette.categorie), { taille: taille || 16 }),
+    ]);
   }
 
   var SUFFIXE_CATEGORIE = { Entrée: 'olive', Plat: '', Dessert: 'ocre' };
@@ -91,21 +137,854 @@
   // Le badge et l'ecran de liste sont rafraichis par surChangementListe(),
   // abonne au demarrage (voir plus bas).
 
-  /* --- vue : accueil ------------------------------------------------------- */
+  /* --- boite de dialogue --------------------------------------------------- */
+  //
+  // Une seule boite a la fois, posee dans le corps du document et non dans #vue :
+  // un re-rendu de la vue (declenche par le sondage de la liste commune) ne doit pas
+  // faire disparaitre la boite ouverte sous les doigts de l'utilisateur.
+
+  var voile = null;
+  var focusAvantVoile = null;
+
+  function fermerVoile() {
+    if (!voile) return;
+    if (voile.parentNode) voile.parentNode.removeChild(voile);
+    voile = null;
+    document.body.classList.remove('corps--voile');
+    if (focusAvantVoile && focusAvantVoile.focus) {
+      try {
+        focusAvantVoile.focus();
+      } catch (erreur) {
+        /* l'element a disparu du document : sans effet */
+      }
+    }
+    focusAvantVoile = null;
+  }
+
+  /**
+   * Ouvre une boite modale. `construire(fermer)` rend le contenu ; la fonction
+   * `fermer` est passee pour que le contenu puisse se refermer lui-meme.
+   */
+  function ouvrirVoile(titre, construire, options) {
+    fermerVoile();
+    var reglages = options || {};
+    focusAvantVoile = document.activeElement;
+
+    var boite = el('div', { class: 'boite' + (reglages.large ? ' boite--large' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': titre }, [
+      el('div', { class: 'boite__entete' }, [
+        el('h2', { class: 'boite__titre', texte: titre }),
+        el('button', {
+          type: 'button',
+          class: 'boite__fermer',
+          id: 'fermer-boite',
+          'aria-label': 'Fermer',
+          onclick: fermerVoile,
+        }, [icone('croix', { taille: 20 })]),
+      ]),
+      el('div', { class: 'boite__corps', id: 'boite-corps' }, construire(fermerVoile)),
+    ]);
+
+    voile = el('div', {
+      class: 'voile',
+      id: 'voile',
+      onclick: function (evenement) {
+        // Clic sur le fond seulement : un clic dans la boite ne doit pas la fermer.
+        if (evenement.target === voile) fermerVoile();
+      },
+    }, [boite]);
+
+    voile.addEventListener('keydown', function (evenement) {
+      if (evenement.key === 'Escape') {
+        evenement.stopPropagation();
+        fermerVoile();
+      }
+    });
+
+    document.body.appendChild(voile);
+    document.body.classList.add('corps--voile');
+
+    var premier = boite.querySelector('input, button:not(#fermer-boite), a[href]');
+    if (premier) premier.focus();
+    else boite.querySelector('#fermer-boite').focus();
+
+    return voile;
+  }
+
+  /** Remplace le contenu de la boite ouverte, sans la refermer. */
+  function rendreCorpsVoile(contenu) {
+    if (!voile) return;
+    var corps = voile.querySelector('#boite-corps');
+    if (!corps) return;
+    corps.textContent = '';
+    (Array.isArray(contenu) ? contenu : [contenu]).forEach(function (noeud) {
+      if (noeud) corps.appendChild(noeud);
+    });
+  }
+
+  /* --- vue : accueil, le semainier ----------------------------------------- */
+
+  // Plat en cours de glissement. Deux formes :
+  //   { type: 'creneau', jour, moment }  un plat deja pose, qu'on deplace
+  //   { type: 'recette', recetteId, titre }  une recette venue de la reserve
+  var glisse = null;
+
+  function nbArticlesRestants() {
+    return getShoppingList().filter(function (a) {
+      return !a.coche;
+    }).length;
+  }
+
+  /**
+   * Ce que l'accueil annonce en une phrase. Compte les repas prevus sur les semaines
+   * affichees, pas sur tout le semainier : annoncer des repas invisibles a l'ecran
+   * n'aiderait personne a savoir quoi faire.
+   */
+  function resumeAccueil(semainesAffichees) {
+    var index = Sm.parCle();
+    var prevus = 0;
+    semainesAffichees.forEach(function (sem) {
+      Sem.creneauxDe(sem).forEach(function (creneau) {
+        if (index[creneau.cle]) prevus += 1;
+      });
+    });
+
+    var restants = nbArticlesRestants();
+    var morceaux = [];
+    morceaux.push(prevus === 0 ? 'aucun repas encore prévu' : prevus + (prevus > 1 ? ' repas prévus' : ' repas prévu'));
+    morceaux.push(
+      restants === 0 ? 'liste de courses à jour' : restants + (restants > 1 ? ' articles à prendre' : ' article à prendre')
+    );
+    return morceaux.join(', ') + '.';
+  }
+
+  /** Une case de repas : le plat pose, ou une invitation a en choisir un. */
+  function celluleCreneau(jour, moment, creneau) {
+    var recette = creneau && creneau.type === Sm.TYPE_RECETTE ? Rc.parId(creneau.recetteId) : null;
+
+    var contenu;
+    if (!creneau) {
+      contenu = [
+        el('span', { class: 'creneau__vide' }, [icone('plus', { taille: 16 })]),
+      ];
+    } else if (recette) {
+      contenu = [
+        el('span', { class: 'creneau__plat' }, [
+          vignetteOuMarque(recette, 'vignette--creneau', 15),
+          el('span', { class: 'creneau__titre', texte: recette.titre }),
+        ]),
+      ];
+    } else if (creneau.type === Sm.TYPE_RECETTE) {
+      // Le plat designe une recette qui n'existe plus : le dire au lieu d'afficher
+      // une case vide, sinon le repas semble avoir disparu tout seul.
+      contenu = [
+        el('span', { class: 'creneau__titre', texte: creneau.titre }),
+        el('span', { class: 'creneau__note', texte: 'fiche introuvable' }),
+      ];
+    } else {
+      contenu = [
+        el('span', { class: 'creneau__plat' }, [
+          el('span', { class: 'creneau__libre' }, [icone(iconeRepasLibre(creneau.titre), { taille: 16 })]),
+          el('span', { class: 'creneau__titre', texte: creneau.titre }),
+        ]),
+      ];
+    }
+
+    var classes = ['creneau', 'creneau--' + moment.taille];
+    if (creneau) classes.push('creneau--rempli');
+    if (jour.estPasse) classes.push('creneau--passe');
+
+    var cellule = el('button', {
+      type: 'button',
+      class: classes.join(' '),
+      'data-creneau': Sem.cleCreneau(jour.cle, moment.cle),
+      'aria-label':
+        moment.libelle +
+        ' du ' +
+        jour.libelle +
+        ' : ' +
+        (creneau ? creneau.titre : 'aucun plat prévu, choisir un plat'),
+      draggable: creneau ? 'true' : null,
+      onclick: function () {
+        ouvrirSelecteurCreneau(jour, moment);
+      },
+    }, [el('span', { class: 'creneau__moment', texte: moment.court })].concat(contenu));
+
+    // Glisser-deposer, sur ordinateur : le tactile passe par la boite de choix, que
+    // l'appui ouvre de toute facon. L'API HTML5 de glissement n'existe pas sur
+    // mobile, la case doit donc rester utilisable sans elle.
+    if (creneau) {
+      cellule.addEventListener('dragstart', function (evenement) {
+        glisse = { type: 'creneau', jour: jour.cle, moment: moment.cle };
+        cellule.classList.add('creneau--enleve');
+        if (evenement.dataTransfer) {
+          evenement.dataTransfer.effectAllowed = 'move';
+          // Certains navigateurs annulent le glissement sans donnee associee.
+          evenement.dataTransfer.setData('text/plain', creneau.titre);
+        }
+      });
+      cellule.addEventListener('dragend', function () {
+        glisse = null;
+        cellule.classList.remove('creneau--enleve');
+      });
+    }
+
+    cellule.addEventListener('dragover', function (evenement) {
+      if (!glisse) return;
+      evenement.preventDefault();
+      cellule.classList.add('creneau--cible');
+    });
+    cellule.addEventListener('dragleave', function () {
+      cellule.classList.remove('creneau--cible');
+    });
+    cellule.addEventListener('drop', function (evenement) {
+      evenement.preventDefault();
+      cellule.classList.remove('creneau--cible');
+      if (!glisse) return;
+      var enCours = glisse;
+      glisse = null;
+
+      if (enCours.type === 'creneau') {
+        Sm.deplacer(enCours.jour, enCours.moment, jour.cle, moment.cle).then(rendreAccueil);
+      } else {
+        Sm.poser(jour.cle, moment.cle, {
+          type: Sm.TYPE_RECETTE,
+          recetteId: enCours.recetteId,
+          titre: enCours.titre,
+        }).then(rendreAccueil);
+      }
+    });
+
+    return cellule;
+  }
+
+  function iconeRepasLibre(titre) {
+    var trouve = null;
+    Sem.REPAS_LIBRES.forEach(function (repas) {
+      if (repas.titre.toLowerCase() === String(titre).toLowerCase()) trouve = repas.icone;
+    });
+    return trouve || 'libre';
+  }
+
+  function blocSemaine(sem, estCourante) {
+    var index = Sm.parCle();
+
+    return el('section', { class: 'semaine' + (estCourante ? ' semaine--courante' : ''), 'data-semaine': sem.cle }, [
+      el('header', { class: 'semaine__entete' }, [
+        el('h3', { class: 'semaine__titre' }, [
+          icone('calendrier', { taille: 18 }),
+          el('span', { texte: estCourante ? 'Cette semaine' : 'Semaine suivante' }),
+        ]),
+        el('span', { class: 'semaine__dates', texte: sem.libelle }),
+        el('button', {
+          type: 'button',
+          class: 'bouton bouton--sobre',
+          'data-courses-semaine': sem.cle,
+          onclick: function () {
+            ouvrirCoursesSemaine(sem);
+          },
+        }, [icone('panier', { taille: 16 }), el('span', { texte: 'Ajouter aux courses' })]),
+      ]),
+      el(
+        'div',
+        { class: 'grille-semaine' },
+        sem.jours.map(function (jour) {
+          return el(
+            'div',
+            { class: 'jour' + (jour.estAujourdhui ? ' jour--aujourdhui' : '') + (jour.estPasse ? ' jour--passe' : '') },
+            [
+              el('div', { class: 'jour__entete' }, [
+                el('span', { class: 'jour__nom', texte: jour.nom }),
+                el('span', { class: 'jour__numero', texte: String(jour.numero) }),
+                jour.estAujourdhui ? el('span', { class: 'jour__marque', texte: 'aujourd’hui' }) : null,
+              ]),
+            ].concat(
+              Sem.MOMENTS.map(function (moment) {
+                return celluleCreneau(jour, moment, index[Sem.cleCreneau(jour.cle, moment.cle)] || null);
+              })
+            )
+          );
+        })
+      ),
+    ]);
+  }
+
+  /** Bandeau d'etat du semainier, distinct de celui de la liste de courses. */
+  function barreSyncSemainier() {
+    var e = Sm.etatSync();
+
+    var libelle;
+    var classe = 'sync sync--fine';
+    if (e.enCours) {
+      libelle = 'Synchronisation du semainier…';
+    } else if (e.enLigne === true) {
+      var heure = e.dernierSucces ? new Date(e.dernierSucces).toLocaleTimeString('fr-FR') : null;
+      libelle = heure ? 'Menus partagés, à jour à ' + heure : 'Menus partagés, à jour';
+      classe += ' sync--ok';
+    } else if (e.enLigne === false) {
+      libelle =
+        e.enAttente > 0
+          ? 'Hors ligne, ' + e.enAttente + ' modification' + (e.enAttente > 1 ? 's' : '') + ' en attente'
+          : 'Hors ligne, menus affichés depuis la copie locale';
+      classe += ' sync--hors-ligne';
+    } else {
+      libelle = 'Connexion…';
+    }
+
+    return el('div', { class: classe }, [
+      el('span', { class: 'sync__etat', texte: libelle }),
+      el('button', {
+        type: 'button',
+        class: 'lien-action',
+        id: 'rafraichir-semainier',
+        texte: 'Rafraîchir',
+        onclick: function () {
+          Sm.rafraichir().then(rendreAccueil);
+        },
+      }),
+      e.erreur ? el('p', { class: 'sync__erreur', texte: e.erreur }) : null,
+    ]);
+  }
+
+  /**
+   * Reserve de plats glissables, sous le semainier.
+   *
+   * Sans elle, le glisser-deposer ne pourrait que deplacer un plat deja pose : les
+   * recettes vivent sur un autre ecran. La reserve met le livre a portee de la
+   * souris, avec sa propre recherche pour ne pas etaler vingt pastilles.
+   *
+   * Elle est masquee au tactile par la feuille de style : le glissement HTML5
+   * n'existe pas sur mobile, et l'appui sur une case fait deja le travail.
+   */
+  function reserveDePlats() {
+    var recettes = filterRecipes(
+      Rc.toutes(),
+      Object.assign(criteresVides(), { recherche: etat.rechercheReserve || '' })
+    );
+
+    function rendre() {
+      var noeud = document.getElementById('reserve');
+      if (!noeud || !noeud.parentNode) return;
+      noeud.parentNode.replaceChild(reserveDePlats(), noeud);
+      var champ = document.getElementById('recherche-reserve');
+      if (champ) {
+        champ.focus();
+        try {
+          champ.setSelectionRange(champ.value.length, champ.value.length);
+        } catch (erreur) {
+          /* sans effet */
+        }
+      }
+    }
+
+    return el('section', { class: 'reserve', id: 'reserve' }, [
+      el('h3', { class: 'reserve__titre' }, [
+        icone('poignee', { taille: 16 }),
+        el('span', { texte: 'Glisser un plat dans une case' }),
+      ]),
+      el('input', {
+        type: 'search',
+        class: 'champ-recherche champ-recherche--fin',
+        id: 'recherche-reserve',
+        placeholder: 'Filtrer les plats…',
+        'aria-label': 'Filtrer les plats de la réserve',
+        value: etat.rechercheReserve || '',
+        oninput: function (evenement) {
+          etat.rechercheReserve = evenement.target.value;
+          rendre();
+        },
+      }),
+      recettes.length === 0
+        ? el('p', { class: 'reserve__vide', texte: 'Aucun plat ne correspond.' })
+        : el(
+            'div',
+            { class: 'reserve__plats' },
+            recettes.slice(0, 24).map(function (recette) {
+              var pastille = el('span', {
+                class: 'pastille pastille--glissable',
+                draggable: 'true',
+                'data-reserve': recette.id,
+                title: recette.titre,
+              }, [
+                vignetteOuMarque(recette, 'vignette--pastille', 14),
+                el('span', { texte: recette.titre }),
+              ]);
+              pastille.addEventListener('dragstart', function (evenement) {
+                glisse = { type: 'recette', recetteId: recette.id, titre: recette.titre };
+                pastille.classList.add('pastille--enlevee');
+                if (evenement.dataTransfer) {
+                  evenement.dataTransfer.effectAllowed = 'copy';
+                  evenement.dataTransfer.setData('text/plain', recette.titre);
+                }
+              });
+              pastille.addEventListener('dragend', function () {
+                glisse = null;
+                pastille.classList.remove('pastille--enlevee');
+              });
+              return pastille;
+            })
+          ),
+    ]);
+  }
+
+  function carteAcces(href, nomIcone, titre, detail) {
+    return el('a', { class: 'acces', href: href }, [
+      el('span', { class: 'acces__icone' }, [icone(nomIcone, { taille: 26 })]),
+      el('span', { class: 'acces__texte' }, [
+        el('span', { class: 'acces__titre', texte: titre }),
+        el('span', { class: 'acces__detail', texte: detail }),
+      ]),
+      el('span', { class: 'acces__fleche' }, [icone('fleche', { taille: 20 })]),
+    ]);
+  }
 
   function vueAccueil() {
+    document.title = 'Mon carnet de recettes';
+
+    var aujourdhui = new Date();
+    var toutes = Sem.semaines(aujourdhui, Math.max(1, window.CarnetConfig.nbSemaines || 2));
+    var affichees = etat.semaineSeule === null ? toutes : [toutes[etat.semaineSeule] || toutes[0]];
+
+    var recettes = Rc.toutes();
+    var restants = nbArticlesRestants();
+
+    var fragment = document.createDocumentFragment();
+
+    fragment.appendChild(
+      el('section', { class: 'entree' }, [
+        el('p', { class: 'entree__salut' }, [icone('marmite', { taille: 20 }), el('span', { texte: 'À la maison' })]),
+        el('h1', { class: 'entree__titre', texte: 'Qu’est-ce qu’on mange ?' }),
+        el('p', { class: 'entree__resume', id: 'resume-accueil', texte: resumeAccueil(affichees) }),
+      ])
+    );
+
+    fragment.appendChild(
+      el('nav', { class: 'acces-liste', 'aria-label': 'Accès principaux' }, [
+        carteAcces(
+          '#/livre',
+          'livre',
+          'Le livre de cuisine',
+          recettes.length + ' recettes, avec recherche et filtres'
+        ),
+        carteAcces(
+          '#/liste-de-courses',
+          'panier',
+          'La liste de courses',
+          restants === 0
+            ? 'rien à prendre pour l’instant'
+            : restants + (restants > 1 ? ' articles à prendre' : ' article à prendre')
+        ),
+      ])
+    );
+
+    var bandeau = bandeauErreurRecettes();
+    if (bandeau) fragment.appendChild(bandeau);
+
+    var onglets = el('div', { class: 'onglets', role: 'group', 'aria-label': 'Semaines affichées' }, [
+      { valeur: null, libelle: 'Les deux semaines' },
+      { valeur: 0, libelle: 'Cette semaine' },
+      { valeur: 1, libelle: 'La suivante' },
+    ]
+      .filter(function (onglet) {
+        return onglet.valeur === null || onglet.valeur < toutes.length;
+      })
+      .map(function (onglet) {
+        var actif = etat.semaineSeule === onglet.valeur;
+        return el('button', {
+          type: 'button',
+          class: 'pilule',
+          'aria-pressed': actif ? 'true' : 'false',
+          'data-onglet-semaine': String(onglet.valeur),
+          texte: onglet.libelle,
+          onclick: function () {
+            etat.semaineSeule = onglet.valeur;
+            rendreAccueil();
+          },
+        });
+      }));
+
+    fragment.appendChild(
+      el('section', { class: 'semainier' }, [
+        el('header', { class: 'semainier__entete' }, [
+          el('h2', { class: 'semainier__titre', texte: 'Les repas de la semaine' }),
+          onglets,
+        ]),
+        el('p', {
+          class: 'semainier__aide',
+          texte:
+            'Touchez une case pour choisir un plat du livre ou un repas hors carnet. Sur ordinateur, un plat se glisse d’une case à l’autre.',
+        }),
+        barreSyncSemainier(),
+      ])
+    );
+
+    fragment.appendChild(reserveDePlats());
+
+    affichees.forEach(function (sem) {
+      fragment.appendChild(blocSemaine(sem, sem.contientAujourdhui));
+    });
+
+    return fragment;
+  }
+
+  /** Re-rendu de l'accueil, uniquement si c'est bien l'ecran affiche. */
+  function rendreAccueil() {
+    if (routeCourante() !== '/') return;
+    monter(vueAccueil());
+  }
+
+  /* --- choix d'un plat pour un creneau ------------------------------------- */
+
+  function ouvrirSelecteurCreneau(jour, moment) {
+    var recherche = '';
+
+    function poser(plat) {
+      Sm.poser(jour.cle, moment.cle, plat).then(function () {
+        fermerVoile();
+        rendreAccueil();
+      });
+    }
+
+    function corps() {
+      var actuel = Sm.creneau(jour.cle, moment.cle);
+      var recettes = filterRecipes(Rc.toutes(), Object.assign(criteresVides(), { recherche: recherche }));
+
+      var champRecherche = el('input', {
+        type: 'search',
+        class: 'champ-recherche',
+        id: 'recherche-plat',
+        placeholder: 'Chercher un plat du livre…',
+        'aria-label': 'Chercher un plat du livre',
+        value: recherche,
+        oninput: function (evenement) {
+          recherche = evenement.target.value;
+          var position = evenement.target.selectionStart;
+          rendreCorpsVoile(corps());
+          var nouveau = document.getElementById('recherche-plat');
+          if (nouveau) {
+            nouveau.focus();
+            try {
+              nouveau.setSelectionRange(position, position);
+            } catch (erreur) {
+              /* sans effet */
+            }
+          }
+        },
+      });
+
+      var champLibre = el('input', {
+        type: 'text',
+        class: 'champ-ajout',
+        id: 'repas-libre',
+        placeholder: 'Autre repas (ex. Chez les voisins)',
+        'aria-label': 'Autre repas, saisi à la main',
+      });
+
+      return [
+        actuel
+          ? el('div', { class: 'boite__actuel' }, [
+              el('p', {}, [
+                el('span', { class: 'boite__etiquette', texte: 'Prévu' }),
+                el('span', { texte: actuel.titre }),
+              ]),
+              el('div', { class: 'boite__actions' }, [
+                actuel.type === Sm.TYPE_RECETTE && Rc.parId(actuel.recetteId)
+                  ? el('a', {
+                      class: 'bouton bouton--secondaire',
+                      href: '#/recette/' + actuel.recetteId,
+                      texte: 'Voir la fiche',
+                      onclick: fermerVoile,
+                    })
+                  : null,
+                el('button', {
+                  type: 'button',
+                  class: 'bouton bouton--secondaire',
+                  id: 'vider-creneau',
+                  texte: 'Vider ce repas',
+                  onclick: function () {
+                    Sm.vider(jour.cle, moment.cle).then(function () {
+                      fermerVoile();
+                      rendreAccueil();
+                    });
+                  },
+                }),
+              ]),
+            ])
+          : null,
+
+        el('h3', { class: 'boite__section', texte: 'Hors du carnet' }),
+        el(
+          'div',
+          { class: 'pastilles' },
+          Sem.REPAS_LIBRES.map(function (repas) {
+            return el('button', {
+              type: 'button',
+              class: 'pastille',
+              'data-repas-libre': repas.titre,
+              onclick: function () {
+                poser({ type: Sm.TYPE_LIBRE, titre: repas.titre });
+              },
+            }, [icone(repas.icone, { taille: 18 }), el('span', { texte: repas.titre })]);
+          })
+        ),
+        el('div', { class: 'ajout-libre' }, [
+          champLibre,
+          el('button', {
+            type: 'button',
+            class: 'bouton bouton--secondaire',
+            id: 'poser-libre',
+            texte: 'Poser',
+            onclick: function () {
+              var titre = champLibre.value.trim();
+              if (titre === '') {
+                champLibre.focus();
+                return;
+              }
+              poser({ type: Sm.TYPE_LIBRE, titre: titre });
+            },
+          }),
+        ]),
+
+        el('h3', { class: 'boite__section', texte: 'Un plat du livre' }),
+        champRecherche,
+        recettes.length === 0
+          ? el('p', { class: 'boite__vide', texte: 'Aucune recette ne correspond à cette recherche.' })
+          : el(
+              'ul',
+              { class: 'choix-plats' },
+              recettes.slice(0, 40).map(function (recette) {
+                return el('li', {}, [
+                  el('button', {
+                    type: 'button',
+                    class: 'choix-plat',
+                    'data-choix': recette.id,
+                    onclick: function () {
+                      poser({ type: Sm.TYPE_RECETTE, recetteId: recette.id, titre: recette.titre });
+                    },
+                  }, [
+                    vignetteOuMarque(recette, 'vignette--choix', 20),
+                    el('span', { class: 'choix-plat__texte' }, [
+                      el('span', { class: 'choix-plat__titre', texte: recette.titre }),
+                      el('span', {
+                        class: 'choix-plat__meta',
+                        texte: recette.categorie + ' · ' + recette.temps.total + ' · ' + recette.portions,
+                      }),
+                    ]),
+                  ]),
+                ]);
+              })
+            ),
+        recettes.length > 40
+          ? el('p', {
+              class: 'boite__vide',
+              texte: 'Les 40 premières recettes sont affichées : précisez la recherche pour voir les autres.',
+            })
+          : null,
+      ];
+    }
+
+    ouvrirVoile(moment.libelle + ' du ' + jour.libelle, function () {
+      return corps();
+    }, { large: true });
+  }
+
+  /* --- ajout des plats de la semaine a la liste de courses ----------------- */
+
+  /**
+   * Boite de validation avant ajout. Les plats sont coches par defaut, sauf ceux
+   * dont tous les ingredients sont deja en liste : ceux-la sont probablement deja
+   * achetes, les recocher ne ferait rien et masquerait le reste.
+   */
+  function ouvrirCoursesSemaine(sem) {
+    var plats = Sm.platsDeLaSemaine(sem);
+    var liste = getShoppingList();
+
+    var lignes = plats.map(function (plat) {
+      var recette = plat.type === Sm.TYPE_RECETTE ? Rc.parId(plat.recetteId) : null;
+      var total = recette ? nbIngredients(recette) : 0;
+      var dejaPresents = recette ? S.nomsPresents(liste, recette.id) : {};
+      var nbDeja = recette
+        ? (recette.ingredients || []).reduce(function (compte, groupe) {
+            return (
+              compte +
+              (groupe.items || []).filter(function (item) {
+                return dejaPresents[item.nom];
+              }).length
+            );
+          }, 0)
+        : 0;
+
+      return {
+        plat: plat,
+        recette: recette,
+        total: total,
+        nbDeja: nbDeja,
+        // Sans ingredients il n'y a rien a ajouter : un restaurant ne se met pas
+        // dans une liste de courses.
+        ajoutable: Boolean(recette) && total > nbDeja,
+        coche: Boolean(recette) && total > nbDeja,
+      };
+    });
+
+    function corps() {
+      var ajoutables = lignes.filter(function (l) {
+        return l.ajoutable;
+      });
+      var choisies = ajoutables.filter(function (l) {
+        return l.coche;
+      });
+
+      var bouton = el('button', {
+        type: 'button',
+        class: 'bouton',
+        id: 'valider-courses-semaine',
+        texte:
+          choisies.length === 0
+            ? 'Aucun plat sélectionné'
+            : 'Ajouter ' + choisies.length + (choisies.length > 1 ? ' plats' : ' plat') + ' à la liste',
+        disabled: choisies.length === 0 ? true : null,
+        onclick: function () {
+          S.addRecipesToList(
+            choisies.map(function (l) {
+              return l.recette;
+            })
+          ).then(function (resultat) {
+            rendreCorpsVoile([
+              el('p', { class: 'boite__succes', id: 'resultat-courses' }, [
+                icone('coche', { taille: 18 }),
+                el('span', {
+                  texte:
+                    resultat.ajoutes +
+                    (resultat.ajoutes > 1 ? ' articles ajoutés' : ' article ajouté') +
+                    (resultat.deja > 0
+                      ? ', ' + resultat.deja + (resultat.deja > 1 ? ' déjà présents' : ' déjà présent')
+                      : '') +
+                    '.',
+                }),
+              ]),
+              el('div', { class: 'boite__actions' }, [
+                el('a', {
+                  class: 'bouton',
+                  href: '#/liste-de-courses',
+                  texte: 'Voir la liste de courses',
+                  onclick: fermerVoile,
+                }),
+                el('button', {
+                  type: 'button',
+                  class: 'bouton bouton--secondaire',
+                  texte: 'Fermer',
+                  onclick: fermerVoile,
+                }),
+              ]),
+            ]);
+            rendreAccueil();
+          });
+        },
+      });
+
+      if (lignes.length === 0) {
+        return [
+          el('p', { class: 'boite__vide', texte: 'Aucun plat n’est prévu sur cette semaine.' }),
+          el('p', {
+            class: 'boite__vide',
+            texte: 'Touchez une case du semainier pour en choisir un, puis revenez ici.',
+          }),
+        ];
+      }
+
+      return [
+        el('p', {
+          class: 'boite__intro',
+          texte:
+            'Décochez les plats dont vous avez déjà les ingrédients. Seuls les plats cochés seront ajoutés.',
+        }),
+        el(
+          'ul',
+          { class: 'validation-plats' },
+          lignes.map(function (ligne) {
+            var notes = [];
+            if (!ligne.recette && ligne.plat.type === Sm.TYPE_RECETTE) {
+              notes.push('fiche introuvable dans le livre');
+            } else if (!ligne.recette) {
+              notes.push('repas hors carnet, sans ingrédients');
+            } else if (ligne.total === 0) {
+              notes.push('cette fiche n’a aucun ingrédient renseigné');
+            } else if (ligne.nbDeja >= ligne.total) {
+              notes.push('déjà entièrement dans la liste');
+            } else if (ligne.nbDeja > 0) {
+              notes.push(ligne.nbDeja + ' sur ' + ligne.total + ' déjà dans la liste');
+            } else {
+              notes.push(ligne.total + ' ingrédients');
+            }
+            if (ligne.plat.occurrences.length > 1) {
+              notes.push(
+                'prévu ' +
+                  ligne.plat.occurrences.length +
+                  ' fois cette semaine, compté une seule : les quantités ne sont pas doublées'
+              );
+            }
+
+            var case_ = el('input', {
+              type: 'checkbox',
+              class: 'case',
+              'data-valider': ligne.plat.cle,
+              checked: ligne.coche ? true : null,
+              disabled: ligne.ajoutable ? null : true,
+              'aria-label': ligne.plat.titre,
+              onchange: function (evenement) {
+                ligne.coche = evenement.target.checked;
+                rendreCorpsVoile(corps());
+              },
+            });
+
+            return el('li', { class: 'validation-plat' + (ligne.ajoutable ? '' : ' validation-plat--inerte') }, [
+              el('label', { class: 'validation-plat__label' }, [
+                case_,
+                el('span', {}, [
+                  el('span', { class: 'validation-plat__titre', texte: ligne.plat.titre }),
+                  el('span', { class: 'validation-plat__note', texte: notes.join(' · ') }),
+                ]),
+              ]),
+            ]);
+          })
+        ),
+        el('div', { class: 'boite__actions' }, [
+          bouton,
+          el('button', { type: 'button', class: 'bouton bouton--secondaire', texte: 'Annuler', onclick: fermerVoile }),
+        ]),
+      ];
+    }
+
+    ouvrirVoile('Ajouter aux courses, ' + sem.libelle, function () {
+      return corps();
+    }, { large: true });
+  }
+
+  /* --- vue : livre de cuisine ---------------------------------------------- */
+
+  function vueLivre() {
     var recettes = Rc.toutes();
     var resultats = filterRecipes(recettes, etat.criteres);
     var options = optionsDisponibles(recettes);
     var fragment = document.createDocumentFragment();
 
+    fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour à l’accueil' }));
+
     fragment.appendChild(
-      el('p', {
-        class: 'accroche',
-        texte:
-          recettes.length +
-          ' recettes rassemblées, avec leurs astuces, leurs variantes et ce que leur source ne dit pas.',
-      })
+      el('div', { class: 'livre__entete' }, [
+        el('div', {}, [
+          el('h1', { class: 'fiche__titre', texte: 'Le livre de cuisine' }),
+          el('p', {
+            class: 'accroche',
+            texte:
+              recettes.length +
+              ' recettes rassemblées, avec leurs astuces, leurs variantes et ce que leur source ne dit pas.',
+          }),
+        ]),
+        el('a', { class: 'bouton', id: 'ajouter-recette', href: '#/recette/nouvelle' }, [
+          icone('plus', { taille: 18 }),
+          el('span', { texte: 'Ajouter une recette' }),
+        ]),
+      ])
     );
 
     var rangees = [
@@ -147,7 +1026,7 @@
       value: etat.criteres.recherche || '',
       oninput: function (evenement) {
         etat.criteres.recherche = evenement.target.value;
-        rendreAccueilPartiel();
+        rendreLivrePartiel();
       },
     });
 
@@ -163,7 +1042,7 @@
               texte: option.libelle,
               onclick: function () {
                 etat.criteres[rangee.cle] = actif ? null : option.valeur;
-                rendreAccueilPartiel();
+                rendreLivrePartiel();
               },
             });
           })
@@ -190,7 +1069,7 @@
               texte: 'Tout effacer',
               onclick: function () {
                 etat.criteres = criteresVides();
-                rendreAccueilPartiel();
+                rendreLivrePartiel();
               },
             })
           : null,
@@ -210,8 +1089,11 @@
           'div',
           { class: 'grille' },
           resultats.map(function (recette) {
-            return el('a', { class: 'carte', href: '#/recette/' + recette.id }, [
-              el('span', { class: classeCategorie('carte__liseret', recette.categorie), 'aria-hidden': 'true' }),
+            // Sans photo, la carte garde son liseret fin : une bande de couleur
+            // large et vide n'apporte rien et mange la place du texte.
+            var carte = el('a', { class: 'carte', href: '#/recette/' + recette.id }, [
+              vignetteRecette(recette, 'vignette--carte') ||
+                el('span', { class: classeCategorie('carte__liseret', recette.categorie), 'aria-hidden': 'true' }),
               el('span', { class: 'carte__corps' }, [
                 el('span', { class: 'carte__haut' }, [
                   el('span', { class: classeCategorie('etiquette', recette.categorie), texte: recette.categorie }),
@@ -233,6 +1115,7 @@
                 }),
               ]),
             ]);
+            return carte;
           })
         )
       );
@@ -241,14 +1124,14 @@
     return fragment;
   }
 
-  /* Re-rendu de l'accueil en conservant le focus et la position du curseur du
-     champ de recherche, sinon la saisie devient inutilisable. */
-  function rendreAccueilPartiel() {
+  /* Re-rendu du livre en conservant le focus et la position du curseur du champ de
+     recherche, sinon la saisie devient inutilisable. */
+  function rendreLivrePartiel() {
     var actif = document.activeElement;
     var etaitDansRecherche = actif && actif.classList && actif.classList.contains('champ-recherche');
     var position = etaitDansRecherche ? actif.selectionStart : null;
 
-    monter(vueAccueil());
+    monter(vueLivre());
 
     if (etaitDansRecherche) {
       var nouveau = document.querySelector('.champ-recherche');
@@ -391,7 +1274,7 @@
 
     if (!recette) {
       return el('div', {}, [
-        el('a', { class: 'retour', href: '#/', texte: '‹ Retour au carnet' }),
+        el('a', { class: 'retour', href: '#/livre', texte: '‹ Retour au livre' }),
         el('div', { class: 'etat-erreur' }, [
           el('h1', { texte: 'Recette introuvable' }),
           el('p', { texte: 'L’identifiant « ' + id + ' » ne correspond à aucune fiche.' }),
@@ -404,7 +1287,7 @@
     var dansListe = recetteDansListe(getShoppingList(), recette.id);
     var fragment = document.createDocumentFragment();
 
-    fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour au carnet' }));
+    fragment.appendChild(el('a', { class: 'retour', href: '#/livre', texte: '‹ Retour au livre' }));
 
     var bandeauFiche = bandeauErreurRecettes();
     if (bandeauFiche) fragment.appendChild(bandeauFiche);
@@ -418,6 +1301,48 @@
     );
 
     fragment.appendChild(el('h1', { class: 'fiche__titre', texte: recette.titre }));
+
+    // Photo de la fiche, en deux temps : la vignette en cache s'affiche tout de
+    // suite, puis la grande version la remplace quand elle arrive. Sans ce relais la
+    // fiche resterait vide le temps d'une lecture reseau alors qu'une image
+    // utilisable est deja la.
+    //
+    // Rien n'est demande pour une recette que le cache ne signale pas comme ayant
+    // une photo : ce serait une lecture facturee, et un 404, pour dix-neuf recettes
+    // sur vingt. Voir la limite assumee dans photos.js.
+    var emplacementPhoto = el('div', { class: 'fiche__emplacement-photo' });
+    fragment.appendChild(emplacementPhoto);
+
+    function poserPhoto(source) {
+      var cadre = emplacementPhoto.querySelector('#photo-fiche');
+      if (cadre) {
+        cadre.querySelector('img').src = source;
+        return;
+      }
+      emplacementPhoto.appendChild(
+        el('figure', { class: 'fiche__photo', id: 'photo-fiche' }, [
+          el('img', { src: source, alt: 'Photo de ' + recette.titre }),
+        ])
+      );
+    }
+
+    function chargerGrandePhoto() {
+      Ph.grande(recette.id)
+        .then(function (image) {
+          if (image) poserPhoto(image);
+        })
+        .catch(function () {
+          // La grande image n'a pas pu etre lue : la vignette reste affichee si elle
+          // etait en cache, ce qui vaut mieux qu'un cadre vide ou qu'un message
+          // d'erreur pour une photo.
+        });
+    }
+
+    if (Ph.aUnePhoto(recette.id)) {
+      poserPhoto(Ph.vignette(recette.id));
+      chargerGrandePhoto();
+    }
+
     fragment.appendChild(
       el('p', { class: 'fiche__portions' }, [
         el('span', { texte: recette.portions }),
@@ -848,7 +1773,7 @@
     var articles = getShoppingList();
     var fragment = document.createDocumentFragment();
 
-    fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour au carnet' }));
+    fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour à l’accueil' }));
     fragment.appendChild(el('h1', { class: 'fiche__titre', texte: 'Liste de courses commune' }));
     fragment.appendChild(
       el('p', {
@@ -947,11 +1872,16 @@
   // declenches par l'ajout ou le retrait d'une ligne.
   var brouillon = null;
 
+  // Message d'erreur propre a l'editeur (titre manquant, suppression refusee).
+  // Distinct du bandeau de synchronisation, qui parle du reseau.
+  var erreurEditeur = null;
+
   /** Champ de saisie lie a une propriete du brouillon, sans re-rendu a la frappe. */
   function champ(valeurInitiale, surSaisie, options) {
     options = options || {};
     return el(options.multiligne ? 'textarea' : 'input', {
       class: options.classe || 'champ-edition',
+      id: options.id || null,
       type: options.multiligne ? null : 'text',
       rows: options.multiligne ? String(options.lignes || 3) : null,
       value: options.multiligne ? null : valeurInitiale || '',
@@ -969,6 +1899,105 @@
     return el('label', { class: 'ligne-edition' }, [
       el('span', { class: 'ligne-edition__libelle', texte: libelle }),
       noeud,
+    ]);
+  }
+
+  /**
+   * Bloc photo de l'editeur.
+   *
+   * L'etat de l'operation est tenu dans une variable de module et non dans le DOM :
+   * un re-rendu de l'editeur (declenche par un changement de parts) ne doit pas
+   * effacer le message « photo trop lourde » qu'on vient d'afficher.
+   */
+  var etatPhoto = { message: null, erreur: null, enCours: false };
+
+  function blocPhoto(id) {
+    var courante = Ph.vignette(id);
+
+    var champFichier = el('input', {
+      type: 'file',
+      class: 'champ-fichier',
+      id: 'photo-fichier',
+      accept: 'image/*',
+      'aria-label': 'Choisir une photo',
+      onchange: function (evenement) {
+        var fichier = evenement.target.files && evenement.target.files[0];
+        if (!fichier) return;
+
+        etatPhoto = { message: 'Préparation de l’image…', erreur: null, enCours: true };
+        monter(vueEditeur(id));
+
+        Ph.preparer(fichier)
+          .then(function (tailles) {
+            return Ph.enregistrer(id, tailles).then(function () {
+              etatPhoto = {
+                message:
+                  'Photo enregistrée et partagée : ' +
+                  Math.round(tailles.poids / 1024) +
+                  ' ko après compression, depuis ' +
+                  tailles.largeur +
+                  ' × ' +
+                  tailles.hauteur +
+                  ' px.',
+                erreur: null,
+                enCours: false,
+              };
+            });
+          })
+          .catch(function (erreur) {
+            etatPhoto = { message: null, erreur: erreur.message, enCours: false };
+          })
+          .then(function () {
+            monter(vueEditeur(id));
+          });
+      },
+    });
+
+    return el('div', { class: 'bloc-photo', id: 'bloc-photo' }, [
+      courante
+        ? el('figure', { class: 'bloc-photo__apercu' }, [
+            el('img', { src: courante, alt: 'Photo actuelle de la recette' }),
+          ])
+        : el('div', { class: 'bloc-photo__apercu bloc-photo__apercu--vide' }, [
+            icone('appareil', { taille: 28 }),
+            el('span', { texte: 'Aucune photo' }),
+          ]),
+      el('div', { class: 'bloc-photo__actions' }, [
+        el('label', { class: 'bouton bouton--secondaire', for: 'photo-fichier' }, [
+          icone('appareil', { taille: 16 }),
+          el('span', { texte: courante ? 'Remplacer la photo' : 'Ajouter une photo' }),
+        ]),
+        champFichier,
+        courante
+          ? el('button', {
+              type: 'button',
+              class: 'bouton bouton--secondaire',
+              id: 'retirer-photo',
+              texte: 'Retirer la photo',
+              onclick: function () {
+                Ph.supprimer(id)
+                  .then(function () {
+                    etatPhoto = { message: 'Photo retirée.', erreur: null, enCours: false };
+                  })
+                  .catch(function (erreur) {
+                    etatPhoto = { message: null, erreur: erreur.message, enCours: false };
+                  })
+                  .then(function () {
+                    monter(vueEditeur(id));
+                  });
+              },
+            })
+          : null,
+      ]),
+      el('p', {
+        class: 'bloc-photo__aide',
+        texte:
+          'L’image est réduite dans le navigateur avant l’envoi (320 px pour les listes, 1200 px pour la fiche) : une photo de téléphone de plusieurs mégaoctets ne passerait pas la limite d’un document Firestore.',
+      }),
+      etatPhoto.message ? el('p', { class: 'bloc-photo__message', id: 'photo-message', texte: etatPhoto.message }) : null,
+      etatPhoto.erreur
+        ? el('p', { class: 'bloc-photo__erreur', id: 'photo-erreur', texte: 'La photo n’a pas été enregistrée : ' + etatPhoto.erreur })
+        : null,
     ]);
   }
 
@@ -997,7 +2026,7 @@
         remplacements: resultat.remplacements,
         ignorees: resultat.ignorees,
       };
-      monter(vueModifier(id));
+      monter(vueEditeur(id));
     }
 
     var champNombre = el('input', {
@@ -1118,7 +2147,7 @@
                       if (groupe.items.length === 0 && brouillon.ingredients.length > 1) {
                         brouillon.ingredients.splice(indexGroupe, 1);
                       }
-                      monter(vueModifier(id));
+                      monter(vueEditeur(id));
                     },
                   }),
                 ]);
@@ -1130,7 +2159,7 @@
               texte: 'Ajouter un ingrédient',
               onclick: function () {
                 groupe.items.push({ nom: '', quantite: '' });
-                monter(vueModifier(id));
+                monter(vueEditeur(id));
               },
             }),
           ]);
@@ -1142,7 +2171,7 @@
             texte: 'Ajouter une section',
             onclick: function () {
               brouillon.ingredients.push({ groupe: '', items: [{ nom: '', quantite: '' }] });
-              monter(vueModifier(id));
+              monter(vueEditeur(id));
             },
           }),
         ])
@@ -1167,7 +2196,7 @@
                 onclick: function () {
                   brouillon.instructions.splice(index, 1);
                   renumeroter();
-                  monter(vueModifier(id));
+                  monter(vueEditeur(id));
                 },
               }),
             ]),
@@ -1186,7 +2215,7 @@
             texte: 'Ajouter une étape',
             onclick: function () {
               brouillon.instructions.push({ numero: brouillon.instructions.length + 1, texte: '', astuce: null });
-              monter(vueModifier(id));
+              monter(vueEditeur(id));
             },
           }),
         ])
@@ -1236,12 +2265,17 @@
     ]);
   }
 
-  function vueModifier(id) {
-    var recette = Rc.parId(id);
+  /**
+   * Editeur de recette. `id` valant null, c'est une creation : le meme formulaire
+   * sert aux deux, ce qui evite de maintenir deux ecrans qui divergeraient.
+   */
+  function vueEditeur(id) {
+    var creation = id === null || id === undefined;
+    var recette = creation ? null : Rc.parId(id);
 
-    if (!recette) {
+    if (!creation && !recette) {
       return el('div', {}, [
-        el('a', { class: 'retour', href: '#/', texte: '‹ Retour au carnet' }),
+        el('a', { class: 'retour', href: '#/livre', texte: '‹ Retour au livre' }),
         el('div', { class: 'etat-erreur' }, [
           el('h1', { texte: 'Recette introuvable' }),
           el('p', { texte: 'L’identifiant « ' + id + ' » ne correspond à aucune fiche.' }),
@@ -1250,19 +2284,26 @@
     }
 
     // Nouveau brouillon seulement si l'on change de recette : sinon on repartirait
-    // de zero a chaque re-rendu et la saisie serait perdue.
-    if (!brouillon || brouillon.id !== id) {
-      brouillon = JSON.parse(JSON.stringify(recette));
+    // de zero a chaque re-rendu et la saisie serait perdue. En creation, le
+    // brouillon porte un identifiant vide, ce qui le distingue de toute recette.
+    if (!brouillon || brouillon.id !== (creation ? '' : id)) {
+      brouillon = creation ? Rc.recetteVide() : JSON.parse(JSON.stringify(recette));
     }
 
-    document.title = 'Modifier ' + recette.titre + ' — Mon carnet de recettes';
+    document.title = creation
+      ? 'Nouvelle recette — Mon carnet de recettes'
+      : 'Modifier ' + recette.titre + ' — Mon carnet de recettes';
 
     var fragment = document.createDocumentFragment();
 
     fragment.appendChild(
-      el('a', { class: 'retour', href: '#/recette/' + id, texte: '‹ Revenir à la fiche' })
+      creation
+        ? el('a', { class: 'retour', href: '#/livre', texte: '‹ Retour au livre' })
+        : el('a', { class: 'retour', href: '#/recette/' + id, texte: '‹ Revenir à la fiche' })
     );
-    fragment.appendChild(el('h1', { class: 'fiche__titre', texte: 'Modifier la recette' }));
+    fragment.appendChild(
+      el('h1', { class: 'fiche__titre', texte: creation ? 'Nouvelle recette' : 'Modifier la recette' })
+    );
 
     var bandeau = bandeauErreurRecettes();
     if (bandeau) fragment.appendChild(bandeau);
@@ -1294,20 +2335,38 @@
               return String(etape.texte || '').trim() !== '';
             });
 
-            Rc.enregistrer(aEnregistrer).then(function () {
-              // On ne quitte l'editeur que si l'enregistrement a reellement abouti :
-              // sinon l'utilisateur croirait son travail sauvegarde alors qu'il ne
-              // survivrait pas au prochain rafraichissement.
-              if (Rc.etatChargement().erreur) {
-                brouillon = aEnregistrer;
-                monter(vueModifier(id));
-                var noeud = document.getElementById('erreur-recettes');
-                if (noeud) noeud.scrollIntoView({ block: 'center' });
-                return;
-              }
-              brouillon = null;
-              window.location.hash = '#/recette/' + id;
-            });
+            // Un titre vide rendrait la fiche introuvable dans le livre : on
+            // refuse d'enregistrer plutot que de creer une recette sans nom.
+            if (String(aEnregistrer.titre || '').trim() === '') {
+              erreurEditeur = 'Le titre est obligatoire : sans lui, la recette serait introuvable dans le livre.';
+              monter(vueEditeur(id));
+              var champTitre = document.getElementById('champ-titre');
+              if (champTitre) champTitre.focus();
+              return;
+            }
+            erreurEditeur = null;
+
+            var envoi = creation ? Rc.creer(aEnregistrer) : Rc.enregistrer(aEnregistrer);
+
+            envoi
+              .then(function (enregistree) {
+                // On ne quitte l'editeur que si l'enregistrement a reellement abouti :
+                // sinon l'utilisateur croirait son travail sauvegarde alors qu'il ne
+                // survivrait pas au prochain rafraichissement.
+                if (Rc.etatChargement().erreur) {
+                  brouillon = aEnregistrer;
+                  monter(vueEditeur(id));
+                  var noeud = document.getElementById('erreur-recettes');
+                  if (noeud) noeud.scrollIntoView({ block: 'center' });
+                  return;
+                }
+                brouillon = null;
+                window.location.hash = '#/recette/' + (creation ? enregistree.id : id);
+              })
+              .catch(function (erreur) {
+                erreurEditeur = erreur.message;
+                monter(vueEditeur(id));
+              });
           },
         }),
         el('button', {
@@ -1317,10 +2376,58 @@
           texte: 'Annuler',
           onclick: function () {
             brouillon = null;
-            window.location.hash = '#/recette/' + id;
+            erreurEditeur = null;
+            window.location.hash = creation ? '#/livre' : '#/recette/' + id;
           },
         }),
-        Rc.estModifiee(id)
+        // Une recette du carnet d'origine se retablit, une recette ajoutee se
+        // supprime : ce ne sont pas les memes gestes et ils ne portent pas le meme
+        // risque, donc pas le meme bouton.
+        !creation && Rc.estAjoutee(id)
+          ? el('button', {
+              type: 'button',
+              class: 'bouton bouton--danger',
+              id: 'supprimer-recette',
+              texte: 'Supprimer cette recette',
+              onclick: function () {
+                ouvrirVoile('Supprimer « ' + recette.titre + ' » ?', function (fermer) {
+                  return [
+                    el('p', {
+                      class: 'boite__intro',
+                      texte:
+                        'Cette recette a été ajoutée depuis l’application : la supprimer l’enlève pour tout le monde, et il n’y a pas de version d’origine à rétablir.',
+                    }),
+                    el('div', { class: 'boite__actions' }, [
+                      el('button', {
+                        type: 'button',
+                        class: 'bouton bouton--danger',
+                        id: 'confirmer-suppression',
+                        texte: 'Supprimer',
+                        onclick: function () {
+                          Rc.supprimer(id)
+                            .then(function () {
+                              return Sm.retirerRecette(id);
+                            })
+                            .then(function () {
+                              brouillon = null;
+                              fermer();
+                              window.location.hash = '#/livre';
+                            })
+                            .catch(function (erreur) {
+                              erreurEditeur = erreur.message;
+                              fermer();
+                              monter(vueEditeur(id));
+                            });
+                        },
+                      }),
+                      el('button', { type: 'button', class: 'bouton bouton--secondaire', texte: 'Annuler', onclick: fermer }),
+                    ]),
+                  ];
+                });
+              },
+            })
+          : null,
+        !creation && Rc.estModifiee(id) && !Rc.estAjoutee(id)
           ? el('button', {
               type: 'button',
               class: 'bouton bouton--secondaire',
@@ -1337,6 +2444,28 @@
       ])
     );
 
+    if (erreurEditeur) {
+      fragment.appendChild(
+        el('div', { class: 'etat-erreur etat-erreur--compact', id: 'erreur-editeur' }, [
+          el('p', { texte: erreurEditeur }),
+        ])
+      );
+    }
+
+    fragment.appendChild(
+      section(
+        'Photo',
+        null,
+        creation
+          ? el('p', {
+              class: 'section__soustitre',
+              texte:
+                'La photo pourra être ajoutée après le premier enregistrement : elle est rangée sous l’identifiant de la recette, qui n’existe pas encore.',
+            })
+          : blocPhoto(id)
+      )
+    );
+
     fragment.appendChild(section('Nombre de parts', null, blocPortions(id)));
 
     fragment.appendChild(
@@ -1345,7 +2474,7 @@
           'Titre',
           champ(brouillon.titre, function (valeur) {
             brouillon.titre = valeur;
-          }, { libelle: 'Titre de la recette' })
+          }, { libelle: 'Titre de la recette', id: 'champ-titre' })
         ),
         ligneChamp(
           'Catégorie',
@@ -1411,16 +2540,27 @@
   function router() {
     var ancre = window.location.hash.replace(/^#/, '');
 
+    // Changer d'ecran ferme la boite ouverte : la laisser par-dessus la vue
+    // suivante donnerait une boite qui parle d'un ecran qu'on a quitte.
+    fermerVoile();
+
+    if (ancre === '/recette/nouvelle') {
+      monter(vueEditeur(null));
+      window.scrollTo(0, 0);
+      return;
+    }
     if (ancre.indexOf('/recette/') === 0) {
       var reste = ancre.slice('/recette/'.length);
       var modification = reste.match(/^(.*)\/modifier$/);
       if (modification) {
-        monter(vueModifier(decodeURIComponent(modification[1])));
+        monter(vueEditeur(decodeURIComponent(modification[1])));
         window.scrollTo(0, 0);
         return;
       }
       // On quitte l'editeur : le brouillon non enregistre n'a plus lieu d'etre.
       brouillon = null;
+      erreurEditeur = null;
+      etatPhoto = { message: null, erreur: null, enCours: false };
       monter(vueRecette(decodeURIComponent(reste)));
       window.scrollTo(0, 0);
       return;
@@ -1430,8 +2570,13 @@
       window.scrollTo(0, 0);
       return;
     }
+    if (ancre === '/livre') {
+      document.title = 'Le livre de cuisine — Mon carnet de recettes';
+      monter(vueLivre());
+      window.scrollTo(0, 0);
+      return;
+    }
 
-    document.title = 'Mon carnet de recettes';
     monter(vueAccueil());
   }
 
@@ -1479,6 +2624,21 @@
   function surChangementListe() {
     majBadge();
     if (surEcranListe() && !saisieEnCours()) monter(vueListeDeCourses());
+    // L'accueil annonce le nombre d'articles restants : il doit suivre. On ne
+    // re-rend pas pendant une saisie, ni quand une boite est ouverte : le re-rendu
+    // remplacerait la vue sous la boite et perdrait les cases deja decochees.
+    if (routeCourante() === '/' && !saisieEnCours() && !voile) monter(vueAccueil());
+  }
+
+  function surChangementSemainier() {
+    if (routeCourante() === '/' && !saisieEnCours() && !voile) monter(vueAccueil());
+  }
+
+  function surChangementPhotos() {
+    if (voile || saisieEnCours()) return;
+    var route = routeCourante();
+    if (route === '/') monter(vueAccueil());
+    else if (route === '/livre') monter(vueLivre());
   }
 
   function demarrer() {
@@ -1499,11 +2659,26 @@
         S.surChangement(surChangementListe);
         S.demarrer();
 
+        Sm.surChangement(surChangementSemainier);
+        Sm.demarrer();
+
         // Les recettes modifiees sont relues une fois, au chargement. Elles changent
         // trop rarement pour justifier un sondage permanent.
         Rc.rafraichir().then(function () {
           router();
         });
+
+        // Les vignettes sont relues une fois, comme les recettes : une photo change
+        // encore plus rarement qu'une recette, et chaque lecture pese lourd.
+        Ph.surChangement(surChangementPhotos);
+        Ph.rafraichirVignettes()
+          .then(function () {
+            router();
+          })
+          .catch(function () {
+            // Photos illisibles (regles non republiees, hors ligne) : le carnet
+            // fonctionne sans, les cases affichent l'aplat de categorie.
+          });
       })
       .catch(function (erreur) {
         afficherErreurChargement(erreur.message);

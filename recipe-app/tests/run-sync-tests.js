@@ -43,7 +43,14 @@ function faireLocalStorage() {
 
 /** Recharge config, sync et storage pour que chacun reprenne le localStorage courant. */
 function chargerModules() {
-  ['js/firebase-config.js', 'js/sync.js', 'js/recettes.js', 'js/storage.js'].forEach((relatif) => {
+  [
+    'js/firebase-config.js',
+    'js/sync.js',
+    'js/recettes.js',
+    'js/storage.js',
+    'js/semainier.js',
+    'js/photos.js',
+  ].forEach((relatif) => {
     delete require.cache[require.resolve(path.join(racine, relatif))];
   });
   const config = require(path.join(racine, 'js/firebase-config.js'));
@@ -54,7 +61,9 @@ function chargerModules() {
   const Sync = require(path.join(racine, 'js/sync.js'));
   const Recettes = require(path.join(racine, 'js/recettes.js'));
   const Storage = require(path.join(racine, 'js/storage.js'));
-  return { config, Sync, Recettes, Storage };
+  const Semainier = require(path.join(racine, 'js/semainier.js'));
+  const Photos = require(path.join(racine, 'js/photos.js'));
+  return { config, Sync, Recettes, Storage, Semainier, Photos };
 }
 
 function neuf() {
@@ -807,6 +816,405 @@ serveur.listen(PORT, '127.0.0.1', async () => {
       .ingredients.flatMap((g) => g.items)
       .find((i) => i.nom === 'Bœuf haché');
     assert.strictEqual(boeuf.quantite, '600 g');
+  });
+
+  await test('addRecipesToList ajoute plusieurs recettes en une seule salve', async () => {
+    const { Storage } = neuf();
+    const autre = {
+      id: 'anchoiade',
+      titre: 'Anchoiade',
+      ingredients: [{ groupe: null, items: [{ nom: 'Anchois', quantite: '100 g' }] }],
+    };
+    const avant = stub.etat.appels.lectures;
+    const resultat = await Storage.addRecipesToList([RECETTE, autre]);
+    assert.strictEqual(resultat.ajoutes, 4);
+    assert.strictEqual(resultat.deja, 0);
+    assert.strictEqual(Storage.getShoppingList().length, 4);
+    assert.strictEqual(stub.etat.articles.size, 4);
+    // Une seule relecture, pas une par recette : c'est la raison d'etre de la salve.
+    assert.ok(stub.etat.appels.lectures - avant <= 1, 'une lecture par recette a ete faite');
+  });
+
+  await test('addRecipesToList compte ce qui etait deja en liste sans le dupliquer', async () => {
+    const { Storage } = neuf();
+    await Storage.addRecipeToList(RECETTE);
+    const resultat = await Storage.addRecipesToList([RECETTE]);
+    assert.strictEqual(resultat.ajoutes, 0);
+    assert.strictEqual(resultat.deja, 3);
+    assert.strictEqual(Storage.getShoppingList().length, 3, 'des articles ont ete dupliques');
+  });
+
+  await test('addRecipesToList tolere une recette absente dans la selection', async () => {
+    const { Storage } = neuf();
+    const resultat = await Storage.addRecipesToList([null, RECETTE, { titre: 'sans identifiant' }]);
+    assert.strictEqual(resultat.ajoutes, 3);
+    assert.strictEqual(Storage.getShoppingList().length, 3);
+  });
+
+  // --- Semainier -------------------------------------------------------------
+
+  const Sn = require(path.join(racine, 'js/semaine.js'));
+  const LUNDI = '2026-08-03';
+  const MARDI = '2026-08-04';
+
+  await test('un plat pose sur un creneau est ecrit puis relu a l identique', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'dejeuner', {
+      type: 'recette',
+      recetteId: 'tapenade-maison',
+      titre: 'Tapenade maison',
+    });
+    assert.strictEqual(stub.etat.creneaux.size, 1);
+
+    global.localStorage = faireLocalStorage();
+    const autre = chargerModules().Semainier;
+    await autre.rafraichir();
+    const creneau = autre.creneau(LUNDI, 'dejeuner');
+    assert.ok(creneau, 'le creneau n a pas ete relu');
+    assert.strictEqual(creneau.titre, 'Tapenade maison');
+    assert.strictEqual(creneau.recetteId, 'tapenade-maison');
+    assert.strictEqual(creneau.type, 'recette');
+    assert.strictEqual(creneau.jour, LUNDI);
+    assert.strictEqual(creneau.moment, 'dejeuner');
+  });
+
+  await test('un repas hors carnet se pose sans identifiant de recette', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'diner', { type: 'libre', titre: 'Pizzas' });
+    const creneau = Semainier.creneau(LUNDI, 'diner');
+    assert.strictEqual(creneau.type, 'libre');
+    assert.strictEqual(creneau.titre, 'Pizzas');
+    assert.strictEqual(creneau.recetteId, '');
+  });
+
+  await test('poser un plat sur un creneau occupe remplace le precedent', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'diner', { type: 'libre', titre: 'Pizzas' });
+    await Semainier.poser(LUNDI, 'diner', { type: 'libre', titre: 'Restaurant' });
+    assert.strictEqual(Semainier.tous().length, 1, 'les deux plats coexistent');
+    assert.strictEqual(Semainier.creneau(LUNDI, 'diner').titre, 'Restaurant');
+    assert.strictEqual(stub.etat.creneaux.size, 1);
+  });
+
+  await test('un creneau vide est un document supprime, pas un document vide', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Restes' });
+    assert.strictEqual(stub.etat.creneaux.size, 1);
+    await Semainier.vider(LUNDI, 'dejeuner');
+    assert.strictEqual(stub.etat.creneaux.size, 0, 'un document vide est reste en base');
+    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner'), null);
+  });
+
+  await test('vider un creneau deja vide n envoie rien', async () => {
+    const { Semainier } = neuf();
+    const avant = stub.etat.appels.suppressions;
+    await Semainier.vider(LUNDI, 'dejeuner');
+    assert.strictEqual(stub.etat.appels.suppressions, avant);
+  });
+
+  await test('deplacer un plat vers un creneau libre le deplace vraiment', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+    await Semainier.deplacer(LUNDI, 'dejeuner', MARDI, 'diner');
+    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner'), null, 'le depart n a pas ete vide');
+    assert.strictEqual(Semainier.creneau(MARDI, 'diner').titre, 'Pizzas');
+    assert.strictEqual(stub.etat.creneaux.size, 1, 'le plat existe en double');
+  });
+
+  await test('deplacer sur un creneau occupe echange les deux plats', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+    await Semainier.poser(MARDI, 'diner', { type: 'recette', recetteId: 'tapenade-maison', titre: 'Tapenade' });
+    await Semainier.deplacer(LUNDI, 'dejeuner', MARDI, 'diner');
+    // Un echange plutot qu un ecrasement : sans cela, glisser un diner sur un autre
+    // effacerait le second sans le dire.
+    assert.strictEqual(Semainier.creneau(MARDI, 'diner').titre, 'Pizzas');
+    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner').titre, 'Tapenade');
+    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner').recetteId, 'tapenade-maison');
+    assert.strictEqual(stub.etat.creneaux.size, 2);
+  });
+
+  await test('deplacer sur place ne change rien', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+    const avant = stub.etat.appels.ecritures;
+    await Semainier.deplacer(LUNDI, 'dejeuner', LUNDI, 'dejeuner');
+    assert.strictEqual(stub.etat.appels.ecritures, avant);
+    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner').titre, 'Pizzas');
+  });
+
+  await test('poser hors ligne fonctionne et part au retour du reseau', async () => {
+    const { Semainier } = neuf();
+    await basculerPanne(true);
+    await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Restaurant' });
+    // Visible tout de suite malgre la panne : le semainier sert en cuisine, il ne
+    // peut pas attendre le reseau.
+    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner').titre, 'Restaurant');
+    assert.strictEqual(Semainier.etatSync().enLigne, false);
+    assert.strictEqual(Semainier.etatSync().enAttente, 1);
+    assert.strictEqual(stub.etat.creneaux.size, 0);
+
+    await basculerPanne(false);
+    await Semainier.rafraichir();
+    assert.strictEqual(Semainier.etatSync().enAttente, 0, 'la file n a pas ete videe');
+    assert.strictEqual(stub.etat.creneaux.size, 1);
+    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner').titre, 'Restaurant');
+  });
+
+  await test('un rafraichissement hors ligne conserve les menus affiches', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+    await basculerPanne(true);
+    await Semainier.rafraichir();
+    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner').titre, 'Pizzas', 'les menus ont ete perdus');
+    await basculerPanne(false);
+  });
+
+  await test('un document au format inattendu est ignore et non affiche', async () => {
+    const { Semainier, Sync } = neuf();
+    // Un residu, ou un appel malformé : la cle ne se decoupe pas en jour et moment.
+    await Sync.ecrireCreneau({ cle: 'residu', jour: 'x', moment: 'y', type: 'libre', titre: 'Rien' });
+    await Semainier.rafraichir();
+    assert.deepStrictEqual(Semainier.tous(), [], 'un document illisible est remonte a l ecran');
+  });
+
+  await test('les creneaux sont rendus dans l ordre du calendrier', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(MARDI, 'diner', { type: 'libre', titre: 'C' });
+    await Semainier.poser(LUNDI, 'diner', { type: 'libre', titre: 'B' });
+    await Semainier.poser(LUNDI, 'petit-dejeuner', { type: 'libre', titre: 'A' });
+    await Semainier.rafraichir();
+    assert.deepStrictEqual(
+      Semainier.tous().map((c) => c.titre),
+      ['A', 'B', 'C']
+    );
+  });
+
+  await test('platsDeLaSemaine dedoublonne un plat prevu deux fois', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'dejeuner', { type: 'recette', recetteId: 'tapenade-maison', titre: 'Tapenade' });
+    await Semainier.poser(MARDI, 'diner', { type: 'recette', recetteId: 'tapenade-maison', titre: 'Tapenade' });
+    await Semainier.poser(MARDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+
+    const sem = Sn.semaine(Sn.depuisCle(LUNDI), null);
+    const plats = Semainier.platsDeLaSemaine(sem);
+    assert.strictEqual(plats.length, 2, 'le plat en double n a pas ete regroupe');
+    const tapenade = plats.find((p) => p.recetteId === 'tapenade-maison');
+    assert.strictEqual(tapenade.occurrences.length, 2);
+    assert.strictEqual(plats.find((p) => p.type === 'libre').titre, 'Pizzas');
+  });
+
+  await test('platsDeLaSemaine ignore les plats des autres semaines', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Dans la semaine' });
+    await Semainier.poser('2026-08-11', 'dejeuner', { type: 'libre', titre: 'La semaine suivante' });
+    const sem = Sn.semaine(Sn.depuisCle(LUNDI), null);
+    assert.deepStrictEqual(
+      Semainier.platsDeLaSemaine(sem).map((p) => p.titre),
+      ['Dans la semaine']
+    );
+  });
+
+  await test('retirerRecette enleve toutes ses occurrences', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'dejeuner', { type: 'recette', recetteId: 'a-supprimer', titre: 'A' });
+    await Semainier.poser(MARDI, 'diner', { type: 'recette', recetteId: 'a-supprimer', titre: 'A' });
+    await Semainier.poser(MARDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+    await Semainier.retirerRecette('a-supprimer');
+    assert.deepStrictEqual(
+      Semainier.tous().map((c) => c.titre),
+      ['Pizzas']
+    );
+    assert.strictEqual(stub.etat.creneaux.size, 1);
+  });
+
+  await test('deux appareils voient le meme semainier', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'diner', { type: 'libre', titre: 'Japonais' });
+
+    const memoireA = global.localStorage;
+    global.localStorage = faireLocalStorage();
+    const autre = chargerModules().Semainier;
+    await autre.rafraichir();
+    assert.strictEqual(autre.creneau(LUNDI, 'diner').titre, 'Japonais');
+
+    // L autre appareil vide le creneau : le premier doit le voir en se rafraichissant.
+    await autre.vider(LUNDI, 'diner');
+    global.localStorage = memoireA;
+    const premier = chargerModules().Semainier;
+    await premier.rafraichir();
+    assert.strictEqual(premier.creneau(LUNDI, 'diner'), null, 'la suppression distante n est pas vue');
+  });
+
+  await test('poser un plat sans titre ne cree rien', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser(LUNDI, 'diner', { type: 'libre', titre: '' });
+    assert.strictEqual(stub.etat.creneaux.size, 0);
+    assert.deepStrictEqual(Semainier.tous(), []);
+  });
+
+  // --- Photos ----------------------------------------------------------------
+
+  const VIGNETTE = 'data:image/jpeg;base64,' + 'A'.repeat(400);
+  const GRANDE = 'data:image/jpeg;base64,' + 'B'.repeat(4000);
+
+  await test('une photo est ecrite en deux tailles dans un seul document', async () => {
+    const { Photos } = neuf();
+    await Photos.enregistrer('tapenade-maison', { vignette: VIGNETTE, grande: GRANDE });
+    assert.strictEqual(stub.etat.photos.size, 1);
+    assert.strictEqual(Photos.vignette('tapenade-maison'), VIGNETTE);
+    assert.strictEqual(await Photos.grande('tapenade-maison'), GRANDE);
+  });
+
+  await test('la liste des vignettes ne telecharge pas les grandes images', async () => {
+    const { Photos, Sync } = neuf();
+    await Photos.enregistrer('tapenade-maison', { vignette: VIGNETTE, grande: GRANDE });
+    const vignettes = await Sync.lireVignettes();
+    // C est tout l interet du masque de lecture : afficher vingt vignettes ne doit
+    // pas faire descendre vingt grandes images.
+    assert.deepStrictEqual(Object.keys(vignettes), ['tapenade-maison']);
+    assert.strictEqual(vignettes['tapenade-maison'], VIGNETTE);
+    assert.strictEqual(JSON.stringify(vignettes).includes('BBBB'), false, 'la grande image a ete transmise');
+  });
+
+  await test('les vignettes sont relues dans le cache local d un autre appareil', async () => {
+    const { Photos } = neuf();
+    await Photos.enregistrer('tapenade-maison', { vignette: VIGNETTE, grande: GRANDE });
+
+    global.localStorage = faireLocalStorage();
+    const autre = chargerModules().Photos;
+    assert.strictEqual(autre.vignette('tapenade-maison'), null, 'le cache devrait etre vide au depart');
+    await autre.rafraichirVignettes();
+    assert.strictEqual(autre.vignette('tapenade-maison'), VIGNETTE);
+    assert.strictEqual(autre.aUnePhoto('tapenade-maison'), true);
+  });
+
+  await test('la grande image d une recette sans photo vaut null', async () => {
+    const { Photos } = neuf();
+    assert.strictEqual(await Photos.grande('sans-photo'), null);
+  });
+
+  await test('supprimer une photo l enleve du serveur et du cache', async () => {
+    const { Photos } = neuf();
+    await Photos.enregistrer('tapenade-maison', { vignette: VIGNETTE, grande: GRANDE });
+    await Photos.supprimer('tapenade-maison');
+    assert.strictEqual(stub.etat.photos.size, 0);
+    assert.strictEqual(Photos.vignette('tapenade-maison'), null);
+    assert.strictEqual(await Photos.grande('tapenade-maison'), null);
+  });
+
+  await test('une photo refusee par le serveur n est pas annoncee comme enregistree', async () => {
+    const { Photos } = neuf();
+    await basculerPanne(true);
+    let leve = null;
+    try {
+      await Photos.enregistrer('tapenade-maison', { vignette: VIGNETTE, grande: GRANDE });
+    } catch (erreur) {
+      leve = erreur;
+    }
+    await basculerPanne(false);
+    assert.ok(leve, 'l echec d envoi n a pas ete signale');
+    // Le cache est nettoye : laisser la vignette ferait croire que la photo est
+    // partagee avec les autres appareils alors qu elle n est jamais partie.
+    assert.strictEqual(Photos.vignette('tapenade-maison'), null);
+    assert.strictEqual(stub.etat.photos.size, 0);
+  });
+
+  await test('dimensionsCibles garde les proportions et n agrandit jamais', async () => {
+    const { Photos } = neuf();
+    assert.deepStrictEqual(Photos.dimensionsCibles(4000, 3000, 320), { largeur: 320, hauteur: 240 });
+    assert.deepStrictEqual(Photos.dimensionsCibles(3000, 4000, 320), { largeur: 240, hauteur: 320 });
+    assert.deepStrictEqual(Photos.dimensionsCibles(200, 100, 320), { largeur: 200, hauteur: 100 });
+    assert.deepStrictEqual(Photos.dimensionsCibles(0, 0, 320), { largeur: 1, hauteur: 1 });
+  });
+
+  await test('poidsBinaire retire l en-tete et le bourrage de la data URL', async () => {
+    const { Photos } = neuf();
+    // « AAAA » en base64 fait 3 octets ; avec un bourrage « == » il en fait 1.
+    assert.strictEqual(Photos.poidsBinaire('data:image/jpeg;base64,AAAA'), 3);
+    assert.strictEqual(Photos.poidsBinaire('data:image/jpeg;base64,AA=='), 1);
+    assert.strictEqual(Photos.poidsBinaire('pas-une-data-url'), 0);
+  });
+
+  // --- Recettes ajoutees depuis l application ---------------------------------
+
+  await test('une recette creee apparait dans le livre et survit a un rechargement', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const avant = Recettes.toutes().length;
+    const creee = await Recettes.creer(
+      Object.assign(Recettes.recetteVide(), { titre: 'Soupe du jardin', categorie: 'Entrée' })
+    );
+    assert.strictEqual(creee.id, 'soupe-du-jardin');
+    assert.strictEqual(Recettes.toutes().length, avant + 1);
+    assert.strictEqual(Recettes.estAjoutee(creee.id), true);
+    assert.strictEqual(Recettes.estModifiee(creee.id), true);
+
+    global.localStorage = faireLocalStorage();
+    const autre = chargerModules().Recettes;
+    autre.definirBase(CARNET);
+    await autre.rafraichir();
+    assert.strictEqual(autre.parId('soupe-du-jardin').titre, 'Soupe du jardin');
+    assert.strictEqual(autre.toutes().length, avant + 1);
+  });
+
+  await test('deux recettes de meme titre ne s ecrasent pas', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const une = await Recettes.creer(Object.assign(Recettes.recetteVide(), { titre: 'Soupe' }));
+    const deux = await Recettes.creer(Object.assign(Recettes.recetteVide(), { titre: 'Soupe' }));
+    assert.strictEqual(une.id, 'soupe');
+    assert.strictEqual(deux.id, 'soupe-2');
+    assert.strictEqual(stub.etat.recettes.size, 2);
+  });
+
+  await test('une recette creee ne peut pas prendre l identifiant d une recette d origine', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const creee = await Recettes.creer(
+      Object.assign(Recettes.recetteVide(), { titre: 'Lasagnes bolognaise : la meilleure recette' })
+    );
+    assert.notStrictEqual(creee.id, ID_LASAGNES);
+    assert.strictEqual(Recettes.parId(ID_LASAGNES).titre, 'Lasagnes bolognaise : la meilleure recette');
+    assert.strictEqual(Recettes.originale(ID_LASAGNES).id, ID_LASAGNES);
+  });
+
+  await test('creer sans titre est refuse', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    let leve = null;
+    try {
+      await Recettes.creer(Recettes.recetteVide());
+    } catch (erreur) {
+      leve = erreur;
+    }
+    assert.ok(leve, 'une recette sans titre a ete acceptee');
+    assert.strictEqual(stub.etat.recettes.size, 0);
+  });
+
+  await test('supprimer refuse de toucher a une recette du carnet d origine', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    await Recettes.enregistrer(Object.assign({}, Recettes.parId(ID_LASAGNES), { titre: 'Modifiee' }));
+    let leve = null;
+    try {
+      await Recettes.supprimer(ID_LASAGNES);
+    } catch (erreur) {
+      leve = erreur;
+    }
+    assert.ok(leve, 'la suppression d une recette d origine a ete acceptee');
+    // La modification est intacte : la tentative n a rien casse.
+    assert.strictEqual(Recettes.parId(ID_LASAGNES).titre, 'Modifiee');
+    assert.strictEqual(stub.etat.recettes.size, 1);
+  });
+
+  await test('supprimer une recette ajoutee la retire pour de bon', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const creee = await Recettes.creer(Object.assign(Recettes.recetteVide(), { titre: 'Soupe du jardin' }));
+    await Recettes.supprimer(creee.id);
+    assert.strictEqual(Recettes.parId(creee.id), null);
+    assert.strictEqual(stub.etat.recettes.size, 0);
   });
 
   // --- Restitution -----------------------------------------------------------

@@ -1,10 +1,10 @@
 # Mon carnet de recettes
 
-Carnet personnel de 20 recettes extraites de leurs sites d'origine (Journal des Femmes Cuisine, Marmiton, Cuisine Actuelle, CuisineAZ, Plaisirs culinaires), converties en une base structurée et présentées par un site statique : recherche, filtres, fiche complète, tableau de flux, liste de courses, impression.
+Carnet de cuisine de la maison. Trois écrans : le **semainier** des repas de la semaine sur la page d'accueil, le **livre de cuisine** avec ses 20 recettes, et la **liste de courses commune**. Les trois sont partagés entre tous les appareils de la maison : ce que l'un pose, coche ou modifie, les autres le voient.
 
 En ligne : `https://guillaumez88.github.io/Cahier-de-recette/`
 
-Aucune dépendance, aucune étape de construction, aucun framework : cinq fichiers JavaScript, une feuille de style, un fichier de données. La liste de courses est commune à tous les appareils, stockée dans Firestore et appelée par son API REST en `fetch`, sans le SDK Firebase.
+Aucune dépendance, aucune étape de construction, aucun framework : douze fichiers JavaScript, une feuille de style, un fichier de données. Le partage passe par Firestore, appelé directement par son API REST en `fetch`, sans le SDK Firebase.
 
 ## Structure
 
@@ -21,20 +21,25 @@ Aucune dépendance, aucune étape de construction, aucun framework : cinq fichie
     │   ├── quantites.js         Lecture, addition et mise à l'échelle des quantités
     │   ├── rayons.js            Classement des ingrédients par rayon de magasin
     │   ├── flux.js              Déroulé des préparations : génération et mise à l'échelle
+    │   ├── semaine.js           Calendrier du semainier : semaines, jours, créneaux
+    │   ├── icones.js            Pictogrammes, en SVG écrit dans la page
     │   ├── sync.js              Firestore par son API REST, session anonyme
-    │   ├── recettes.js          Recettes d'origine, modifications partagées, parts
+    │   ├── recettes.js          Recettes d'origine, modifications, créations, parts
     │   ├── storage.js           Liste commune : cache local, fusion, file d'attente
+    │   ├── semainier.js         Menus communs : cache local, file d'attente
+    │   ├── photos.js            Photos : redimensionnement, deux tailles, cache
     │   └── app.js               Rendu DOM et routage par ancre
     ├── data/recipes.json        Les 20 recettes
     ├── favicon.svg
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js            67 tests de la logique métier
-        ├── run-sync-tests.js       53 tests de la synchronisation
-        ├── test-web.js             61 vérifications navigateur, parcours général
+        ├── run-tests.js            83 tests de la logique métier
+        ├── run-sync-tests.js       87 tests de la synchronisation
+        ├── test-web.js             66 vérifications navigateur, parcours général
         ├── test-partage.js         28 vérifications navigateur, partage et hors ligne
         ├── test-edition.js         59 vérifications navigateur, modification, parts, déroulé
+        ├── test-semainier.js       84 vérifications navigateur, semainier, photos, création
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -42,9 +47,9 @@ Aucune dépendance, aucune étape de construction, aucun framework : cinq fichie
         └── serveur.js              Serveur statique sans dépendance
 ```
 
-Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `sync.js`, `storage.js`, `app.js`.
+Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `recettes.js`, `storage.js`, `semainier.js`, `photos.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
 
-`app.js` ne parle jamais au réseau ni au `localStorage` : il passe par `storage.js`, qui est le seul endroit décidant où sont rangées les données.
+`app.js` ne parle jamais au réseau ni au `localStorage` : il passe par `storage.js`, `semainier.js`, `recettes.js` et `photos.js`, seuls endroits décidant où sont rangées les données.
 
 ## Lancer en local
 
@@ -59,14 +64,79 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 
 ## Fonctionnalités
 
-- **Routage par ancre** : `#/`, `#/recette/<id>`, `#/recette/<id>/modifier`, `#/liste-de-courses`. Les URL sont partageables et le bouton de retour du navigateur fonctionne. C'est aussi ce qui permet un hébergement statique sans configuration : aucun chemin profond n'est demandé au serveur.
+- **Routage par ancre** : `#/` (semainier), `#/livre`, `#/recette/<id>`, `#/recette/<id>/modifier`, `#/recette/nouvelle`, `#/liste-de-courses`. Les URL sont partageables et le bouton de retour du navigateur fonctionne. C'est aussi ce qui permet un hébergement statique sans configuration : aucun chemin profond n'est demandé au serveur.
+- **Semainier des repas** sur la page d'accueil (voir la section suivante) : une ou deux semaines, trois repas par jour, plats du livre ou repas hors carnet, glisser-déposer, et ajout des ingrédients de la semaine à la liste de courses après validation plat par plat.
+- **Photo par recette** : prise depuis le téléphone ou choisie dans les fichiers, réduite dans le navigateur, partagée avec les autres appareils (voir plus bas).
+- **Ajout d'une recette** depuis le livre, et suppression des recettes ajoutées.
 - **Recherche** insensible à la casse et aux accents, portant sur le titre, la catégorie, l'origine, les ingrédients et le texte des étapes. Plusieurs mots se cumulent.
 - **Filtres** par catégorie, origine, difficulté et tranche de temps total. Un clic sur un filtre actif le désactive.
 - **Fiche complète** : temps, origine, ingrédients par groupe, étapes numérotées avec leurs astuces, tableau de flux, astuces, variantes, recettes associées, ce que la source ne donne pas, source citée avec son lien.
 - **Déroulé des préparations** : le tableau fourni avec la recette quand il existe, reconstitué automatiquement sinon (voir plus bas).
 - **Liste de courses commune** (voir la section suivante) : partagée entre tous les appareils, rangée par rayon de magasin, avec addition des quantités d'un même ingrédient, sélection d'ingrédients à la carte, ajout d'articles libres, compteur dans l'en-tête et fonctionnement hors ligne.
 - **Modification des recettes** et **changement du nombre de parts** (voir plus bas).
+- **Pictogrammes** en SVG écrit dans la page, dans `js/icones.js` : aucune police d'icônes ni CDN, donc rien à charger et rien qui casse en cuisine sans connexion. Ils se colorent par `currentColor` et suivent la palette sans code supplémentaire.
 - **Impression** (`@media print`) : la navigation, les filtres et les boutons disparaissent, le fond repasse en blanc, et les étapes comme les lignes du tableau ne sont pas coupées entre deux pages.
+
+## Semainier des repas
+
+La page d'accueil répond à une seule question : qu'est-ce qu'on mange. Elle montre la semaine, puis donne accès au livre et à la liste de courses.
+
+### Comment on l'utilise
+
+- **La semaine commence le lundi** et finit le dimanche. Trois créneaux par jour : matin, midi, soir. Le déjeuner et le dîner ont plus de hauteur que le petit-déjeuner, parce que ce sont les repas qu'on cuisine.
+- **Une ou deux semaines** au choix, jamais de semaine passée : un repas déjà mangé ne sert ni aux courses ni à la cuisine.
+- **Toucher une case** ouvre le choix du repas : un plat du livre (avec sa propre recherche), ou un repas hors carnet. Cinq raccourcis sont proposés (Restaurant, Pizzas, Japonais, Restes, Chacun pour soi) et un champ libre accepte n'importe quoi d'autre.
+- **Glisser-déposer** sur ordinateur : un plat se glisse d'une case à l'autre, et la réserve sous le semainier permet de glisser un plat du livre directement dans une case. Glisser sur une case occupée **échange** les deux plats au lieu d'en effacer un.
+- La réserve glissable est masquée au tactile et sous 700 px : le glisser-déposer HTML5 n'existe pas sur mobile, et l'appui sur une case fait déjà le travail. **Toute action est faisable sans glisser.**
+- Le semainier se rafraîchit **toutes les 20 secondes**, plus lentement que la liste de courses, et un bouton force la mise à jour. C'est délibéré : en magasin on coche à plusieurs mains dans la même minute, alors qu'un menu change quelques fois par semaine, et Firestore facture à la lecture de document.
+
+### Ajouter les plats de la semaine aux courses
+
+Le bouton « Ajouter aux courses » de chaque semaine n'ajoute rien directement : il ouvre la liste des plats prévus, **cochés par défaut**, à décocher pour ce dont on a déjà les ingrédients. Seuls les plats restés cochés partent en liste.
+
+Quatre cas sont traités explicitement, parce qu'ils se produisent :
+
+- **Un plat déjà entièrement en liste arrive décoché**, avec la mention « déjà entièrement dans la liste ». Le recocher n'ajouterait rien.
+- **Un plat partiellement en liste** arrive coché, avec « 3 sur 12 déjà dans la liste » : seuls les manquants seront ajoutés.
+- **Un repas hors carnet n'est pas ajoutable** et le dit : « repas hors carnet, sans ingrédients ». Un restaurant ne se met pas dans une liste de courses.
+- **Un plat prévu deux fois dans la semaine n'est compté qu'une fois**, et l'écran l'annonce : « prévu 2 fois cette semaine, compté une seule : les quantités ne sont pas doublées ». Doubler automatiquement serait un pari sur une intention inconnue, entre cuisiner deux fois et manger un reste. Pour doubler, changez le nombre de parts sur la fiche.
+
+### Comment ça marche
+
+Un document Firestore **par créneau de repas**, dans `semainiers/commune/creneaux`, avec une clé qui porte la date et le moment (`2026-08-03::dejeuner`). Même raison que pour les articles de la liste : deux personnes qui posent deux plats différents modifient deux documents distincts. Avec un document par semaine, le dernier qui écrit effacerait le plat de l'autre.
+
+**Un créneau vide n'est pas un document vide, c'est un document absent** : vider un repas est une suppression. Cela évite d'accumuler des documents pour les repas non prévus, qui sont la majorité.
+
+Le reste suit exactement le modèle de la liste de courses : cache local comme source du rendu, file d'attente persistée, sondage suspendu quand l'onglet n'est pas visible. Poser un plat fonctionne donc sans réseau et part au retour de la connexion.
+
+Deux pièges de dates sont traités dans `js/semaine.js`, et des tests les fixent, parce que chacun produit un décalage d'un jour :
+
+- `toISOString()` convertit en UTC : à Paris en été, un lundi à 23 h donnerait « dimanche ». Les clés de jour sont donc fabriquées avec `getFullYear/getMonth/getDate`, qui sont locaux.
+- `new Date('2026-08-03')` est interprété comme minuit UTC : à l'ouest de Greenwich, `getDate()` rendrait le 2. Les clés sont relues en composant une date locale fixée à midi, midi résistant aux changements d'heure.
+
+## Photo par recette
+
+Une photo par recette, ajoutée depuis l'éditeur de la fiche, partagée avec les autres appareils.
+
+**L'image est réduite dans le navigateur avant l'envoi**, en deux tailles rangées dans le même document Firestore : une vignette de 320 px pour les listes et le semainier, une grande de 1200 px pour la fiche. Ce n'est pas une optimisation cosmétique : une photo de téléphone pèse 3 à 8 Mo, un document Firestore est limité à 1 Mio, et une data URL en base64 ajoute encore un tiers au poids binaire. Envoyer l'original serait refusé par le serveur, et refusé trop tard, après l'attente du téléversement. La qualité JPEG descend par paliers jusqu'à tenir dans le budget ; si l'image ne tient toujours pas, l'application le dit au lieu d'envoyer un document que Firestore refusera.
+
+**Le livre ne télécharge que les vignettes.** L'API REST accepte un masque de lecture (`mask.fieldPaths`) : afficher vingt vignettes de 320 px ne fait donc pas descendre vingt images de 1200 px, ce qui représenterait plusieurs mégaoctets. La grande version n'est lue qu'à l'ouverture d'une fiche.
+
+Deux limites assumées :
+
+- **Les vignettes sont relues au chargement de la page**, comme les recettes modifiées, et pas en continu : une photo ajoutée depuis un autre appareil apparaît au prochain rechargement, pas dans la seconde. Naviguer d'un écran à l'autre ne suffit pas, le routage ne change que l'ancre. Sonder vingt documents en permanence coûterait cher pour une donnée qui change quelques fois par mois.
+- **Une recette sans photo connue n'est pas interrogée.** Le cache des vignettes est la seule source d'autorité sur « qui a une photo » : sans cela, ouvrir une fiche déclencherait une lecture facturée et un 404 pour dix-neuf recettes sur vingt.
+- **Pas de Firebase Storage** : il faudrait le SDK ou une seconde API à signer, alors que Firestore est déjà en place et qu'une photo compressée y tient largement.
+
+## Ajouter et supprimer une recette
+
+Le livre a un bouton « Ajouter une recette » qui ouvre le même formulaire que la modification : un seul écran à maintenir plutôt que deux qui divergeraient.
+
+- **Le titre est obligatoire.** Sans lui, la fiche serait introuvable dans le livre : l'enregistrement est refusé et l'écran le dit, plutôt que de créer une recette sans nom.
+- **Deux recettes de même nom ne s'écrasent pas** : l'identifiant reçoit un rang (`soupe`, `soupe-2`).
+- **Une recette ajoutée ne peut pas prendre l'identifiant d'une recette d'origine**, qui vit dans le fichier servi avec le site.
+- **La photo vient après le premier enregistrement**, et l'écran l'explique : elle est rangée sous l'identifiant de la recette, qui n'existe pas encore.
+- **Une recette ajoutée se supprime, une recette d'origine se rétablit.** Ce ne sont pas les mêmes gestes et ils ne portent pas le même risque, donc pas le même bouton. La suppression demande confirmation, dit qu'elle vaut pour tout le monde et qu'il n'y a pas d'original à rétablir, puis retire aussi la recette du semainier. Supprimer une recette d'origine est refusé par le code : elle réapparaîtrait à la prochaine lecture du fichier.
 
 ## Liste de courses commune
 
@@ -108,9 +178,11 @@ La configuration Firebase est déjà dans `recipe-app/js/firebase-config.js`. El
 
 Le projet `cahier-de-cuisine-88` est configuré : base Firestore créée, connexion anonyme activée, domaine `guillaumez88.github.io` autorisé, et la liste de courses fonctionne (vérifiée en conditions réelles, voir ci-dessous).
 
-Les règles couvrant la collection des recettes modifiées ont été republiées et vérifiées : `node tests/verifier-firebase.js --reel` passe ses 11 contrôles, collection `recettes` comprise.
+**Le semainier et les photos demandent une republication des règles.** `firestore.rules` couvre désormais quatre collections : `listes/{id}/articles`, `recettes`, `semainiers/{id}/creneaux` et `photos`. Les deux dernières sont nouvelles : tant que les règles publiées ne les contiennent pas, Firestore refuse l'accès, le semainier reste bloqué sur « Hors ligne » et aucune photo ne s'enregistre. Coller `firestore.rules` dans la console Firebase (*Firestore Database* → *Règles* → *Publier*), puis relancer `node tests/verifier-firebase.js --reel`.
 
-Si l'application affiche un jour un bandeau `PERMISSION_DENIED` sur les recettes, c'est que les règles publiées ont divergé de `firestore.rules` : les republier depuis le fichier du dépôt, puis relancer ce contrôle.
+Ce contrôle ne vérifie pas seulement que l'écriture passe : il vérifie aussi que les règles **refusent** ce qu'elles doivent refuser, un créneau au moment inconnu et une photo hors borne de taille. Si ces deux contrôles-là échouent, les règles publiées ne sont pas celles du dépôt même si le reste fonctionne.
+
+Si l'application affiche un jour un bandeau `PERMISSION_DENIED`, c'est que les règles publiées ont divergé de `firestore.rules` : les republier depuis le fichier du dépôt, puis relancer ce contrôle.
 
 Les quatre réglages, pour mémoire, s'il fallait refaire le projet ou en créer un second :
 
@@ -149,16 +221,18 @@ C'est le contrôle à lancer après toute modification de la configuration Fireb
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 67 tests de la logique métier
-node tests/run-sync-tests.js      # 53 tests de la synchronisation
-node tests/run-browser-tests.js   # 148 vérifications dans un vrai Chromium
+node tests/run-tests.js           # 83 tests de la logique métier
+node tests/run-sync-tests.js      # 87 tests de la synchronisation
+node tests/run-browser-tests.js   # 237 vérifications dans un vrai Chromium
 ```
 
-`run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux et l'intégrité du jeu de données.
+`run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.
 
 `run-sync-tests.js` couvre la synchronisation de bout en bout : session anonyme et renouvellement de jeton, encodage des valeurs Firestore, écriture d'un document par article, mise à jour par masque de champs, propagation d'un appareil à l'autre, sélection partielle, articles libres, et tout le comportement hors ligne (cochage différé, file d'attente persistée, envoi dans l'ordre au retour du réseau, opération en échec conservée en tête de file). Ces tests **n'appellent jamais votre projet Firebase** : ils lancent l'émulation de `stub-firestore.js` sur un port local, qui sait aussi simuler une panne réseau à la demande.
 
 `test-web.js` couvre le parcours général dans Chromium : les 20 vignettes, la recherche, les filtres, la conservation du focus pendant la saisie, la résolution de la grille fusionnée du tableau de flux (5 colonnes, telle que le navigateur la calcule), l'identifiant inconnu, le mode impression et l'absence de débordement horizontal en 360 px.
+
+`test-semainier.js` couvre le semainier, les photos et la création de recettes, également sur **deux contextes isolés** : poser un plat du livre et un repas hors carnet, remplacer, vider, glisser d'une case à l'autre, échanger deux plats occupés, glisser depuis la réserve, la validation plat par plat avant ajout aux courses (dont le plat déjà en liste décoché et le repas hors carnet non ajoutable), l'envoi d'une photo réduite en deux tailles dans les bornes des règles Firestore, la création refusée sans titre, la suppression d'une recette ajoutée, un repas posé hors ligne, et l'absence de débordement horizontal en 360 px.
 
 `test-partage.js` ouvre **deux contextes Chromium isolés**, c'est-à-dire deux appareils avec des stockages locaux distincts, sur la même base. C'est le seul montage qui prouve réellement le partage : ce que l'un ajoute ou coche doit apparaître chez l'autre, par le rafraîchissement automatique comme par le bouton manuel. La même suite coupe le réseau, vérifie que cocher fonctionne quand même et que les modifications en attente sont annoncées, puis rétablit le réseau et vérifie qu'elles sont bien parties.
 
