@@ -615,7 +615,7 @@ const PNG_ROUGE =
     await carteTapenade.textContent()
   );
   verifier(
-    'un plat fait une seule fois est compte au singulier de sa date',
+    'un plat fait une seule fois est compte',
     /Fait 1 fois/.test(await pageA.locator('.carte', { hasText: 'Anchoïade' }).first().textContent()),
     await pageA.locator('.carte', { hasText: 'Anchoïade' }).first().textContent()
   );
@@ -623,21 +623,6 @@ const PNG_ROUGE =
     'les plats jamais faits sont signales',
     (await pageA.locator('.carte__realisations--jamais').count()) === 18,
     String(await pageA.locator('.carte__realisations--jamais').count())
-  );
-  // Le compteur du livre suit un changement de menus sans rechargement : il est lu
-  // dans le semainier, il ne doit pas rester perime sur les cartes.
-  await pageA.evaluate(() =>
-    window.CarnetSemainier.poser('2026-04-06', 'diner', {
-      type: 'recette',
-      recetteId: 'tapenade-maison',
-      titre: 'Tapenade maison',
-    })
-  );
-  await attendre(700);
-  verifier(
-    'le compteur du livre suit un changement de menus sans rechargement',
-    /Fait 4 fois/.test(await pageA.locator('.carte', { hasText: 'Tapenade maison' }).first().textContent()),
-    await pageA.locator('.carte', { hasText: 'Tapenade maison' }).first().textContent()
   );
 
   // Le filtre n apparait qu avec un historique, et separe les deux populations.
@@ -658,6 +643,37 @@ const PNG_ROUGE =
     'le filtre « deja fait » ne garde que les deux plats realises',
     (await pageA.locator('.carte').count()) === 2,
     String(await pageA.locator('.carte').count())
+  );
+
+  // Le premier du mois s ecrit « 1er », pas « 1 ».
+  await pageA.evaluate(() =>
+    window.CarnetSemainier.poser('2026-05-01', 'diner', {
+      type: 'recette',
+      recetteId: 'cake-aux-olives',
+      titre: 'Cake aux olives',
+    })
+  );
+  await attendre(700);
+  verifier(
+    'le premier du mois est ecrit « 1er »',
+    /la dernière le 1er mai/.test(await pageA.locator('.carte', { hasText: 'Cake aux olives' }).first().textContent()),
+    await pageA.locator('.carte', { hasText: 'Cake aux olives' }).first().textContent()
+  );
+
+  // Le compteur du livre suit un changement de menus sans rechargement : il est lu
+  // dans le semainier, il ne doit pas rester perime sur les cartes.
+  await pageA.evaluate(() =>
+    window.CarnetSemainier.poser('2026-04-06', 'diner', {
+      type: 'recette',
+      recetteId: 'tapenade-maison',
+      titre: 'Tapenade maison',
+    })
+  );
+  await attendre(700);
+  verifier(
+    'le compteur du livre suit un changement de menus sans rechargement',
+    /Fait 4 fois/.test(await pageA.locator('.carte', { hasText: 'Tapenade maison' }).first().textContent()),
+    await pageA.locator('.carte', { hasText: 'Tapenade maison' }).first().textContent()
   );
 
   // Et la fiche porte la meme information.

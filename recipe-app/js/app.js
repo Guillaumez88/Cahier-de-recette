@@ -117,10 +117,11 @@
 
     var dernier = Sm.derniereFois(recetteId);
     var date = dernier ? Sem.depuisCle(dernier) : null;
+    // « fois » est invariable, mais pas le premier jour du mois : « le 1er juin ».
+    var jour = date ? (date.getDate() === 1 ? '1er' : String(date.getDate())) : null;
     return {
       texte:
-        'Fait ' + nb + (nb > 1 ? ' fois' : ' fois') +
-        (date ? ', la dernière le ' + date.getDate() + ' ' + Sem.MOIS[date.getMonth()] : ''),
+        'Fait ' + nb + ' fois' + (date ? ', la dernière le ' + jour + ' ' + Sem.MOIS[date.getMonth()] : ''),
       jamais: false,
     };
   }
