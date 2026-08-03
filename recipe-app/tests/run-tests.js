@@ -67,7 +67,7 @@ test('stripTipPrefix retire les prefixes redondants', () => {
   assert.strictEqual(L.stripTipPrefix('Texte sans prefixe'), 'Texte sans prefixe');
 });
 
-test('origineCourte classe les 17 recettes sans reste', () => {
+test('origineCourte classe les 20 recettes sans reste', () => {
   const parOrigine = {};
   recettes.forEach((r) => {
     const o = L.origineCourte(r.origine);
@@ -76,7 +76,7 @@ test('origineCourte classe les 17 recettes sans reste', () => {
   assert.ok(!parOrigine.Autre, `origines non classees : ${JSON.stringify(parOrigine)}`);
   assert.strictEqual(
     Object.values(parOrigine).reduce((a, b) => a + b, 0),
-    17
+    20
   );
   assert.strictEqual(L.origineCourte('Italie (plat italien), version familiale française'), 'Italienne');
   assert.strictEqual(L.origineCourte('Provençale / française'), 'Provençale');
@@ -101,8 +101,8 @@ test('normaliser retire accents et apostrophes typographiques', () => {
 });
 
 test('sans critere, toutes les recettes ressortent', () => {
-  assert.strictEqual(L.filterRecipes(recettes, {}).length, 17);
-  assert.strictEqual(L.filterRecipes(recettes).length, 17);
+  assert.strictEqual(L.filterRecipes(recettes, {}).length, 20);
+  assert.strictEqual(L.filterRecipes(recettes).length, 20);
 });
 
 test('la recherche porte aussi sur les ingredients et les etapes', () => {
@@ -124,7 +124,7 @@ test('la recherche sans resultat retourne un tableau vide', () => {
 test('le filtre categorie respecte le decompte reel', () => {
   assert.strictEqual(L.filterRecipes(recettes, { categorie: 'Dessert' }).length, 10);
   assert.strictEqual(L.filterRecipes(recettes, { categorie: 'Plat' }).length, 4);
-  assert.strictEqual(L.filterRecipes(recettes, { categorie: 'Entrée' }).length, 3);
+  assert.strictEqual(L.filterRecipes(recettes, { categorie: 'Entrée' }).length, 6);
 });
 
 test('les filtres se combinent', () => {
@@ -146,7 +146,7 @@ test('le filtre temps exclut les recettes sans duree exploitable', () => {
     0
   );
   const sansDuree = recettes.filter((r) => L.parseMinutes(r.temps.total) === null).length;
-  assert.strictEqual(toutesTranches + sansDuree, 17, 'des recettes sont perdues ou comptees deux fois');
+  assert.strictEqual(toutesTranches + sansDuree, 20, 'des recettes sont perdues ou comptees deux fois');
 });
 
 test('optionsDisponibles ne propose que des valeurs presentes', () => {
@@ -160,7 +160,7 @@ test('optionsDisponibles ne propose que des valeurs presentes', () => {
   });
 });
 
-test('texteIndexable couvre les 17 recettes', () => {
+test('texteIndexable couvre les 20 recettes', () => {
   recettes.forEach((r) => {
     assert.ok(L.texteIndexable(r).length > 20, `index trop court : ${r.id}`);
   });
@@ -184,10 +184,20 @@ test('largeurGrille donne 5 colonnes pour le tableau des lasagnes', () => {
   assert.strictEqual(L.largeurGrille(null), 0);
 });
 
-test('chaque tableau de flux a une largeur exploitable', () => {
-  recettes.forEach((r) => {
-    assert.ok(L.largeurGrille(r.flowTable) > 0, `grille vide : ${r.id}`);
-  });
+// Les recettes de la derniere extraction n'embarquent pas de tableau : celui de la
+// source ne contient que des marqueurs repetes (« ✓ », « Selon recette »), et
+// l'application reconstitue le deroule depuis les etapes. On verifie donc que tout
+// tableau present est exploitable, et on fige la liste de ceux qui sont absents pour
+// qu'une disparition silencieuse ressorte.
+const SANS_TABLEAU_FOURNI = [
+  'gougeres-de-courgettes-et-comte',
+  'mini-cakes-de-courgettes-au-fromage-et-tomates-confites',
+  'focaccia-maison-moelleuse',
+];
+
+test('tout tableau de flux fourni a une largeur exploitable', () => {
+  const vides = recettes.filter((r) => L.largeurGrille(r.flowTable) === 0).map((r) => r.id);
+  assert.deepStrictEqual(vides, SANS_TABLEAU_FOURNI);
 });
 
 // --- Liste de courses --------------------------------------------------------
@@ -316,7 +326,7 @@ test('analyser signale une quantite sans nombre', () => {
   });
 });
 
-test('les 169 quantites du carnet sont analysees sans lever', () => {
+test('les 198 quantites du carnet sont analysees sans lever', () => {
   let lisibles = 0;
   recettes.forEach((r) =>
     r.ingredients.forEach((g) =>
@@ -328,7 +338,7 @@ test('les 169 quantites du carnet sont analysees sans lever', () => {
     )
   );
   // Le reste est du texte libre (« Selon goût »), conserve tel quel.
-  assert.strictEqual(lisibles, 150, `${lisibles} quantites lisibles au lieu de 150`);
+  assert.strictEqual(lisibles, 174, `${lisibles} quantites lisibles au lieu de 174`);
 });
 
 // --- quantites.js : addition -------------------------------------------------
@@ -413,7 +423,7 @@ test('echelonnerTexte ne touche jamais a un nombre nu', () => {
   assert.strictEqual(r.texte, 'Thermostat 6, four numéro 2, 3 fois de suite.');
 });
 
-test('echelonnerTexte laisse les 17 recettes intactes a facteur 1', () => {
+test('echelonnerTexte laisse les 20 recettes intactes a facteur 1', () => {
   recettes.forEach((r) =>
     r.instructions.forEach((etape) => {
       assert.strictEqual(Q.echelonnerTexte(etape.texte, 1).texte, etape.texte);
@@ -421,7 +431,7 @@ test('echelonnerTexte laisse les 17 recettes intactes a facteur 1', () => {
   );
 });
 
-test('aucune duree ni temperature des 17 recettes n est modifiee par un doublement', () => {
+test('aucune duree ni temperature des 20 recettes n est modifiee par un doublement', () => {
   const motifsInterdits = /(\d+)\s*(minutes?|mn|min|heures?|h\b|°\s*C|cm|mm)/gi;
   recettes.forEach((r) =>
     r.instructions.forEach((etape) => {
@@ -440,10 +450,25 @@ test('analyserPortions lit le nombre et garde le libelle', () => {
   assert.deepStrictEqual(Q.analyserPortions('1 galette de 22 cm'), { nombre: 1, libelle: 'galette de 22 cm' });
 });
 
-test('les portions des 17 recettes sont toutes lisibles', () => {
-  recettes.forEach((r) => {
-    const p = Q.analyserPortions(r.portions);
-    assert.ok(typeof p.nombre === 'number' && p.nombre > 0, `${r.id} : portions « ${r.portions} »`);
+// Une seule recette echappe a la regle : la source des gougeres ne donne pas de
+// nombre de parts (« Non indiqué »). Rien n'a ete invente, la recette le declare
+// dans son champ « manquants » et le recalcul des quantites y est desactive.
+const SANS_PORTIONS = ['gougeres-de-courgettes-et-comte'];
+
+test('les portions de 19 des 20 recettes sont lisibles', () => {
+  const illisibles = recettes
+    .filter((r) => {
+      const p = Q.analyserPortions(r.portions);
+      return !(typeof p.nombre === 'number' && p.nombre > 0);
+    })
+    .map((r) => r.id);
+  assert.deepStrictEqual(illisibles, SANS_PORTIONS);
+  SANS_PORTIONS.forEach((id) => {
+    const r = recettes.find((x) => x.id === id);
+    assert.ok(
+      (r.manquants || []).some((m) => /nombre de parts/.test(m)),
+      `${id} : le manque de portions n est pas declare dans « manquants »`
+    );
   });
 });
 
@@ -454,11 +479,11 @@ test('ecrirePortions est la reciproque', () => {
 
 // --- rayons.js ---------------------------------------------------------------
 
-test('les 114 ingredients du carnet sont tous classes', () => {
+test('les 126 ingredients du carnet sont tous classes', () => {
   const noms = [...new Set(recettes.flatMap((r) => r.ingredients.flatMap((g) => g.items.map((i) => i.nom))))];
   const nonClasses = noms.filter((n) => Ry.rayonDe(n) === Ry.RAYON_DEFAUT);
   assert.deepStrictEqual(nonClasses, [], `${nonClasses.length} ingredient(s) sans rayon`);
-  assert.strictEqual(noms.length, 114, `${noms.length} noms distincts au lieu de 114`);
+  assert.strictEqual(noms.length, 126, `${noms.length} noms distincts au lieu de 126`);
 });
 
 test('la ligature oe ne fait pas echouer le classement', () => {
@@ -508,7 +533,7 @@ test('un rayon inconnu est place en fin de parcours', () => {
 
 // --- flux.js : deroule reconstitue -------------------------------------------
 
-test('le deroule est reconstitue pour les 17 recettes', () => {
+test('le deroule est reconstitue pour les 20 recettes', () => {
   recettes.forEach((r) => {
     const d = Fx.genererDeroule(r);
     assert.ok(Array.isArray(d.phases), `${r.id} : phases invalides`);
@@ -541,10 +566,10 @@ test('la couverture globale reste au niveau mesure', () => {
     places += d.couverture.places;
     total += d.couverture.total;
   });
-  // 158/169 au moment de l ecriture. Le test protege contre une regression, pas
+  // 182/198 au moment de l ecriture. Le test protege contre une regression, pas
   // contre une amelioration : on verifie un plancher.
-  assert.strictEqual(total, 169);
-  assert.ok(places >= 158, `couverture tombee a ${places}/169`);
+  assert.strictEqual(total, 198);
+  assert.ok(places >= 182, `couverture tombee a ${places}/198`);
 });
 
 test('un ingredient est place a la premiere etape qui le nomme', () => {
@@ -667,7 +692,7 @@ test('echelonnerCellule laisse une cellule sans quantite intacte', () => {
 
 // --- Integrite du jeu de donnees ---------------------------------------------
 
-test('les 17 recettes respectent le schema attendu', () => {
+test('les 20 recettes respectent le schema attendu', () => {
   const champs = [
     'id',
     'titre',
@@ -684,7 +709,7 @@ test('les 17 recettes respectent le schema attendu', () => {
     'manquants',
     'flowTable',
   ];
-  assert.strictEqual(recettes.length, 17);
+  assert.strictEqual(recettes.length, 20);
   const ids = new Set();
   recettes.forEach((r) => {
     champs.forEach((c) => assert.ok(c in r, `${r.id} : champ ${c} manquant`));

@@ -330,7 +330,7 @@
   /**
    * Rend le deroule reconstitue a partir des ingredients et des etapes.
    * Utilise quand la recette n'apporte pas de tableau exploitable, c'est-a-dire
-   * pour 16 des 17 recettes du carnet.
+   * pour 19 des 20 recettes du carnet.
    */
   function tableauDerouleGenere(recette) {
     var deroule = Fx.genererDeroule(recette);

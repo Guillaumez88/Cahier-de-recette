@@ -11,8 +11,8 @@
    Le tableau se lit alors « a l'etape 2, ces ingredients entrent, et voila ce qu'on
    en fait ».
 
-   Ce que cette methode sait faire, mesure sur les 17 recettes : 158 ingredients sur
-   169 sont rattaches a une etape, soit 93 %, et 8 recettes le sont entierement.
+   Ce que cette methode sait faire, mesure sur les 20 recettes : 182 ingredients sur
+   198 sont rattaches a une etape, soit 92 %, et 11 recettes le sont entierement.
 
    Ce qu'elle ne sait pas faire, et pourquoi c'est assume :
    - Quand une instruction designe une categorie plutot qu'un produit, le lien est

@@ -77,6 +77,11 @@
     [/muscade/, 'Épices et herbes'],
     [/arome/, 'Épicerie sucrée'],
     [/conserve|pulpe de tomate/, 'Épicerie salée'],
+    // Un legume confit se vend en bocal, au rayon epicerie, pas au frais.
+    [/confit/, 'Épicerie salée'],
+    // La levure de boulanger fraiche est au rayon frais, la levure chimique en
+    // epicerie : la regle sur « levure » seule ne suffit donc pas.
+    [/levure fraiche|levure de boulanger/, 'Crèmerie'],
     // Un coulis de fruits est un produit sucre en bocal, pas un fruit frais.
     [/coulis/, 'Épicerie sucrée'],
     [/anchois a l'huile|anchois a l huile/, 'Épicerie salée'],
@@ -84,7 +89,7 @@
     // --- Crèmerie ---
     // « \boeuf » et non « oeuf » : sans la limite de mot, le motif s'accroche a
     // l'interieur de « boeuf » et « Bœuf haché » partait en cremerie.
-    [/beurre|creme fraiche|creme liquide|creme epaisse|mascarpone|lait\b|\boeuf|fromage|emmental|gruyere|beaufort|comte\b|reblochon|tomme|parmesan|yaourt|ricotta|mozzarella/, 'Crèmerie'],
+    [/beurre|creme fraiche|creme liquide|creme epaisse|mascarpone|lait\b|\boeuf|fromage|emmental|gruyere|beaufort|comte\b|reblochon|tomme|parmesan|yaourt|ricotta|mozzarella|chevre\b|feta|roquefort|brie\b|cheddar/, 'Crèmerie'],
 
     // --- Épicerie sucrée : farines, sucres, chocolat, fruits secs, aides pâtissières ---
     [/farine|maizena|fecule|sucre|chocolat|cacao|levure|amande|noisette|noix de pecan|noix\b|praline|vanille|miel|confiture|cranberries|raisins secs|pepites|nappage|sirop/, 'Épicerie sucrée'],
@@ -96,10 +101,10 @@
     [/boeuf|veau|porc|agneau|poulet|dinde|lardon|jambon|saucisse|chair a saucisse|steak|viande|saumon|cabillaud|thon|crevette|poisson|anchois/, 'Viandes et poissons'],
 
     // --- Fruits et légumes ---
-    [/abricot|pomme\b|poire|fraise|framboise|banane|citron|orange|ail\b|oignon|echalote|aubergine|courgette|carotte|tomate|poivron|champignon|salade|epinard|persil|basilic frais|aneth|ciboulette|coriandre|menthe|pomme de terre|patate|brocoli|chou|haricot|petits pois|concombre|radis|betterave|celeri|poireau|navet|fenouil|potiron|courge/, 'Fruits et légumes'],
+    [/abricot|pomme\b|poire|fraise|framboise|banane|citron|orange|ail\b|oignon|echalote|aubergine|courgette|carotte|tomate|poivron|champignon|salade|epinard|persil|basilic|aneth|ciboulette|coriandre|menthe|pomme de terre|patate|brocoli|chou|haricot|petits pois|concombre|radis|betterave|celeri|poireau|navet|fenouil|potiron|courge/, 'Fruits et légumes'],
 
     // --- Épices et herbes séchées ---
-    [/sel\b|poivre|piment|paprika|curry|cumin|curcuma|cannelle|gingembre|quatre-epices|epice|origan|thym|romarin|laurier|herbes aromatiques|safran|noix de muscade|graine/, 'Épices et herbes'],
+    [/sel\b|poivre|piment|paprika|curry|cumin|curcuma|cannelle|gingembre|quatre-epices|epice|origan|thym|romarin|sarriette|sauge|marjolaine|estragon|laurier|herbes aromatiques|safran|noix de muscade|graine/, 'Épices et herbes'],
 
     // --- Boissons ---
     [/vin\b|biere|cidre|rhum|kirsch|amaretto|cognac|whisky|liqueur|porto|cafe|the\b|jus d'orange|eau\b|limonade|sirop de/, 'Boissons'],

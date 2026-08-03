@@ -561,7 +561,7 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     const { Recettes } = neuf();
     Recettes.definirBase(CARNET);
     await Recettes.rafraichir();
-    assert.strictEqual(Recettes.toutes().length, 17);
+    assert.strictEqual(Recettes.toutes().length, 20);
     assert.strictEqual(Recettes.estModifiee(ID_LASAGNES), false);
   });
 
@@ -595,7 +595,7 @@ serveur.listen(PORT, '127.0.0.1', async () => {
 
     await autre.rafraichir();
     assert.strictEqual(autre.parId(ID_LASAGNES).titre, 'Lasagnes partagées');
-    assert.strictEqual(autre.toutes().length, 17, 'le nombre de recettes ne doit pas changer');
+    assert.strictEqual(autre.toutes().length, 20, 'le nombre de recettes ne doit pas changer');
   });
 
   await test('reinitialiser retablit la recette d origine', async () => {

@@ -309,9 +309,10 @@
   // --- Mise a l'echelle dans du texte libre -----------------------------------
   //
   // Les instructions contiennent des nombres qu'il ne faut surtout PAS multiplier :
-  // sur les 51 occurrences numeriques des 17 recettes, 44 sont des durees (minutes,
-  // heures) ou des temperatures (°C), plus quelques dimensions (cm, mm). Doubler une
-  // recette ne double ni le temps de cuisson ni la temperature du four.
+  // sur les 75 occurrences numeriques des 20 recettes, 69 sont des durees (minutes,
+  // heures), des temperatures (°C) ou des dimensions (cm, mm) : seules 6 sont des
+  // quantites. Doubler une recette ne double ni le temps de cuisson ni la
+  // temperature du four.
   //
   // On travaille donc sur liste blanche : seules les unites de masse, de volume et
   // de cuilleree sont multipliees, et jamais un nombre nu (« thermostat 6 »,

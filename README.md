@@ -1,6 +1,6 @@
 # Mon carnet de recettes
 
-Carnet personnel de 17 recettes extraites de leurs sites d'origine (Journal des Femmes Cuisine, Marmiton, Cuisine Actuelle), converties en une base structurée et présentées par un site statique : recherche, filtres, fiche complète, tableau de flux, liste de courses, impression.
+Carnet personnel de 20 recettes extraites de leurs sites d'origine (Journal des Femmes Cuisine, Marmiton, Cuisine Actuelle, CuisineAZ, Plaisirs culinaires), converties en une base structurée et présentées par un site statique : recherche, filtres, fiche complète, tableau de flux, liste de courses, impression.
 
 En ligne : `https://guillaumez88.github.io/Cahier-de-recette/`
 
@@ -25,12 +25,14 @@ Aucune dépendance, aucune étape de construction, aucun framework : cinq fichie
     │   ├── recettes.js          Recettes d'origine, modifications partagées, parts
     │   ├── storage.js           Liste commune : cache local, fusion, file d'attente
     │   └── app.js               Rendu DOM et routage par ancre
-    ├── data/recipes.json        Les 17 recettes
+    ├── data/recipes.json        Les 20 recettes
     ├── favicon.svg
+    ├── tools/
+    │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js            26 tests de la logique métier
-        ├── run-sync-tests.js       26 tests de la synchronisation
-        ├── test-web.js             57 vérifications navigateur, parcours général
+        ├── run-tests.js            67 tests de la logique métier
+        ├── run-sync-tests.js       53 tests de la synchronisation
+        ├── test-web.js             61 vérifications navigateur, parcours général
         ├── test-partage.js         28 vérifications navigateur, partage et hors ligne
         ├── test-edition.js         59 vérifications navigateur, modification, parts, déroulé
         ├── stub-firestore.js       Émulation de Firestore pour les tests
@@ -81,7 +83,7 @@ Une seule liste, partagée par tous ceux qui ouvrent le site. Ce que l'un ajoute
 
 La liste est rangée dans l'ordre d'un parcours de magasin : Fruits et légumes, Viandes et poissons, Crèmerie, Boulangerie, Surgelés, Épices et herbes, Épicerie salée, Épicerie sucrée, Boissons. On ne revient donc pas trois fois au même rayon.
 
-Le classement se fait par mots-clés dans `js/rayons.js`, et les 114 ingrédients du carnet sont tous classés, ce qu'un test vérifie. Trois traitements évitent des erreurs constatées sur les données réelles : la ligature `œ` est convertie en `oe` (sans quoi « Œufs » n'était pas reconnu, et « Bœuf haché » partait en crèmerie), ce qui suit « pour » est ignoré car c'est un usage et non un produit (« Farine pour beurre manié » est de la farine), et les parenthèses de la source sont retirées. Un ingrédient inclassable tomberait dans « Autre », ce qui est un signal à traiter, pas un résultat normal.
+Le classement se fait par mots-clés dans `js/rayons.js`, et les 126 ingrédients du carnet sont tous classés, ce qu'un test vérifie. Trois traitements évitent des erreurs constatées sur les données réelles : la ligature `œ` est convertie en `oe` (sans quoi « Œufs » n'était pas reconnu, et « Bœuf haché » partait en crèmerie), ce qui suit « pour » est ignoré car c'est un usage et non un produit (« Farine pour beurre manié » est de la farine), et les parenthèses de la source sont retirées. Un ingrédient inclassable tomberait dans « Autre », ce qui est un signal à traiter, pas un résultat normal.
 
 **Les quantités du même ingrédient s'additionnent** : 300 g de beurre venus d'une recette et 125 g d'une autre donnent une seule ligne « Beurre 425 g », avec le nom des recettes d'origine en regard. Les conversions se font dans une même famille (50 cl + 1 l = 1,5 l), jamais entre familles : « 3 c. à s. » et « 200 g » restent affichés côte à côte, et une cuillère à soupe n'est pas convertie en cuillère à café.
 
@@ -156,7 +158,7 @@ node tests/run-browser-tests.js   # 148 vérifications dans un vrai Chromium
 
 `run-sync-tests.js` couvre la synchronisation de bout en bout : session anonyme et renouvellement de jeton, encodage des valeurs Firestore, écriture d'un document par article, mise à jour par masque de champs, propagation d'un appareil à l'autre, sélection partielle, articles libres, et tout le comportement hors ligne (cochage différé, file d'attente persistée, envoi dans l'ordre au retour du réseau, opération en échec conservée en tête de file). Ces tests **n'appellent jamais votre projet Firebase** : ils lancent l'émulation de `stub-firestore.js` sur un port local, qui sait aussi simuler une panne réseau à la demande.
 
-`test-web.js` couvre le parcours général dans Chromium : les 17 vignettes, la recherche, les filtres, la conservation du focus pendant la saisie, la résolution de la grille fusionnée du tableau de flux (5 colonnes, telle que le navigateur la calcule), l'identifiant inconnu, le mode impression et l'absence de débordement horizontal en 360 px.
+`test-web.js` couvre le parcours général dans Chromium : les 20 vignettes, la recherche, les filtres, la conservation du focus pendant la saisie, la résolution de la grille fusionnée du tableau de flux (5 colonnes, telle que le navigateur la calcule), l'identifiant inconnu, le mode impression et l'absence de débordement horizontal en 360 px.
 
 `test-partage.js` ouvre **deux contextes Chromium isolés**, c'est-à-dire deux appareils avec des stockages locaux distincts, sur la même base. C'est le seul montage qui prouve réellement le partage : ce que l'un ajoute ou coche doit apparaître chez l'autre, par le rafraîchissement automatique comme par le bouton manuel. La même suite coupe le réseau, vérifie que cocher fonctionne quand même et que les modifications en attente sont annoncées, puis rétablit le réseau et vérifie qu'elles sont bien parties.
 
@@ -176,7 +178,7 @@ La fiche affiche un tableau qui montre à quelle étape chaque ingrédient entre
 
 ### Ce que la reconstitution sait faire, et ce qu'elle ne sait pas
 
-Mesuré sur les 17 recettes : **158 ingrédients sur 169 sont rattachés à une étape, soit 93 %**, et 10 recettes le sont entièrement. Un test protège ce plancher.
+Mesuré sur les 20 recettes : **182 ingrédients sur 198 sont rattachés à une étape, soit 92 %**, et 11 recettes le sont entièrement. Un test protège ce plancher.
 
 Les 11 restants ne sont pas des défauts réparables, mais des cas où l'instruction désigne une catégorie plutôt qu'un produit :
 
@@ -215,7 +217,7 @@ Le formulaire porte un réglage du nombre de parts, avec deux boutons et un cham
 
 Un rapport affiche le facteur appliqué, la liste des quantités ajustées dans les instructions, et ce qui a été laissé inchangé faute de quantité chiffrée (« Sel, poivre : Selon le goût »). Rien n'est enregistré avant d'avoir cliqué sur « Enregistrer ».
 
-**Le point délicat, traité explicitement : les durées et les températures ne sont jamais multipliées.** Doubler une recette ne double ni le temps de cuisson ni la température du four. Sur les 51 occurrences numériques des instructions des 17 recettes, 44 sont des durées (minutes, heures), des températures (°C) ou des dimensions (cm, mm) : un facteur appliqué naïvement transformerait « 45 minutes » en « 90 minutes » et « 165 °C » en « 330 °C ». La mise à l'échelle travaille donc sur **liste blanche d'unités** (masses, volumes, cuillerées, gousses, pincées, sachets, tranches) et ne touche jamais un nombre nu, qui serait ambigu (« thermostat 6 »). Un test vérifie, sur les 17 recettes et pour chaque étape, qu'aucune durée ni température ne bouge après un changement de parts.
+**Le point délicat, traité explicitement : les durées et les températures ne sont jamais multipliées.** Doubler une recette ne double ni le temps de cuisson ni la température du four. Sur les 75 occurrences numériques des instructions des 20 recettes, 69 sont des durées (minutes, heures), des températures (°C) ou des dimensions (cm, mm), et 6 seulement sont des quantités : un facteur appliqué naïvement transformerait « 45 minutes » en « 90 minutes » et « 165 °C » en « 330 °C ». La mise à l'échelle travaille donc sur **liste blanche d'unités** (masses, volumes, cuillerées, gousses, pincées, sachets, tranches) et ne touche jamais un nombre nu, qui serait ambigu (« thermostat 6 »). Un test vérifie, sur les 20 recettes et pour chaque étape, qu'aucune durée ni température ne bouge après un changement de parts.
 
 Si le nombre de parts ne commence pas par un nombre, le recalcul automatique est désactivé et le formulaire le dit, plutôt que de deviner.
 
@@ -244,19 +246,33 @@ Si le nombre de parts ne commence pas par un nombre, le recalcul automatique est
 }
 ```
 
-`origine` et `difficulte` sont du texte libre : les filtres travaillent sur des étiquettes courtes dérivées par mots-clés (`origineCourte`, `difficulteCourte` dans `js/logic.js`), le texte intégral restant affiché sur la fiche. Les 17 recettes sont toutes classées ; une source formulée autrement retomberait sur « Autre », et un test le signalerait.
+`origine` et `difficulte` sont du texte libre : les filtres travaillent sur des étiquettes courtes dérivées par mots-clés (`origineCourte`, `difficulteCourte` dans `js/logic.js`), le texte intégral restant affiché sur la fiche. Les 20 recettes sont toutes classées ; une source formulée autrement retomberait sur « Autre », et un test le signalerait.
 
 Pour ajouter une recette : modifier `data/recipes.json`, puis `node tests/run-tests.js`, qui contrôle le schéma, l'unicité des identifiants et la validité des URL de source.
 
-## Deux constats sur les données, non corrigés volontairement
+## Importer une extraction
+
+`node tools/importer-extraction.js <fichier.md>` lit une extraction Markdown (une recette par section `## n. Titre`, avec les tableaux « Fiche recette » et « Ingrédients ») et l'ajoute à `data/recipes.json`. Sans `--ecrire`, l'outil ne fait qu'un essai à blanc et affiche ce qu'il ferait.
+
+Deux règles sont tenues par le code, pas par la vigilance de l'opérateur :
+
+1. **Aucune recette existante n'est écrasée.** L'appariement se fait sur des ensembles de mots du titre, et non sur une égalité de chaînes : « Lasagnes bolognaise » est reconnue comme la recette déjà présente sous « Lasagnes bolognaise : la meilleure recette ». Sans cela, la dernière extraction aurait créé trois doublons. Quand plusieurs candidates conviennent, l'outil refuse d'écrire plutôt que de choisir.
+
+2. **Aucune unité n'est inventée.** Quand l'extraction a collé la quantité au nom de l'ingrédient et perdu l'unité au passage (« Farine 200 » sans `g`, « sel 1 c. à » tronqué), la valeur est reprise telle quelle et le manque est écrit dans le champ `manquants` de la recette, que la fiche affiche sous « Ce que la source ne donne pas ». Cette détection est mécanique : elle ne se déclenche que lorsque la colonne quantité était vide et que le nombre a dû être extrait du nom.
+
+Les 17 recettes antérieures n'ont **pas** été réécrites depuis la dernière extraction : celle-ci est en recul mesuré sur les recettes déjà présentes (de −29 % à −80 % de texte d'instructions, et par exemple 17 ingrédients ramenés à 12). Seules les 3 recettes absentes du carnet ont été ajoutées. Les trois sites sources sont inaccessibles depuis l'environnement de développement, les unités perdues n'ont donc pas pu être recoupées : elles sont à corriger dans l'éditeur de l'application.
+
+## Trois constats sur les données, non corrigés volontairement
 
 Ces écarts viennent des sources. Ils sont signalés plutôt que masqués, et le code les tolère.
 
-1. **16 tableaux de flux sur 17 ne portent aucune information.** Seul `lasagnes-bolognaise` a un tableau construit à la main (5 colonnes, cellules fusionnées, 15 lignes d'ingrédients). Les 16 autres, générés automatiquement, ne contiennent que des marqueurs répétés à l'identique (« ✓ », « Selon étapes », « Si concerné »). Le tableau n'est donc affiché que lorsqu'il apporte quelque chose. Reconstruire les 16 manquants demande de relire chaque recette : à décider, ce n'est pas automatisable.
+1. **Un seul tableau de flux sur 20 porte une information.** Seul `lasagnes-bolognaise` a un tableau construit à la main (5 colonnes, cellules fusionnées, 15 lignes d'ingrédients). Les 16 tableaux fournis par les extractions précédentes ne contiennent que des marqueurs répétés à l'identique (« ✓ », « Selon étapes », « Si concerné ») et ne sont donc pas affichés ; les 3 recettes de la dernière extraction n'en embarquent plus du tout, pour la même raison. C'est sans conséquence à l'affichage : l'application reconstitue le déroulé depuis les étapes (voir plus haut), ce qui est plus juste qu'un tableau de marqueurs.
 
 2. **Un numéro d'étape n'est pas un entier.** Dans `lasagnes-bolognaise`, la 6ᵉ étape porte `"numero": "Pour finir"`, libellé repris du site source. Le schéma annonce un entier. La donnée n'a pas été réécrite : le libellé est affiché tel quel, et un test échouera si une nouvelle recette introduit une autre forme.
 
-Un troisième écart, mineur : pour cette même recette, le tableau de flux détaille 15 lignes d'ingrédients contre 14 dans la liste `ingredients`, parce qu'il isole « sel, poivre » pour la béchamel.
+3. **Vingt quantités sur 198 n'ont pas d'unité (7, 7 et 6 pour les trois recettes de la dernière extraction), et une recette n'a pas de nombre de parts.** L'unité manque à la source telle qu'elle a été extraite, et n'a pas été devinée. Chaque recette concernée le déclare dans son champ `manquants`, affiché sur la fiche. Conséquence assumée : pour `gougeres-de-courgettes-et-comte`, faute de nombre de parts exploitable (« Non indiqué »), le recalcul automatique des quantités est désactivé.
+
+Un quatrième écart, mineur : pour `lasagnes-bolognaise`, le tableau de flux détaille 15 lignes d'ingrédients contre 14 dans la liste `ingredients`, parce qu'il isole « sel, poivre » pour la béchamel.
 
 ## Historique
 

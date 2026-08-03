@@ -56,14 +56,14 @@ function verifier(nom, condition, detail = '') {
 
   let corps = await texte();
   verifier("le carnet s'affiche", /Mon carnet de recettes/.test(corps));
-  verifier('17 recettes annoncees', /17 recettes rassemblées/.test(corps), corps.slice(0, 150));
+  verifier('20 recettes annoncees', /20 recettes rassemblées/.test(corps), corps.slice(0, 150));
   // Lu sur l'element plutot que dans tout le texte de la page : « 17 recettes »
   // apparait aussi dans l'accroche, l'assertion ne prouverait rien.
   const compteur = () => page.locator('.barre-resultats span').first().textContent();
-  verifier('le decompte des resultats est affiche', (await compteur()).trim() === '17 recettes', await compteur());
+  verifier('le decompte des resultats est affiche', (await compteur()).trim() === '20 recettes', await compteur());
 
   const nbCartes = await page.locator('.carte').count();
-  verifier('17 vignettes rendues', nbCartes === 17, `${nbCartes} trouvees`);
+  verifier('20 vignettes rendues', nbCartes === 20, `${nbCartes} trouvees`);
 
   // Recherche
   const champ = page.locator('.champ-recherche');
@@ -90,7 +90,7 @@ function verifier(nom, condition, detail = '') {
   // Filtres
   await page.locator('.rangee-filtre').nth(0).getByText('Entrée', { exact: true }).click();
   await page.waitForTimeout(300);
-  verifier('le filtre Entrée ramene 3 recettes', (await page.locator('.carte').count()) === 3, String(await page.locator('.carte').count()));
+  verifier('le filtre Entrée ramene 6 recettes', (await page.locator('.carte').count()) === 6, String(await page.locator('.carte').count()));
 
   await page.locator('.rangee-filtre').nth(3).getByText('30 min ou moins', { exact: true }).click();
   await page.waitForTimeout(300);
@@ -99,7 +99,7 @@ function verifier(nom, condition, detail = '') {
 
   await page.getByText('Tout effacer', { exact: true }).click();
   await page.waitForTimeout(300);
-  verifier('« Tout effacer » remet les 17 recettes', (await page.locator('.carte').count()) === 17);
+  verifier('« Tout effacer » remet les 20 recettes', (await page.locator('.carte').count()) === 20);
 
   // Fiche : les lasagnes, seule recette au tableau de flux informatif
   await page.locator('.carte', { hasText: 'Lasagnes bolognaise' }).first().click();

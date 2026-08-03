@@ -6024,5 +6024,410 @@
         ]
       ]
     }
+  },
+  {
+    "id": "gougeres-de-courgettes-et-comte",
+    "titre": "Gougères de courgettes et comté",
+    "categorie": "Entrée",
+    "origine": "Française déduite (catégorie indiquée par la source : Entrée / apéritif)",
+    "difficulte": "Facile à moyenne",
+    "portions": "Non indiqué",
+    "temps": {
+      "preparation": "Non indiqué",
+      "cuisson": "20 à 25 min",
+      "repos": "Non indiqué",
+      "total": "35 à 45 min déduit"
+    },
+    "calories": null,
+    "source": {
+      "label": "Gougères de courgettes et comté",
+      "url": "https://plaisirsculinaires.recipesown.com/gougeres-de-courgettes-et-comte/"
+    },
+    "ingredients": [
+      {
+        "groupe": null,
+        "items": [
+          {
+            "nom": "Farine",
+            "quantite": "200"
+          },
+          {
+            "nom": "Œufs",
+            "quantite": "4"
+          },
+          {
+            "nom": "Beurre",
+            "quantite": "150"
+          },
+          {
+            "nom": "Eau",
+            "quantite": "250"
+          },
+          {
+            "nom": "Sel",
+            "quantite": "1 c. à"
+          },
+          {
+            "nom": "Poivre",
+            "quantite": "1 c. à"
+          },
+          {
+            "nom": "Comté râpé",
+            "quantite": "150"
+          },
+          {
+            "nom": "Courgettes râpées",
+            "quantite": "2 environ 200"
+          }
+        ]
+      }
+    ],
+    "instructions": [
+      {
+        "numero": 1,
+        "texte": "Préchauffer à 200 °C.",
+        "astuce": null
+      },
+      {
+        "numero": 2,
+        "texte": "Porter eau et beurre à ébullition.",
+        "astuce": null
+      },
+      {
+        "numero": 3,
+        "texte": "Ajouter farine hors du feu et mélanger jusqu’à pâte qui se détache.",
+        "astuce": null
+      },
+      {
+        "numero": 4,
+        "texte": "Incorporer œufs un à un.",
+        "astuce": null
+      },
+      {
+        "numero": 5,
+        "texte": "Ajouter comté, courgettes, sel et poivre.",
+        "astuce": null
+      },
+      {
+        "numero": 6,
+        "texte": "Former des boules.",
+        "astuce": null
+      },
+      {
+        "numero": 7,
+        "texte": "Cuire 20 à 25 min sans ouvrir le four.",
+        "astuce": null
+      }
+    ],
+    "astuces": {
+      "recette": [
+        "Ne pas ouvrir le four.",
+        "Pâte possible à l’avance.",
+        "Congélation après cuisson possible."
+      ],
+      "commentaires": []
+    },
+    "variantes": {
+      "recette": [
+        "Gruyère.",
+        "Emmental.",
+        "Parmesan.",
+        "Carottes.",
+        "Poireau."
+      ],
+      "associees": []
+    },
+    "manquants": [
+      "L'unité de mesure a été perdue à l'extraction pour 7 quantités : Farine « 200 », Beurre « 150 », Eau « 250 », Sel « 1 c. à », Poivre « 1 c. à », Comté râpé « 150 », Courgettes râpées « 2 environ 200 ». Ces valeurs sont reprises telles quelles, sans unité inventée : à confirmer sur la source, puis à corriger dans l’éditeur.",
+      "La source ne donne pas de nombre de parts exploitable (« Non indiqué ») : le recalcul automatique des quantités est donc désactivé pour cette recette."
+    ],
+    "flowTable": {
+      "headers": [],
+      "rows": []
+    }
+  },
+  {
+    "id": "mini-cakes-de-courgettes-au-fromage-et-tomates-confites",
+    "titre": "Mini cakes de courgettes au fromage et tomates confites",
+    "categorie": "Entrée",
+    "origine": "Française déduite (catégorie indiquée par la source : Entrée / apéritif)",
+    "difficulte": "Facile",
+    "portions": "6 personnes",
+    "temps": {
+      "preparation": "15 min",
+      "cuisson": "45 min",
+      "repos": "Non indiqué",
+      "total": "1 h"
+    },
+    "calories": null,
+    "source": {
+      "label": "Mini cakes de courgettes au fromage et tomates confites",
+      "url": "https://www.cuisineaz.com/recettes/mini-cakes-de-courgettes-au-fromage-et-tomates-confites-69934.aspx"
+    },
+    "ingredients": [
+      {
+        "groupe": null,
+        "items": [
+          {
+            "nom": "Farine",
+            "quantite": "170"
+          },
+          {
+            "nom": "Courgettes",
+            "quantite": "200"
+          },
+          {
+            "nom": "Chèvre",
+            "quantite": "100"
+          },
+          {
+            "nom": "Feta",
+            "quantite": "50"
+          },
+          {
+            "nom": "Tomates confites",
+            "quantite": "3"
+          },
+          {
+            "nom": "Œufs",
+            "quantite": "2"
+          },
+          {
+            "nom": "Levure",
+            "quantite": "1"
+          },
+          {
+            "nom": "Lait",
+            "quantite": "10"
+          },
+          {
+            "nom": "Huile",
+            "quantite": "5"
+          },
+          {
+            "nom": "Basilic",
+            "quantite": "6"
+          },
+          {
+            "nom": "Sel",
+            "quantite": ""
+          },
+          {
+            "nom": "Poivre",
+            "quantite": ""
+          }
+        ]
+      }
+    ],
+    "instructions": [
+      {
+        "numero": 1,
+        "texte": "Préchauffer à 180 °C.",
+        "astuce": null
+      },
+      {
+        "numero": 2,
+        "texte": "Laver et lameller les courgettes.",
+        "astuce": null
+      },
+      {
+        "numero": 3,
+        "texte": "Les faire revenir 10 min pour les sécher.",
+        "astuce": null
+      },
+      {
+        "numero": 4,
+        "texte": "Mélanger œufs, farine, levure.",
+        "astuce": null
+      },
+      {
+        "numero": 5,
+        "texte": "Ajouter lait et huile.",
+        "astuce": null
+      },
+      {
+        "numero": 6,
+        "texte": "Saler.",
+        "astuce": null
+      },
+      {
+        "numero": 7,
+        "texte": "Ajouter chèvre, courgettes, feta, tomates et basilic.",
+        "astuce": null
+      },
+      {
+        "numero": 8,
+        "texte": "Mouler.",
+        "astuce": null
+      },
+      {
+        "numero": 9,
+        "texte": "Cuire 45 min.",
+        "astuce": null
+      },
+      {
+        "numero": 10,
+        "texte": "Servir tiède.",
+        "astuce": null
+      }
+    ],
+    "astuces": {
+      "recette": [
+        "Sécher les courgettes.",
+        "Huiler les moules.",
+        "Servir tiède."
+      ],
+      "commentaires": []
+    },
+    "variantes": {
+      "recette": [
+        "Mozzarella.",
+        "Comté.",
+        "Tomates séchées.",
+        "Herbes de Provence."
+      ],
+      "associees": []
+    },
+    "manquants": [
+      "L'unité de mesure a été perdue à l'extraction pour 7 quantités : Farine « 170 », Courgettes « 200 », Chèvre « 100 », Feta « 50 », Lait « 10 », Huile « 5 », Basilic « 6 ». Ces valeurs sont reprises telles quelles, sans unité inventée : à confirmer sur la source, puis à corriger dans l’éditeur."
+    ],
+    "flowTable": {
+      "headers": [],
+      "rows": []
+    }
+  },
+  {
+    "id": "focaccia-maison-moelleuse",
+    "titre": "Focaccia maison moelleuse",
+    "categorie": "Entrée",
+    "origine": "Italienne (catégorie indiquée par la source : Entrée / accompagnement)",
+    "difficulte": "Facile",
+    "portions": "4 personnes",
+    "temps": {
+      "preparation": "30 min",
+      "cuisson": "20 min",
+      "repos": "12 h + 2 h",
+      "total": "12 h 50"
+    },
+    "calories": null,
+    "source": {
+      "label": "Focaccia maison moelleuse",
+      "url": "https://cuisine.journaldesfemmes.fr/recette/349197-focaccia"
+    },
+    "ingredients": [
+      {
+        "groupe": null,
+        "items": [
+          {
+            "nom": "Farine T55",
+            "quantite": "250"
+          },
+          {
+            "nom": "Levure fraîche",
+            "quantite": "12"
+          },
+          {
+            "nom": "Sel",
+            "quantite": "1 c. à"
+          },
+          {
+            "nom": "Huile d’olive",
+            "quantite": "5"
+          },
+          {
+            "nom": "Eau",
+            "quantite": "15"
+          },
+          {
+            "nom": "Romarin",
+            "quantite": ""
+          },
+          {
+            "nom": "Thym",
+            "quantite": ""
+          },
+          {
+            "nom": "Sarriette",
+            "quantite": ""
+          },
+          {
+            "nom": "Pulpe de tomate",
+            "quantite": "3 c. à"
+          }
+        ]
+      }
+    ],
+    "instructions": [
+      {
+        "numero": 1,
+        "texte": "Délayer levure dans eau tiède 10 min.",
+        "astuce": null
+      },
+      {
+        "numero": 2,
+        "texte": "Ajouter eau restante et 4 cl huile.",
+        "astuce": null
+      },
+      {
+        "numero": 3,
+        "texte": "Pétrir avec farine et sel 15 min, repos 5 min, puis 15 min.",
+        "astuce": null
+      },
+      {
+        "numero": 4,
+        "texte": "Filmer et réfrigérer 12 h.",
+        "astuce": null
+      },
+      {
+        "numero": 5,
+        "texte": "Dégazer et abaisser à 2 cm.",
+        "astuce": null
+      },
+      {
+        "numero": 6,
+        "texte": "Ajouter herbes puis tomate.",
+        "astuce": null
+      },
+      {
+        "numero": 7,
+        "texte": "Lever 2 h.",
+        "astuce": null
+      },
+      {
+        "numero": 8,
+        "texte": "Faire des trous et ajouter huile restante.",
+        "astuce": null
+      },
+      {
+        "numero": 9,
+        "texte": "Cuire 20 min à 180 °C.",
+        "astuce": null
+      }
+    ],
+    "astuces": {
+      "recette": [
+        "Pousse lente au froid.",
+        "Eau pas trop chaude.",
+        "Herbes avant tomate.",
+        "Réchauffer doucement."
+      ],
+      "commentaires": []
+    },
+    "variantes": {
+      "recette": [
+        "Olives.",
+        "Tomates séchées.",
+        "Mozzarella.",
+        "Sandwiches apéritifs."
+      ],
+      "associees": []
+    },
+    "manquants": [
+      "L'unité de mesure a été perdue à l'extraction pour 6 quantités : Farine T55 « 250 », Levure fraîche « 12 », Sel « 1 c. à », Huile d’olive « 5 », Eau « 15 », Pulpe de tomate « 3 c. à ». Ces valeurs sont reprises telles quelles, sans unité inventée : à confirmer sur la source, puis à corriger dans l’éditeur."
+    ],
+    "flowTable": {
+      "headers": [],
+      "rows": []
+    }
   }
 ]
