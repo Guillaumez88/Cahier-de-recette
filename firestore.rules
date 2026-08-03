@@ -1,0 +1,54 @@
+rules_version = '2';
+
+// Règles de sécurité de la liste de courses commune.
+//
+// À coller dans la console Firebase : Firestore Database → Règles → Publier.
+// Tant que ces règles ne sont pas publiées, Firestore applique les règles par
+// défaut du mode choisi à la création de la base : en mode production tout est
+// refusé et l'application affichera « Hors ligne » en permanence ; en mode test
+// tout est ouvert pendant 30 jours puis tout se ferme d'un coup.
+//
+// Ce que ces règles autorisent, et pourquoi :
+//
+// - Une session est exigée (request.auth != null). L'application ouvre une session
+//   anonyme automatiquement, sans rien demander à l'utilisateur. Sans cette
+//   condition, n'importe quel robot ayant lu la clé publique dans la page pourrait
+//   écrire dans la base : les clés d'API Firebase sont scannées en masse sur les
+//   sites publics. Avec cette condition, il faut au moins ouvrir une session.
+//
+// - Seule la collection des articles de liste est accessible. Tout autre chemin
+//   est refusé par défaut, y compris un chemin créé par erreur plus tard.
+//
+// - La forme des articles est contrôlée. Cela ne protège pas contre un utilisateur
+//   mal intentionné qui aurait ouvert une session, mais cela empêche qu'un bogue
+//   ou un appel malformé remplisse la base de documents inexploitables.
+//
+// Limite assumée : une session anonyme est gratuite et automatique, donc quelqu'un
+// qui trouve l'URL du site peut lire et modifier la liste. C'est le compromis
+// retenu, adapté à une liste de courses familiale. Pour aller plus loin il
+// faudrait de vrais comptes, ou App Check pour n'autoriser que votre domaine.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /listes/{listeId}/articles/{articleId} {
+
+      function articleValide() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['cle', 'nom', 'recetteId', 'recetteTitre', 'coche'])
+          && d.cle is string && d.cle.size() > 0 && d.cle.size() <= 300
+          && d.nom is string && d.nom.size() > 0 && d.nom.size() <= 200
+          && d.recetteId is string && d.recetteId.size() <= 200
+          && d.recetteTitre is string && d.recetteTitre.size() <= 300
+          && d.coche is bool
+          && (!d.keys().hasAny(['quantite']) || (d.quantite is string && d.quantite.size() <= 200))
+          && (!d.keys().hasAny(['groupe']) || d.groupe == null || (d.groupe is string && d.groupe.size() <= 200))
+          && (!d.keys().hasAny(['ajouteLe']) || d.ajouteLe == null || (d.ajouteLe is string && d.ajouteLe.size() <= 40));
+      }
+
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && articleValide();
+      allow delete: if request.auth != null;
+    }
+  }
+}

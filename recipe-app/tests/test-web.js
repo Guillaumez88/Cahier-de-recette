@@ -43,8 +43,12 @@ function verifier(nom, condition, detail = '') {
     if (r.status() >= 400) requetesEchouees.push(`${r.status()} ${r.url()}`);
   });
 
+  // L'emulation de Firestore est partagee entre les suites : on repart d'une base
+  // vide, sinon les decomptes d'articles dependraient de l'ordre d'execution.
+  await page.request.get(new URL('__stub/etat?reinitialiser=1', BASE).href);
+
   await page.goto(BASE, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(900);
   const texte = () => page.evaluate(() => document.body.textContent);
 
   verifier('aucune requete en echec', requetesEchouees.length === 0, requetesEchouees.join(' | '));
@@ -53,7 +57,10 @@ function verifier(nom, condition, detail = '') {
   let corps = await texte();
   verifier("le carnet s'affiche", /Mon carnet de recettes/.test(corps));
   verifier('17 recettes annoncees', /17 recettes rassemblées/.test(corps), corps.slice(0, 150));
-  verifier('le decompte des resultats est affiche', /\b17 recettes\b/.test(corps));
+  // Lu sur l'element plutot que dans tout le texte de la page : « 17 recettes »
+  // apparait aussi dans l'accroche, l'assertion ne prouverait rien.
+  const compteur = () => page.locator('.barre-resultats span').first().textContent();
+  verifier('le decompte des resultats est affiche', (await compteur()).trim() === '17 recettes', await compteur());
 
   const nbCartes = await page.locator('.carte').count();
   verifier('17 vignettes rendues', nbCartes === 17, `${nbCartes} trouvees`);
@@ -142,40 +149,72 @@ function verifier(nom, condition, detail = '') {
   verifier('les consignes pleine largeur sont marquees', flux && flux.pleineLargeur === 2, JSON.stringify(flux));
   verifier('le tableau contient bien son contenu', flux && flux.contientBeurrer && flux.contientBechamel);
 
-  // Liste de courses
-  await page.getByText('Ajouter à la liste de courses', { exact: true }).click();
-  await page.waitForTimeout(400);
-  verifier('le bouton bascule apres ajout', /Retirer de la liste de courses/.test(await texte()));
+  // Liste de courses commune : ajout de la recette entiere
+  await page.getByText('Tout ajouter à la liste', { exact: true }).click();
+  await page.waitForTimeout(700);
+  verifier(
+    'un bouton de retrait apparait apres ajout',
+    /Retirer cette recette de la liste/.test(await texte()),
+    (await texte()).slice(0, 200)
+  );
   const badge = await page.locator('#badge-courses').textContent();
   verifier('le badge d en-tete affiche 14', badge.trim() === '14', `badge = "${badge}"`);
+  verifier(
+    'les ingredients deja dans la liste sont marques',
+    (await page.locator('.liste-ingredients li.deja-dans-liste').count()) === 14,
+    `${await page.locator('.liste-ingredients li.deja-dans-liste').count()} marques`
+  );
+  verifier(
+    'les cases des ingredients deja presents sont desactivees',
+    (await page.locator('.case-ingredient[disabled]').count()) === 14
+  );
 
   // Le lien d'en-tete contient aussi le badge : cibler la classe, pas le texte exact.
   await page.locator('.bouton-entete').click();
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(700);
   const courses = await texte();
   verifier('la liste de courses est atteinte', page.url().includes('#/liste-de-courses'), page.url());
+  verifier('le titre annonce une liste commune', /Liste de courses commune/.test(courses));
   verifier('la liste groupe par recette', /Lasagnes bolognaise/.test(courses));
-  verifier('la liste compte 14 articles', /sur 14/.test(courses), courses.slice(0, 200));
+  verifier('la liste compte 14 articles', /sur 14/.test(courses), courses.slice(0, 250));
   verifier('les quantites sont reprises', /300 g/.test(courses));
+  verifier("l etat de synchronisation est affiche", /à jour/.test(courses), courses.slice(0, 250));
 
   await page.locator('.liste-courses input[type="checkbox"]').first().click();
-  await page.waitForTimeout(400);
-  verifier('cocher decremente le compteur', /13 articles à acheter sur 14/.test(await texte()), (await texte()).slice(0, 200));
+  await page.waitForTimeout(700);
+  verifier('cocher decremente le compteur', /13 articles à acheter sur 14/.test(await texte()), (await texte()).slice(0, 250));
   verifier('l article coche est barre', (await page.locator('.liste-courses li.coche').count()) === 1);
+  verifier('un bouton de retrait des coches apparait', /Retirer les 1 cochés/.test(await texte()));
 
-  // Persistance
+  // Persistance : la liste vient desormais du serveur, pas du seul cache local
   await page.reload({ waitUntil: 'networkidle' });
-  await page.waitForTimeout(500);
-  verifier('la liste survit au rechargement', /13 articles à acheter sur 14/.test(await texte()));
+  await page.waitForTimeout(1500);
+  verifier('la liste survit au rechargement', /13 articles à acheter sur 14/.test(await texte()), (await texte()).slice(0, 250));
 
-  // Supprimer un article
+  // Retirer uniquement les articles coches
+  await page.locator('#retirer-coches').click();
+  await page.waitForTimeout(700);
+  // Pas d'ancre \b ici : dans textContent les elements sont colles (« Ajouter13
+  // articles... »), il n'y a donc pas de limite de mot autour des nombres.
+  verifier(
+    'retirer les coches ne laisse que les articles restants',
+    /13 articles à acheter sur 13/.test(await texte()),
+    (await page.locator('.barre-resultats span').first().textContent()) || ''
+  );
+  verifier(
+    'plus aucun article coche apres retrait',
+    (await page.locator('.liste-courses li.coche').count()) === 0
+  );
+  verifier('13 lignes restent affichees', (await page.locator('.liste-courses li').count()) === 13);
+
+  // Supprimer un article isole
   await page.locator('.supprimer').first().click();
-  await page.waitForTimeout(400);
-  verifier('supprimer un article met la liste a jour', /sur 13/.test(await texte()), (await texte()).slice(0, 200));
+  await page.waitForTimeout(700);
+  verifier('supprimer un article met la liste a jour', /sur 12/.test(await texte()), (await texte()).slice(0, 250));
 
   await page.getByText('Vider la liste', { exact: true }).click();
-  await page.waitForTimeout(400);
-  verifier('vider la liste affiche l etat vide', /Liste de courses vide/.test(await texte()));
+  await page.waitForTimeout(900);
+  verifier('vider la liste affiche l etat vide', /La liste est vide/.test(await texte()), (await texte()).slice(0, 250));
   verifier('le badge disparait', await page.locator('#badge-courses').isHidden());
 
   // Identifiant inconnu

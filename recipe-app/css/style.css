@@ -1,6 +1,5 @@
 /* Thème « carnet de cuisine chaleureux ».
-   Les valeurs de la palette sont la copie de recipe-app-native/src/theme/colors.js :
-   toute modification ici doit y être reportée, et réciproquement. */
+   Le bloc :root ci-dessous est la source unique des couleurs du carnet. */
 
 :root {
   --fond: #fbf3e6;
@@ -771,5 +770,134 @@ body {
   a {
     color: #000;
     text-decoration: none;
+  }
+}
+
+/* --- Liste commune : etat de synchronisation, ajout libre, selection ------- */
+
+.sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: var(--surface-creuse);
+  border-radius: var(--rayon-md);
+  border-left: 4px solid var(--bordure-forte);
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-doux);
+}
+.sync--ok {
+  border-left-color: var(--olive);
+}
+.sync--hors-ligne {
+  border-left-color: var(--ocre);
+}
+.sync__etat {
+  flex: 1;
+  min-width: 200px;
+}
+.sync__erreur {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--terracotta-sombre);
+  overflow-wrap: anywhere;
+}
+
+.ajout-libre {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.champ-ajout {
+  flex: 1 1 200px;
+  padding: 10px 13px;
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--texte);
+  background: var(--surface);
+  border: 1px solid var(--bordure-forte);
+  border-radius: var(--rayon-md);
+}
+.champ-ajout--quantite {
+  flex: 0 1 130px;
+}
+.champ-ajout:focus {
+  outline: 2px solid var(--terracotta);
+  outline-offset: 1px;
+}
+
+.actions-liste {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+/* Ingredients cochables sur la fiche recette */
+.liste-ingredients--selectionnable li {
+  align-items: center;
+}
+.liste-ingredients--selectionnable label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+.liste-ingredients--selectionnable .nom {
+  flex: 1;
+}
+.case-ingredient {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  accent-color: var(--terracotta);
+}
+.liste-ingredients--selectionnable li.deja-dans-liste label {
+  cursor: default;
+  color: var(--texte-faible);
+}
+.liste-ingredients--selectionnable li.deja-dans-liste .quantite {
+  color: var(--texte-faible);
+}
+.marque-presence {
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--olive);
+  white-space: nowrap;
+}
+
+.actions-selection {
+  margin-top: 16px;
+}
+.bouton:disabled {
+  background: var(--surface-creuse);
+  border-color: var(--bordure-forte);
+  color: var(--texte-faible);
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .marque-presence {
+    display: none;
+  }
+}
+
+@media print {
+  /* Rien de tout cela n'a de sens sur une feuille imprimee. */
+  .sync,
+  .ajout-libre,
+  .actions-liste,
+  .actions-selection,
+  .case-ingredient,
+  .marque-presence {
+    display: none !important;
   }
 }

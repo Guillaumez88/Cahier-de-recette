@@ -13,10 +13,12 @@ const http = require('http');
 
 const ici = __dirname;
 const projet = path.join(ici, '..');
-const PORT = Number(process.env.PORT || 8102);
+const PORT = Number(process.env.PORT || 8104);
 const URL_BASE = `http://127.0.0.1:${PORT}/`;
 
-const serveur = spawn(process.execPath, [path.join(ici, 'serveur.js'), projet, String(PORT)], {
+// serveur-test.js sert le site ET l'emulation de Firestore sur le meme port : la
+// page testee est celle du depot, seules les URL de service sont redirigees.
+const serveur = spawn(process.execPath, [path.join(ici, 'serveur-test.js'), String(PORT)], {
   stdio: 'ignore',
 });
 
@@ -49,10 +51,25 @@ function attendre(url, restants = 40) {
 
 (async () => {
   await attendre(URL_BASE);
-  console.log(`\n=== Test navigateur : ${URL_BASE} ===`);
-  const resultat = spawnSync(process.execPath, [path.join(ici, 'test-web.js'), URL_BASE], { stdio: 'inherit' });
+
+  const suites = [
+    ['Parcours general', 'test-web.js'],
+    ['Liste commune, partage et hors ligne', 'test-partage.js'],
+  ];
+
+  let echecs = 0;
+  for (const [nom, fichier] of suites) {
+    console.log(`\n=== ${nom} : ${URL_BASE} ===`);
+    const resultat = spawnSync(process.execPath, [path.join(ici, fichier), URL_BASE], { stdio: 'inherit' });
+    if (resultat.status !== 0) echecs += 1;
+  }
+
   arreter();
-  process.exit(resultat.status === 0 ? 0 : 1);
+  if (echecs > 0) {
+    console.error(`\n${echecs} suite(s) navigateur en echec.`);
+    process.exit(1);
+  }
+  console.log('\nToutes les suites navigateur passent.');
 })().catch((erreur) => {
   console.error('run-browser-tests :', erreur.message);
   arreter();

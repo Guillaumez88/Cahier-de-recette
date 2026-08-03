@@ -43,6 +43,7 @@
       if (nom === 'onclick') noeud.addEventListener('click', valeur);
       else if (nom === 'oninput') noeud.addEventListener('input', valeur);
       else if (nom === 'onchange') noeud.addEventListener('change', valeur);
+      else if (nom === 'onsubmit') noeud.addEventListener('submit', valeur);
       else if (nom === 'texte') noeud.textContent = valeur;
       else noeud.setAttribute(nom, valeur === true ? '' : String(valeur));
     });
@@ -83,8 +84,8 @@
     majBadge();
   }
 
-  // Le badge suit aussi les ecritures faites hors rendu.
-  S.surChangement(majBadge);
+  // Le badge et l'ecran de liste sont rafraichis par surChangementListe(),
+  // abonne au demarrage (voir plus bas).
 
   /* --- vue : accueil ------------------------------------------------------- */
 
@@ -359,14 +360,26 @@
       el('div', { class: 'actions-fiche' }, [
         el('button', {
           type: 'button',
-          class: dansListe ? 'bouton bouton--secondaire' : 'bouton',
-          texte: dansListe ? 'Retirer de la liste de courses' : 'Ajouter à la liste de courses',
+          class: 'bouton',
+          texte: 'Tout ajouter à la liste',
           onclick: function () {
-            if (dansListe) removeRecipeFromList(recette.id);
-            else addRecipeToList(recette);
-            monter(vueRecette(id));
+            addRecipeToList(recette).then(function () {
+              monter(vueRecette(id));
+            });
           },
         }),
+        dansListe
+          ? el('button', {
+              type: 'button',
+              class: 'bouton bouton--secondaire',
+              texte: 'Retirer cette recette de la liste',
+              onclick: function () {
+                removeRecipeFromList(recette.id).then(function () {
+                  monter(vueRecette(id));
+                });
+              },
+            })
+          : null,
         el('button', {
           type: 'button',
           class: 'bouton bouton--secondaire',
@@ -418,25 +431,80 @@
       ])
     );
 
+    // Chaque ingredient est cochable pour n'ajouter qu'une partie de la recette.
+    // Ceux deja dans la liste commune sont marques et non selectionnables : les
+    // recocher n'ajouterait rien, la cle d'un article etant deja prise.
+    var dejaDansListe = S.nomsPresents(getShoppingList(), recette.id);
+    var selection = {};
+
+    function majBoutonSelection() {
+      var bouton = document.getElementById('ajouter-selection');
+      if (!bouton) return;
+      var nb = Object.keys(selection).length;
+      bouton.textContent = nb === 0 ? 'Ajouter la sélection' : `Ajouter la sélection (${nb})`;
+      bouton.disabled = nb === 0;
+    }
+
     fragment.appendChild(
       section(
         'Ingrédients',
-        null,
-        recette.ingredients.map(function (groupe) {
-          return el('div', {}, [
-            groupe.groupe ? el('h3', { class: 'groupe-ingredients__titre', texte: groupe.groupe }) : null,
-            el(
-              'ul',
-              { class: 'liste-ingredients' },
-              groupe.items.map(function (item) {
-                return el('li', {}, [
-                  el('span', { class: 'nom', texte: item.nom }),
-                  el('span', { class: 'quantite', texte: item.quantite }),
-                ]);
-              })
-            ),
-          ]);
-        })
+        'Cochez ceux à mettre dans la liste commune, ou utilisez « Tout ajouter » plus haut.',
+        recette.ingredients
+          .map(function (groupe) {
+            return el('div', {}, [
+              groupe.groupe ? el('h3', { class: 'groupe-ingredients__titre', texte: groupe.groupe }) : null,
+              el(
+                'ul',
+                { class: 'liste-ingredients liste-ingredients--selectionnable' },
+                groupe.items.map(function (item) {
+                  var present = Boolean(dejaDansListe[item.nom]);
+                  var caseCoche = el('input', {
+                    type: 'checkbox',
+                    class: 'case-ingredient',
+                    disabled: present ? true : null,
+                    'data-nom': item.nom,
+                    onchange: function (evenement) {
+                      if (evenement.target.checked) {
+                        selection[item.nom] = { nom: item.nom, quantite: item.quantite, groupe: groupe.groupe || null };
+                      } else {
+                        delete selection[item.nom];
+                      }
+                      majBoutonSelection();
+                    },
+                  });
+
+                  return el('li', { class: present ? 'deja-dans-liste' : null }, [
+                    el('label', {}, [
+                      caseCoche,
+                      el('span', { class: 'nom', texte: item.nom }),
+                      el('span', { class: 'quantite', texte: item.quantite }),
+                    ]),
+                    present ? el('span', { class: 'marque-presence', texte: 'déjà dans la liste' }) : null,
+                  ]);
+                })
+              ),
+            ]);
+          })
+          .concat([
+            el('div', { class: 'actions-selection' }, [
+              el('button', {
+                type: 'button',
+                id: 'ajouter-selection',
+                class: 'bouton',
+                disabled: true,
+                texte: 'Ajouter la sélection',
+                onclick: function () {
+                  var items = Object.keys(selection).map(function (nom) {
+                    return selection[nom];
+                  });
+                  if (items.length === 0) return;
+                  S.addItemsToList(recette, items).then(function () {
+                    monter(vueRecette(id));
+                  });
+                },
+              }),
+            ]),
+          ])
       )
     );
 
@@ -528,6 +596,89 @@
 
   /* --- vue : liste de courses ---------------------------------------------- */
 
+  /** Bandeau d'etat de la synchronisation, avec le bouton de rafraichissement. */
+  function barreSync() {
+    var e = S.etatSync();
+
+    var libelle;
+    var classe = 'sync';
+    if (e.enCours) {
+      libelle = 'Synchronisation…';
+    } else if (e.enLigne === true) {
+      var heure = e.dernierSucces ? new Date(e.dernierSucces).toLocaleTimeString('fr-FR') : null;
+      libelle = heure ? 'Liste commune, à jour à ' + heure : 'Liste commune, à jour';
+      classe += ' sync--ok';
+    } else if (e.enLigne === false) {
+      libelle =
+        e.enAttente > 0
+          ? 'Hors ligne, ' + e.enAttente + ' modification' + (e.enAttente > 1 ? 's' : '') + ' en attente d’envoi'
+          : 'Hors ligne, liste affichée depuis la copie locale';
+      classe += ' sync--hors-ligne';
+    } else {
+      libelle = 'Connexion…';
+    }
+
+    return el('div', { class: classe }, [
+      el('span', { class: 'sync__etat', texte: libelle }),
+      el('button', {
+        type: 'button',
+        class: 'lien-action',
+        id: 'rafraichir',
+        texte: 'Rafraîchir',
+        onclick: function () {
+          S.rafraichir().then(function () {
+            monter(vueListeDeCourses());
+          });
+        },
+      }),
+      e.erreur ? el('p', { class: 'sync__erreur', texte: e.erreur }) : null,
+    ]);
+  }
+
+  /** Formulaire d'ajout d'un article hors recette. */
+  function formulaireAjoutLibre() {
+    var champNom = el('input', {
+      type: 'text',
+      class: 'champ-ajout',
+      id: 'ajout-nom',
+      placeholder: 'Ajouter un article (ex. pain)',
+      'aria-label': 'Nom de l’article à ajouter',
+    });
+    var champQuantite = el('input', {
+      type: 'text',
+      class: 'champ-ajout champ-ajout--quantite',
+      id: 'ajout-quantite',
+      placeholder: 'Quantité',
+      'aria-label': 'Quantité',
+    });
+
+    function valider() {
+      var nom = champNom.value;
+      if (!nom.trim()) return;
+      S.addFreeItem(nom, champQuantite.value).then(function () {
+        monter(vueListeDeCourses());
+        // Rendre la saisie enchainable : on remet le focus dans le champ.
+        var suivant = document.getElementById('ajout-nom');
+        if (suivant) suivant.focus();
+      });
+    }
+
+    [champNom, champQuantite].forEach(function (champ) {
+      champ.addEventListener('keydown', function (evenement) {
+        if (evenement.key === 'Enter') {
+          evenement.preventDefault();
+          valider();
+        }
+      });
+    });
+
+    return el('form', { class: 'ajout-libre', onsubmit: function (e) { e.preventDefault(); valider(); } }, [
+      champNom,
+      champQuantite,
+      el('button', { type: 'submit', class: 'bouton', id: 'ajout-valider', texte: 'Ajouter' }),
+    ]);
+  }
+
   function vueListeDeCourses() {
     document.title = 'Liste de courses — Mon carnet de recettes';
 
@@ -535,15 +686,21 @@
     var fragment = document.createDocumentFragment();
 
     fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour au carnet' }));
-    fragment.appendChild(el('h1', { class: 'fiche__titre', texte: 'Liste de courses' }));
+    fragment.appendChild(el('h1', { class: 'fiche__titre', texte: 'Liste de courses commune' }));
+    fragment.appendChild(
+      el('p', { class: 'accroche', texte: 'Partagée : ce que vous cochez ou ajoutez apparaît chez les autres.' })
+    );
+
+    fragment.appendChild(barreSync());
+    fragment.appendChild(formulaireAjoutLibre());
 
     if (articles.length === 0) {
       fragment.appendChild(
         el('div', { class: 'etat-vide' }, [
-          el('p', { texte: 'Liste de courses vide.' }),
+          el('p', { texte: 'La liste est vide.' }),
           el('p', {
             texte:
-              'Ouvrez une recette et utilisez « Ajouter à la liste de courses » pour y verser ses ingrédients.',
+              'Ouvrez une recette pour y verser ses ingrédients, ou ajoutez un article directement ci-dessus.',
           }),
         ])
       );
@@ -553,14 +710,14 @@
     var restants = articles.filter(function (a) {
       return !a.coche;
     }).length;
+    var coches = articles.length - restants;
 
     fragment.appendChild(
       el('div', { class: 'barre-resultats' }, [
         el('span', {
-          texte:
-            restants + ' article' + (restants > 1 ? 's' : '') + ' à acheter sur ' + articles.length,
+          texte: restants + ' article' + (restants > 1 ? 's' : '') + ' à acheter sur ' + articles.length,
         }),
-        el('div', {}, [
+        el('div', { class: 'actions-liste' }, [
           el('button', {
             type: 'button',
             class: 'lien-action',
@@ -569,14 +726,27 @@
               window.print();
             },
           }),
-          el('span', { texte: '  ' }),
+          coches > 0
+            ? el('button', {
+                type: 'button',
+                class: 'lien-action',
+                id: 'retirer-coches',
+                texte: 'Retirer les ' + coches + ' cochés',
+                onclick: function () {
+                  S.removeCheckedArticles().then(function () {
+                    monter(vueListeDeCourses());
+                  });
+                },
+              })
+            : null,
           el('button', {
             type: 'button',
             class: 'lien-action',
             texte: 'Vider la liste',
             onclick: function () {
-              clearShoppingList();
-              monter(vueListeDeCourses());
+              clearShoppingList().then(function () {
+                monter(vueListeDeCourses());
+              });
             },
           }),
         ]),
@@ -594,8 +764,9 @@
               texte: 'Retirer',
               'aria-label': 'Retirer les ingrédients de ' + groupe.titre,
               onclick: function () {
-                removeRecipeFromList(groupe.recetteId);
-                monter(vueListeDeCourses());
+                removeRecipeFromList(groupe.recetteId).then(function () {
+                  monter(vueListeDeCourses());
+                });
               },
             }),
           ]),
@@ -607,8 +778,9 @@
                 type: 'checkbox',
                 checked: article.coche ? true : null,
                 onchange: function () {
-                  toggleArticle(article.cle);
-                  monter(vueListeDeCourses());
+                  toggleArticle(article.cle).then(function () {
+                    monter(vueListeDeCourses());
+                  });
                 },
               });
               return el('li', { class: article.coche ? 'coche' : null }, [
@@ -623,8 +795,9 @@
                   texte: '×',
                   'aria-label': 'Supprimer ' + article.nom,
                   onclick: function () {
-                    removeArticle(article.cle);
-                    monter(vueListeDeCourses());
+                    removeArticle(article.cle).then(function () {
+                      monter(vueListeDeCourses());
+                    });
                   },
                 }),
               ]);
@@ -681,6 +854,28 @@
     );
   }
 
+  /* --- rafraichissement automatique de la liste commune --------------------- */
+
+  function surEcranListe() {
+    return window.location.hash.replace(/^#/, '') === '/liste-de-courses';
+  }
+
+  /**
+   * Un rafraichissement peut survenir pendant que l'utilisateur tape dans le champ
+   * d'ajout : re-rendre effacerait sa saisie. On saute donc le re-rendu tant qu'un
+   * champ a le focus. Le sondage suivant s'en chargera.
+   */
+  function saisieEnCours() {
+    var actif = document.activeElement;
+    if (!actif) return false;
+    return actif.tagName === 'INPUT' || actif.tagName === 'TEXTAREA';
+  }
+
+  function surChangementListe() {
+    majBadge();
+    if (surEcranListe() && !saisieEnCours()) monter(vueListeDeCourses());
+  }
+
   function demarrer() {
     fetch('data/recipes.json')
       .then(function (reponse) {
@@ -691,6 +886,11 @@
         etat.recettes = recettes;
         window.addEventListener('hashchange', router);
         router();
+
+        // Le sondage n'est lance qu'une fois les recettes chargees : avant, l'ecran
+        // ne peut rien afficher d'utile de toute facon.
+        S.surChangement(surChangementListe);
+        S.demarrer();
       })
       .catch(function (erreur) {
         afficherErreurChargement(erreur.message);

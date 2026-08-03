@@ -39,10 +39,16 @@ jobs:
         run: node tests/run-tests.js
         working-directory: recipe-app
 
+      # Ces tests n'appellent jamais le vrai Firebase : ils lancent l'émulation
+      # de tests/stub-firestore.js sur un port local.
+      - name: Tests de la synchronisation de la liste commune
+        run: node tests/run-sync-tests.js
+        working-directory: recipe-app
+
       - name: Vérifier que le site est complet
         run: |
           cd recipe-app
-          for f in index.html favicon.svg css/style.css js/logic.js js/storage.js js/app.js data/recipes.json; do
+          for f in index.html favicon.svg css/style.css js/logic.js js/sync.js js/storage.js js/firebase-config.js js/app.js data/recipes.json; do
             test -f "$f" || { echo "manquant : $f"; exit 1; }
           done
           node -e "const r=require('./data/recipes.json'); if(r.length!==17) throw new Error(r.length+' recettes au lieu de 17'); console.log(r.length+' recettes')"
