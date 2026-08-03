@@ -1,4 +1,4 @@
-// Test navigateur reel de la v1 web statique.
+// Test navigateur reel du carnet, dans un vrai Chromium.
 // Resolution de Playwright et de Chromium.
 // Playwright n'est pas une dependance du projet (elle pese lourd pour un carnet de
 // recettes) : ces tests utilisent l'installation disponible sur la machine. Deux

@@ -1,4 +1,0 @@
-{
-  "_commentaire": "Sous-chemin sous lequel le site est servi. GitHub Pages publie ce dépôt sur https://guillaumez88.github.io/Cahier-de-recette/, donc un sous-chemin et non la racine du domaine. Valeur lue à la fois par app.config.js (experiments.baseUrl, qui préfixe les actifs à la compilation) et par App.js (routage des URL). Mettre \"\" pour un hébergement à la racine.",
-  "basePath": "/Cahier-de-recette"
-}
