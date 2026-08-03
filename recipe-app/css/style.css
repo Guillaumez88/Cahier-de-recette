@@ -1,29 +1,105 @@
-/* Thème « carnet de cuisine chaleureux ».
-   Le bloc :root ci-dessous est la source unique des couleurs du carnet. */
+/* Thème « Organic » : crème, terracotta, sauge, formes très arrondies.
+   Le bloc :root ci-dessous est la source unique des couleurs, des rayons et de
+   l'échelle d'espacement.
+
+   Issu de la refonte UX du 3 août 2026 (voir docs/BRIEF-UX-2026-08-03.md et le
+   handoff de design). Deux écarts délibérés par rapport au prototype, imposés par
+   les contraintes du dépôt : les polices Caprasimo et Figtree sont remplacées par
+   des polices système, et les ombres sont écrites en rgba plutôt qu'en color-mix,
+   qui n'est pas encore partout.
+
+   Les anciens noms de variables (--fond, --terracotta, --texte-doux…) sont conservés
+   comme alias des nouveaux : ils sont utilisés dans plus de deux mille lignes de
+   feuille de style, et les renommer d'un coup aurait mélangé un changement de
+   palette avec un changement de nommage, donc rendu toute régression illisible. */
 
 :root {
-  --fond: #fbf3e6;
-  --surface: #fffdf8;
-  --surface-creuse: #f4e8d5;
+  /* --- Palette Organic --------------------------------------------------- */
+  --organic-fond: #f5ead8;
+  --organic-surface: #fffdf9;
+  --organic-creux: #ebddc5;
+  --organic-encre: #201e1d;
 
-  --terracotta: #c2542d;
-  --terracotta-sombre: #9c3f1e;
-  --terracotta-clair: #f0d6c8;
+  --accent-100: #fff2eb;
+  --accent-200: #ffe1d0;
+  --accent-300: #ffc6a5;
+  --accent-400: #f6a06b;
+  --accent-500: #d67f48;
+  --accent-600: #b2622d;
+  --accent-700: #8c491a;
+  --accent-800: #643312;
+  --accent-900: #402310;
 
-  --texte: #3a2e28;
-  --texte-doux: #7a6a5f;
-  --texte-faible: #9e9086;
+  --sauge-100: #f0fae1;
+  --sauge-200: #e1eecc;
+  --sauge-300: #ccdbb2;
+  --sauge-400: #aebf92;
+  --sauge-500: #8fa073;
+  --sauge-600: #728157;
+  --sauge-700: #56633f;
+  --sauge-800: #3d472b;
+  --sauge-900: #272e1b;
 
-  --bordure: #e5d5be;
-  --bordure-forte: #d3bc9c;
+  --neutre-100: #f9f4ed;
+  --neutre-200: #eee7db;
+  --neutre-300: #dcd3c4;
+  --neutre-400: #c0b6a5;
+  --neutre-500: #a19786;
+  --neutre-600: #82796a;
+  --neutre-700: #645c50;
+  --neutre-800: #474238;
+  --neutre-900: #2e2b25;
 
-  --olive: #5f7a54;
-  --ocre: #c98b2e;
+  /* --- Rôles, utilisés par le reste de la feuille ------------------------ */
+  --fond: var(--organic-fond);
+  --surface: var(--organic-surface);
+  --surface-creuse: var(--organic-creux);
+
+  --terracotta: #c67139;
+  --terracotta-sombre: var(--accent-700);
+  --terracotta-clair: var(--accent-100);
+
+  --texte: var(--organic-encre);
+  --texte-doux: var(--neutre-700);
+  --texte-faible: var(--neutre-600);
+
+  --bordure: var(--neutre-300);
+  --bordure-forte: var(--neutre-400);
+
+  --olive: var(--sauge-700);
+  --ocre: #b2622d;
+  --danger: #9c3323;
   --blanc: #ffffff;
 
-  --rayon-sm: 6px;
-  --rayon-md: 10px;
-  --rayon-lg: 16px;
+  /* --- Formes ------------------------------------------------------------
+     Le prototype va jusqu'à 28 px et met les boutons et les champs en pilule.
+     C'est ce qui donne son caractère au thème, plus que la couleur. */
+  --rayon-sm: 8px;
+  --rayon-md: 16px;
+  --rayon-lg: 28px;
+  --rayon-pilule: 999px;
+
+  /* --- Espacements, échelle x1,10 a partir de 4,4 px --------------------- */
+  --espace-1: 4.4px;
+  --espace-2: 8.8px;
+  --espace-3: 13.2px;
+  --espace-4: 17.6px;
+  --espace-6: 26.4px;
+  --espace-8: 35.2px;
+
+  /* --- Élévation --------------------------------------------------------- */
+  --ombre-sm: 0 1px 2px rgba(46, 43, 37, 0.14);
+  --ombre-md: 0 3px 10px rgba(46, 43, 37, 0.16);
+  --ombre-lg: 0 12px 32px rgba(46, 43, 37, 0.22);
+
+  /* --- Typographie -------------------------------------------------------
+     Le prototype utilise Caprasimo pour les titres et Figtree pour le corps.
+     Aucune police ne peut être téléchargée ici : on garde le contraste des deux
+     familles avec des piles système, une serif de caractère pour les titres et
+     une sans-serif pour le corps et l'interface. C'est l'inverse de la version
+     précédente, où le corps était en serif. */
+  --police-titre: "Iowan Old Style", "Palatino Linotype", Palatino, "Hoefler Text", Georgia, serif;
+  --police-corps: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
   --largeur-max: 1080px;
 }
@@ -38,9 +114,29 @@ body {
   margin: 0;
   background: var(--fond);
   color: var(--texte);
-  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
-  font-size: 17px;
+  font-family: var(--police-corps);
+  font-size: 16.5px;
   line-height: 1.55;
+}
+
+/* Les titres portent le caractère du thème. La règle est posée une fois ici plutôt
+   que répétée sur chaque classe : tout élément de titre en hérite. */
+h1,
+h2,
+h3,
+h4,
+.marque,
+.fiche__titre,
+.entree__titre,
+.section__titre,
+.carte__titre,
+.boite__titre,
+.semainier__titre,
+.semaine__titre,
+.choix-plat__titre,
+.validation-plat__titre {
+  font-family: var(--police-titre);
+  letter-spacing: -0.01em;
 }
 
 .conteneur {
@@ -97,6 +193,17 @@ body {
   height: 26px;
   border-radius: 3px;
   background: var(--terracotta);
+}
+
+.bouton,
+.bouton-entete,
+.champ-recherche,
+.champ-ajout,
+.pilule,
+.pastille,
+.boite__fermer,
+.bouton-pas {
+  border-radius: var(--rayon-pilule);
 }
 
 .bouton-entete {
@@ -386,14 +493,18 @@ body {
 }
 
 .bouton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: 11px 20px;
   font-family: inherit;
-  font-size: 16px;
+  font-size: 15.5px;
   font-weight: 700;
   color: var(--blanc);
   background: var(--terracotta);
   border: 1px solid var(--terracotta);
-  border-radius: var(--rayon-md);
+  border-radius: var(--rayon-pilule);
   cursor: pointer;
 }
 .bouton:hover {
