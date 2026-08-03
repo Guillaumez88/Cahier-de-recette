@@ -267,8 +267,72 @@
     }
   }
 
+  // --- Recettes modifiees -----------------------------------------------------
+  //
+  // Une recette modifiee est enregistree dans la collection `recettes`, un document
+  // par recette, sous la forme d'une seule chaine JSON.
+  //
+  // Pourquoi une chaine et non des champs Firestore : une recette est un objet
+  // profondement imbrique (groupes d'ingredients, etapes, astuces, tableau de flux).
+  // La representer en champs Firestore demanderait des arrayValue et mapValue
+  // imbriques, donc un encodeur bien plus lourd, pour un benefice nul ici : on ne
+  // fait jamais de requete sur un champ interne d'une recette, on la lit en entier.
+  // Le cout assume est qu'une recette n'est pas interrogeable cote serveur.
+
+  function cheminRecettes() {
+    return `projects/${config.projectId}/databases/(default)/documents/recettes`;
+  }
+
+  /** Lit toutes les recettes modifiees. Retourne { id: recette }. */
+  async function lireRecettesModifiees() {
+    var corps = await requete(`${cheminRecettes()}?pageSize=300`, { method: 'GET' });
+    var resultat = {};
+    (corps && corps.documents ? corps.documents : []).forEach(function (document_) {
+      var champs = champsVersObjet(document_.fields);
+      if (!champs.json) return;
+      try {
+        var recette = JSON.parse(champs.json);
+        if (recette && recette.id) resultat[recette.id] = recette;
+      } catch (erreur) {
+        // Document illisible : on l'ignore plutot que de casser le chargement.
+      }
+    });
+    return resultat;
+  }
+
+  /** Enregistre une recette modifiee, en remplacant la precedente version. */
+  async function ecrireRecette(recette) {
+    var id = idDocument(recette.id);
+    return requete(`${cheminRecettes()}/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: objetVersChamps({
+          recetteId: recette.id,
+          json: JSON.stringify(recette),
+          modifieLe: new Date().toISOString(),
+        }),
+      }),
+    });
+  }
+
+  /** Supprime la version modifiee d'une recette, ce qui restaure l'originale. */
+  async function supprimerRecette(recetteId) {
+    var id = idDocument(recetteId);
+    try {
+      return await requete(`${cheminRecettes()}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch (erreur) {
+      if (erreur.statut === 404) return null;
+      throw erreur;
+    }
+  }
+
   var api = {
     idDocument: idDocument,
+    cheminRecettes: cheminRecettes,
+    lireRecettesModifiees: lireRecettesModifiees,
+    ecrireRecette: ecrireRecette,
+    supprimerRecette: supprimerRecette,
     versFirestore: versFirestore,
     depuisFirestore: depuisFirestore,
     champsVersObjet: champsVersObjet,

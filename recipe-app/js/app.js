@@ -12,6 +12,8 @@
   var L = window.CarnetLogic;
   var S = window.CarnetStorage;
   var R = window.CarnetRayons;
+  var Rc = window.CarnetRecettes;
+  var Q = window.CarnetQuantites;
 
   var criteresVides = L.criteresVides;
   var origineCourte = L.origineCourte;
@@ -91,15 +93,16 @@
   /* --- vue : accueil ------------------------------------------------------- */
 
   function vueAccueil() {
-    var resultats = filterRecipes(etat.recettes, etat.criteres);
-    var options = optionsDisponibles(etat.recettes);
+    var recettes = Rc.toutes();
+    var resultats = filterRecipes(recettes, etat.criteres);
+    var options = optionsDisponibles(recettes);
     var fragment = document.createDocumentFragment();
 
     fragment.appendChild(
       el('p', {
         class: 'accroche',
         texte:
-          etat.recettes.length +
+          recettes.length +
           ' recettes rassemblées, avec leurs astuces, leurs variantes et ce que leur source ne dit pas.',
       })
     );
@@ -324,10 +327,7 @@
   }
 
   function vueRecette(id) {
-    var recette = null;
-    for (var i = 0; i < etat.recettes.length; i += 1) {
-      if (etat.recettes[i].id === id) recette = etat.recettes[i];
-    }
+    var recette = Rc.parId(id);
 
     if (!recette) {
       return el('div', {}, [
@@ -346,6 +346,9 @@
 
     fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour au carnet' }));
 
+    var bandeauFiche = bandeauErreurRecettes();
+    if (bandeauFiche) fragment.appendChild(bandeauFiche);
+
     fragment.appendChild(
       el('div', { class: 'fiche__etiquettes' }, [
         el('span', { class: classeCategorie('etiquette', recette.categorie), texte: recette.categorie }),
@@ -355,7 +358,15 @@
     );
 
     fragment.appendChild(el('h1', { class: 'fiche__titre', texte: recette.titre }));
-    fragment.appendChild(el('p', { class: 'fiche__portions', texte: recette.portions }));
+    fragment.appendChild(
+      el('p', { class: 'fiche__portions' }, [
+        el('span', { texte: recette.portions }),
+        // Signale une fiche qui ne correspond plus a la source citee plus bas.
+        Rc.estModifiee(id)
+          ? el('span', { class: 'marque-modifiee', texte: 'fiche modifiée' })
+          : null,
+      ])
+    );
 
     fragment.appendChild(
       el('div', { class: 'actions-fiche' }, [
@@ -381,6 +392,12 @@
               },
             })
           : null,
+        el('a', {
+          class: 'bouton bouton--secondaire',
+          id: 'modifier-recette',
+          href: '#/recette/' + id + '/modifier',
+          texte: 'Modifier la recette',
+        }),
         el('button', {
           type: 'button',
           class: 'bouton bouton--secondaire',
@@ -850,13 +867,487 @@
     return fragment;
   }
 
+  /* --- vue : modification d'une recette ------------------------------------- */
+
+  // Brouillon en cours d'edition, garde hors du rendu pour survivre aux re-rendus
+  // declenches par l'ajout ou le retrait d'une ligne.
+  var brouillon = null;
+
+  /** Champ de saisie lie a une propriete du brouillon, sans re-rendu a la frappe. */
+  function champ(valeurInitiale, surSaisie, options) {
+    options = options || {};
+    return el(options.multiligne ? 'textarea' : 'input', {
+      class: options.classe || 'champ-edition',
+      type: options.multiligne ? null : 'text',
+      rows: options.multiligne ? String(options.lignes || 3) : null,
+      value: options.multiligne ? null : valeurInitiale || '',
+      texte: options.multiligne ? valeurInitiale || '' : null,
+      placeholder: options.placeholder || null,
+      'aria-label': options.libelle || null,
+      oninput: function (evenement) {
+        surSaisie(evenement.target.value);
+      },
+    });
+  }
+
+  /** Ligne « libellé : champ » du formulaire. */
+  function ligneChamp(libelle, noeud) {
+    return el('label', { class: 'ligne-edition' }, [
+      el('span', { class: 'ligne-edition__libelle', texte: libelle }),
+      noeud,
+    ]);
+  }
+
+  /** Bloc de reglage du nombre de parts, avec recalcul des quantites. */
+  function blocPortions(id) {
+    var portions = Q.analyserPortions(brouillon.portions);
+
+    if (portions.nombre === null) {
+      return el('div', { class: 'bloc-portions bloc-portions--impossible' }, [
+        el('p', {
+          texte:
+            'Le nombre de parts « ' +
+            brouillon.portions +
+            ' » ne commence pas par un nombre : le recalcul automatique des quantités n’est pas possible. Modifiez-le à la main ci-dessous.',
+        }),
+      ]);
+    }
+
+    function appliquer(nouveau) {
+      if (!(nouveau > 0)) return;
+      var resultat = Rc.echelonner(brouillon, nouveau);
+      if (!resultat.possible) return;
+      brouillon = resultat.recette;
+      brouillon.__dernierEchelonnage = {
+        facteur: resultat.facteur,
+        remplacements: resultat.remplacements,
+        ignorees: resultat.ignorees,
+      };
+      monter(vueModifier(id));
+    }
+
+    var champNombre = el('input', {
+      type: 'number',
+      class: 'champ-portions',
+      id: 'nombre-parts',
+      min: '0.5',
+      step: '0.5',
+      value: String(portions.nombre),
+      'aria-label': 'Nombre de parts',
+      onchange: function (evenement) {
+        appliquer(Number(evenement.target.value));
+      },
+    });
+
+    var dernier = brouillon.__dernierEchelonnage;
+
+    return el('div', { class: 'bloc-portions' }, [
+      el('div', { class: 'bloc-portions__reglage' }, [
+        el('span', { class: 'ligne-edition__libelle', texte: 'Nombre de parts' }),
+        el('button', {
+          type: 'button',
+          class: 'bouton-pas',
+          id: 'parts-moins',
+          texte: '−',
+          'aria-label': 'Diminuer le nombre de parts',
+          onclick: function () {
+            appliquer(portions.nombre - 1);
+          },
+        }),
+        champNombre,
+        el('button', {
+          type: 'button',
+          class: 'bouton-pas',
+          id: 'parts-plus',
+          texte: '+',
+          'aria-label': 'Augmenter le nombre de parts',
+          onclick: function () {
+            appliquer(portions.nombre + 1);
+          },
+        }),
+        el('span', { class: 'bloc-portions__libelle', texte: portions.libelle }),
+      ]),
+      el('p', {
+        class: 'bloc-portions__aide',
+        texte:
+          'Changer ce nombre recalcule proportionnellement les quantités des ingrédients, et celles qui figurent dans les instructions. Les durées et les températures ne sont jamais modifiées.',
+      }),
+      dernier
+        ? el('div', { class: 'bloc-portions__rapport', id: 'rapport-echelonnage' }, [
+            el('p', {
+              texte:
+                'Dernier recalcul : facteur ' +
+                Q.formatNombre(dernier.facteur) +
+                '. ' +
+                dernier.remplacements.length +
+                ' quantité' +
+                (dernier.remplacements.length > 1 ? 's' : '') +
+                ' ajustée' +
+                (dernier.remplacements.length > 1 ? 's' : '') +
+                ' dans les instructions.',
+            }),
+            dernier.remplacements.length
+              ? el('p', {
+                  class: 'bloc-portions__detail',
+                  texte: dernier.remplacements
+                    .map(function (r) {
+                      return r.avant + ' → ' + r.apres;
+                    })
+                    .join(' · '),
+                })
+              : null,
+            dernier.ignorees.length
+              ? el('p', {
+                  class: 'bloc-portions__detail',
+                  texte:
+                    'Laissé inchangé, faute de quantité chiffrée : ' + dernier.ignorees.join(', ') + '.',
+                })
+              : null,
+          ])
+        : null,
+    ]);
+  }
+
+  /** Section des ingredients, editable, groupe par groupe. */
+  function blocIngredients(id) {
+    return el(
+      'div',
+      { class: 'bloc-edition' },
+      brouillon.ingredients
+        .map(function (groupe, indexGroupe) {
+          return el('div', { class: 'groupe-edition' }, [
+            ligneChamp(
+              'Section',
+              champ(groupe.groupe || '', function (valeur) {
+                groupe.groupe = valeur.trim() === '' ? null : valeur;
+              }, { placeholder: 'Sans section', libelle: 'Nom de la section d’ingrédients' })
+            ),
+            el(
+              'ul',
+              { class: 'liste-edition' },
+              groupe.items.map(function (item, indexItem) {
+                return el('li', {}, [
+                  champ(item.nom, function (valeur) {
+                    item.nom = valeur;
+                  }, { classe: 'champ-edition champ-edition--nom', libelle: 'Nom de l’ingrédient' }),
+                  champ(item.quantite, function (valeur) {
+                    item.quantite = valeur;
+                  }, { classe: 'champ-edition champ-edition--quantite', libelle: 'Quantité', placeholder: 'Quantité' }),
+                  el('span', { class: 'rayon-indique', texte: R.rayonDe(item.nom) }),
+                  el('button', {
+                    type: 'button',
+                    class: 'supprimer',
+                    texte: '×',
+                    'aria-label': 'Supprimer ' + item.nom,
+                    onclick: function () {
+                      groupe.items.splice(indexItem, 1);
+                      if (groupe.items.length === 0 && brouillon.ingredients.length > 1) {
+                        brouillon.ingredients.splice(indexGroupe, 1);
+                      }
+                      monter(vueModifier(id));
+                    },
+                  }),
+                ]);
+              })
+            ),
+            el('button', {
+              type: 'button',
+              class: 'lien-action',
+              texte: 'Ajouter un ingrédient',
+              onclick: function () {
+                groupe.items.push({ nom: '', quantite: '' });
+                monter(vueModifier(id));
+              },
+            }),
+          ]);
+        })
+        .concat([
+          el('button', {
+            type: 'button',
+            class: 'lien-action',
+            texte: 'Ajouter une section',
+            onclick: function () {
+              brouillon.ingredients.push({ groupe: '', items: [{ nom: '', quantite: '' }] });
+              monter(vueModifier(id));
+            },
+          }),
+        ])
+    );
+  }
+
+  /** Section des etapes, editable. */
+  function blocInstructions(id) {
+    return el(
+      'div',
+      { class: 'bloc-edition' },
+      brouillon.instructions
+        .map(function (etape, index) {
+          return el('div', { class: 'etape-edition' }, [
+            el('div', { class: 'etape-edition__haut' }, [
+              el('span', { class: 'etape__numero', texte: String(index + 1) }),
+              el('button', {
+                type: 'button',
+                class: 'supprimer',
+                texte: '×',
+                'aria-label': 'Supprimer l’étape ' + (index + 1),
+                onclick: function () {
+                  brouillon.instructions.splice(index, 1);
+                  renumeroter();
+                  monter(vueModifier(id));
+                },
+              }),
+            ]),
+            champ(etape.texte, function (valeur) {
+              etape.texte = valeur;
+            }, { multiligne: true, lignes: 3, libelle: 'Texte de l’étape ' + (index + 1) }),
+            champ(etape.astuce || '', function (valeur) {
+              etape.astuce = valeur.trim() === '' ? null : valeur;
+            }, { multiligne: true, lignes: 2, placeholder: 'Astuce (facultatif)', libelle: 'Astuce de l’étape ' + (index + 1) }),
+          ]);
+        })
+        .concat([
+          el('button', {
+            type: 'button',
+            class: 'lien-action',
+            texte: 'Ajouter une étape',
+            onclick: function () {
+              brouillon.instructions.push({ numero: brouillon.instructions.length + 1, texte: '', astuce: null });
+              monter(vueModifier(id));
+            },
+          }),
+        ])
+    );
+  }
+
+  /**
+   * Renumerote les etapes apres un ajout ou un retrait.
+   * Les libelles non numeriques sont conserves : la source des lasagnes appelle sa
+   * derniere etape « Pour finir », et ce n'est pas a l'editeur de la renommer.
+   */
+  function renumeroter() {
+    var compteur = 0;
+    brouillon.instructions.forEach(function (etape) {
+      if (typeof etape.numero === 'number') {
+        compteur += 1;
+        etape.numero = compteur;
+      } else {
+        compteur += 1;
+      }
+    });
+  }
+
+  /**
+   * Bandeau d'erreur des recettes modifiees.
+   *
+   * Sans lui, une modification qui n'a pas pu partir resterait visible en local et
+   * disparaitrait au rechargement suivant, sans explication. Le cas le plus probable
+   * est un refus de Firestore parce que les regles de firestore.rules n'ont pas ete
+   * republiees apres l'ajout de la collection des recettes.
+   */
+  function bandeauErreurRecettes() {
+    var e = Rc.etatChargement();
+    if (!e.erreur) return null;
+
+    var explication = 'Les modifications de recettes ne sont pas enregistrées sur le serveur.';
+    if (/PERMISSION_DENIED|Missing or insufficient permissions/i.test(e.erreur)) {
+      explication +=
+        ' Firestore refuse l’accès à la collection « recettes » : les règles de sécurité du projet doivent être republiées à partir du fichier firestore.rules du dépôt.';
+    } else {
+      explication += ' Ce qui est modifié ici reste sur cet appareil jusqu’au rétablissement.';
+    }
+
+    return el('div', { class: 'etat-erreur etat-erreur--compact', id: 'erreur-recettes' }, [
+      el('p', { texte: explication }),
+      el('p', { class: 'url-source', texte: e.erreur }),
+    ]);
+  }
+
+  function vueModifier(id) {
+    var recette = Rc.parId(id);
+
+    if (!recette) {
+      return el('div', {}, [
+        el('a', { class: 'retour', href: '#/', texte: '‹ Retour au carnet' }),
+        el('div', { class: 'etat-erreur' }, [
+          el('h1', { texte: 'Recette introuvable' }),
+          el('p', { texte: 'L’identifiant « ' + id + ' » ne correspond à aucune fiche.' }),
+        ]),
+      ]);
+    }
+
+    // Nouveau brouillon seulement si l'on change de recette : sinon on repartirait
+    // de zero a chaque re-rendu et la saisie serait perdue.
+    if (!brouillon || brouillon.id !== id) {
+      brouillon = JSON.parse(JSON.stringify(recette));
+    }
+
+    document.title = 'Modifier ' + recette.titre + ' — Mon carnet de recettes';
+
+    var fragment = document.createDocumentFragment();
+
+    fragment.appendChild(
+      el('a', { class: 'retour', href: '#/recette/' + id, texte: '‹ Revenir à la fiche' })
+    );
+    fragment.appendChild(el('h1', { class: 'fiche__titre', texte: 'Modifier la recette' }));
+
+    var bandeau = bandeauErreurRecettes();
+    if (bandeau) fragment.appendChild(bandeau);
+
+    fragment.appendChild(
+      el('div', { class: 'actions-fiche' }, [
+        el('button', {
+          type: 'button',
+          class: 'bouton',
+          id: 'enregistrer',
+          texte: 'Enregistrer',
+          onclick: function () {
+            var aEnregistrer = JSON.parse(JSON.stringify(brouillon));
+            delete aEnregistrer.__dernierEchelonnage;
+            // Les ingredients vides sont retires plutot qu'enregistres a blanc.
+            aEnregistrer.ingredients = aEnregistrer.ingredients
+              .map(function (groupe) {
+                return {
+                  groupe: groupe.groupe && groupe.groupe.trim() !== '' ? groupe.groupe : null,
+                  items: groupe.items.filter(function (item) {
+                    return String(item.nom || '').trim() !== '';
+                  }),
+                };
+              })
+              .filter(function (groupe) {
+                return groupe.items.length > 0;
+              });
+            aEnregistrer.instructions = aEnregistrer.instructions.filter(function (etape) {
+              return String(etape.texte || '').trim() !== '';
+            });
+
+            Rc.enregistrer(aEnregistrer).then(function () {
+              // On ne quitte l'editeur que si l'enregistrement a reellement abouti :
+              // sinon l'utilisateur croirait son travail sauvegarde alors qu'il ne
+              // survivrait pas au prochain rafraichissement.
+              if (Rc.etatChargement().erreur) {
+                brouillon = aEnregistrer;
+                monter(vueModifier(id));
+                var noeud = document.getElementById('erreur-recettes');
+                if (noeud) noeud.scrollIntoView({ block: 'center' });
+                return;
+              }
+              brouillon = null;
+              window.location.hash = '#/recette/' + id;
+            });
+          },
+        }),
+        el('button', {
+          type: 'button',
+          class: 'bouton bouton--secondaire',
+          id: 'annuler',
+          texte: 'Annuler',
+          onclick: function () {
+            brouillon = null;
+            window.location.hash = '#/recette/' + id;
+          },
+        }),
+        Rc.estModifiee(id)
+          ? el('button', {
+              type: 'button',
+              class: 'bouton bouton--secondaire',
+              id: 'reinitialiser',
+              texte: 'Rétablir l’originale',
+              onclick: function () {
+                Rc.reinitialiser(id).then(function () {
+                  brouillon = null;
+                  window.location.hash = '#/recette/' + id;
+                });
+              },
+            })
+          : null,
+      ])
+    );
+
+    fragment.appendChild(section('Nombre de parts', null, blocPortions(id)));
+
+    fragment.appendChild(
+      section('Fiche', null, [
+        ligneChamp(
+          'Titre',
+          champ(brouillon.titre, function (valeur) {
+            brouillon.titre = valeur;
+          }, { libelle: 'Titre de la recette' })
+        ),
+        ligneChamp(
+          'Catégorie',
+          el(
+            'select',
+            {
+              class: 'champ-edition',
+              'aria-label': 'Catégorie',
+              onchange: function (evenement) {
+                brouillon.categorie = evenement.target.value;
+              },
+            },
+            ['Entrée', 'Plat', 'Dessert'].map(function (c) {
+              return el('option', { value: c, selected: brouillon.categorie === c ? true : null, texte: c });
+            })
+          )
+        ),
+        ligneChamp(
+          'Origine',
+          champ(brouillon.origine, function (valeur) {
+            brouillon.origine = valeur;
+          }, { libelle: 'Origine' })
+        ),
+        ligneChamp(
+          'Difficulté',
+          champ(brouillon.difficulte, function (valeur) {
+            brouillon.difficulte = valeur;
+          }, { libelle: 'Difficulté' })
+        ),
+      ])
+    );
+
+    fragment.appendChild(
+      section(
+        'Temps',
+        null,
+        [
+          ['preparation', 'Préparation'],
+          ['cuisson', 'Cuisson'],
+          ['repos', 'Repos'],
+          ['total', 'Total'],
+        ].map(function (paire) {
+          return ligneChamp(
+            paire[1],
+            champ(brouillon.temps[paire[0]], function (valeur) {
+              brouillon.temps[paire[0]] = valeur;
+            }, { libelle: paire[1] })
+          );
+        })
+      )
+    );
+
+    fragment.appendChild(
+      section('Ingrédients', 'Le rayon indiqué à droite est déduit du nom.', blocIngredients(id))
+    );
+    fragment.appendChild(section('Préparation', null, blocInstructions(id)));
+
+    return fragment;
+  }
+
   /* --- routage par ancre --------------------------------------------------- */
 
   function router() {
     var ancre = window.location.hash.replace(/^#/, '');
 
     if (ancre.indexOf('/recette/') === 0) {
-      monter(vueRecette(decodeURIComponent(ancre.slice('/recette/'.length))));
+      var reste = ancre.slice('/recette/'.length);
+      var modification = reste.match(/^(.*)\/modifier$/);
+      if (modification) {
+        monter(vueModifier(decodeURIComponent(modification[1])));
+        window.scrollTo(0, 0);
+        return;
+      }
+      // On quitte l'editeur : le brouillon non enregistre n'a plus lieu d'etre.
+      brouillon = null;
+      monter(vueRecette(decodeURIComponent(reste)));
       window.scrollTo(0, 0);
       return;
     }
@@ -924,6 +1415,8 @@
       })
       .then(function (recettes) {
         etat.recettes = recettes;
+        Rc.definirBase(recettes);
+
         window.addEventListener('hashchange', router);
         router();
 
@@ -931,6 +1424,12 @@
         // ne peut rien afficher d'utile de toute facon.
         S.surChangement(surChangementListe);
         S.demarrer();
+
+        // Les recettes modifiees sont relues une fois, au chargement. Elles changent
+        // trop rarement pour justifier un sondage permanent.
+        Rc.rafraichir().then(function () {
+          router();
+        });
       })
       .catch(function (erreur) {
         afficherErreurChargement(erreur.message);

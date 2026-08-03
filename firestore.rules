@@ -50,5 +50,28 @@ service cloud.firestore {
       allow create, update: if request.auth != null && articleValide();
       allow delete: if request.auth != null;
     }
+
+    // Recettes modifiées depuis l'application. Une recette est enregistrée comme
+    // une seule chaîne JSON : elle n'est jamais interrogée champ par champ côté
+    // serveur, seulement lue en entier. Supprimer le document rétablit la recette
+    // d'origine, qui est servie avec le site et n'est jamais modifiée.
+    match /recettes/{recetteId} {
+
+      function recetteValide() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['recetteId', 'json'])
+          && d.recetteId is string && d.recetteId.size() > 0 && d.recetteId.size() <= 200
+          && d.json is string && d.json.size() > 0
+          // Garde-fou de taille : une recette du carnet pèse quelques kilo-octets,
+          // 200 000 caractères laissent une marge très large tout en empêchant
+          // qu'on remplisse la base avec un seul document.
+          && d.json.size() <= 200000
+          && (!d.keys().hasAny(['modifieLe']) || (d.modifieLe is string && d.modifieLe.size() <= 40));
+      }
+
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && recetteValide();
+      allow delete: if request.auth != null;
+    }
   }
 }

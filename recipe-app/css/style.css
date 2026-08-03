@@ -1016,3 +1016,209 @@ body {
     color: #444;
   }
 }
+
+/* --- Formulaire de modification d'une recette ------------------------------ */
+
+.champ-edition {
+  width: 100%;
+  padding: 9px 12px;
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--texte);
+  background: var(--blanc);
+  border: 1px solid var(--bordure-forte);
+  border-radius: var(--rayon-sm);
+}
+.champ-edition:focus {
+  outline: 2px solid var(--terracotta);
+  outline-offset: 1px;
+}
+textarea.champ-edition {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.ligne-edition {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.ligne-edition__libelle {
+  flex: 0 0 120px;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--texte-faible);
+}
+.ligne-edition .champ-edition {
+  flex: 1 1 220px;
+  width: auto;
+}
+
+.bloc-edition {
+  display: grid;
+  gap: 14px;
+}
+.groupe-edition {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--bordure);
+}
+.liste-edition {
+  margin: 6px 0 8px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.liste-edition li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.champ-edition--nom {
+  flex: 3 1 180px;
+  width: auto;
+}
+.champ-edition--quantite {
+  flex: 1 1 100px;
+  width: auto;
+}
+.rayon-indique {
+  flex: 0 0 auto;
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--olive);
+  white-space: nowrap;
+}
+
+.etape-edition {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--bordure);
+}
+.etape-edition__haut {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Réglage du nombre de parts */
+.bloc-portions__reglage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.bouton-pas {
+  width: 36px;
+  height: 36px;
+  font-family: inherit;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--terracotta);
+  background: var(--surface);
+  border: 1px solid var(--terracotta);
+  border-radius: var(--rayon-sm);
+  cursor: pointer;
+}
+.bouton-pas:hover {
+  background: var(--terracotta-clair);
+}
+.champ-portions {
+  width: 90px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--texte);
+  background: var(--blanc);
+  border: 1px solid var(--bordure-forte);
+  border-radius: var(--rayon-sm);
+}
+.bloc-portions__libelle {
+  color: var(--texte-doux);
+}
+.bloc-portions__aide {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-faible);
+  line-height: 1.5;
+}
+.bloc-portions__rapport {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--surface-creuse);
+  border-radius: var(--rayon-sm);
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+}
+.bloc-portions__rapport p {
+  margin: 0 0 4px;
+}
+.bloc-portions__detail {
+  color: var(--texte-doux);
+  font-size: 12px;
+}
+.bloc-portions--impossible {
+  padding: 12px 14px;
+  background: var(--surface-creuse);
+  border-left: 4px solid var(--ocre);
+  border-radius: var(--rayon-sm);
+}
+.bloc-portions--impossible p {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.marque-modifiee {
+  margin-left: 10px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--surface-creuse);
+  color: var(--olive);
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 640px) {
+  .ligne-edition__libelle {
+    flex-basis: 100%;
+  }
+  .rayon-indique {
+    flex-basis: 100%;
+  }
+}
+
+@media print {
+  .marque-modifiee {
+    color: #000;
+    background: none;
+    border: 0.5pt solid #000;
+  }
+}
+
+.etat-erreur--compact {
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+}
+.etat-erreur--compact p {
+  margin: 0 0 4px;
+}

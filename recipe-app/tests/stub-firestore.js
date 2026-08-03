@@ -12,16 +12,22 @@
    depend sont reproduits. */
 
 const etat = {
-  articles: new Map(), // idDocument -> { fields }
+  articles: new Map(), // idDocument -> { fields }, collection listes/<id>/articles
+  recettes: new Map(), // idDocument -> { fields }, collection recettes
   sessions: new Map(), // refreshToken -> compteur
   panne: false, // quand vrai, toute requete Firestore repond 503
+  // Quand vrai, seule la collection `recettes` est refusee, comme le ferait un
+  // projet dont les regles de securite n'ont pas encore ete republiees.
+  refuserRecettes: false,
   appels: { lectures: 0, ecritures: 0, suppressions: 0, sessions: 0 },
 };
 
 function reinitialiser() {
   etat.articles.clear();
+  etat.recettes.clear();
   etat.sessions.clear();
   etat.panne = false;
+  etat.refuserRecettes = false;
   etat.appels = { lectures: 0, ecritures: 0, suppressions: 0, sessions: 0 };
 }
 
@@ -79,13 +85,29 @@ async function traiter(requete, reponse) {
     return true;
   }
 
+  if (chemin === '/__stub/refuser-recettes') {
+    const corps = await lireCorps(requete);
+    let demande = {};
+    try {
+      demande = corps ? JSON.parse(corps) : {};
+    } catch (erreur) {
+      demande = {};
+    }
+    etat.refuserRecettes = Boolean(demande.refuser);
+    repondre(reponse, 200, { refuserRecettes: etat.refuserRecettes });
+    return true;
+  }
+
   if (chemin === '/__stub/etat') {
     if (url.searchParams.get('reinitialiser') === '1') reinitialiser();
     repondre(reponse, 200, {
       panne: etat.panne,
+      refuserRecettes: etat.refuserRecettes,
       nbArticles: etat.articles.size,
+      nbRecettes: etat.recettes.size,
       appels: etat.appels,
       articles: [...etat.articles.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
+      recettes: [...etat.recettes.keys()],
     });
     return true;
   }
@@ -143,19 +165,36 @@ async function traiter(requete, reponse) {
     return true;
   }
 
-  // On ne verifie pas la structure complete du chemin de collection, seulement que
-  // la requete vise bien une collection « articles ».
-  const apresArticles = chemin.split('/articles');
-  if (apresArticles.length < 2) {
+  // Deux collections sont emulees : les articles de la liste et les recettes
+  // modifiees. On ne verifie pas la structure complete du chemin, seulement le nom
+  // de la collection visee.
+  let collection = null;
+  let reste = null;
+  ['articles', 'recettes'].forEach((nom) => {
+    if (collection) return;
+    const morceaux = chemin.split('/' + nom);
+    if (morceaux.length >= 2) {
+      collection = etat[nom];
+      reste = morceaux[1].replace(/^\//, '');
+    }
+  });
+
+  if (!collection) {
     repondre(reponse, 404, { error: { code: 404, message: 'collection inconnue' } });
     return true;
   }
-  const reste = apresArticles[1].replace(/^\//, '');
+
+  if (collection === etat.recettes && etat.refuserRecettes) {
+    repondre(reponse, 403, {
+      error: { code: 403, status: 'PERMISSION_DENIED', message: 'Missing or insufficient permissions.' },
+    });
+    return true;
+  }
 
   if (requete.method === 'GET' && reste === '') {
     etat.appels.lectures += 1;
-    const documents = [...etat.articles.entries()].map(([id, doc]) => ({
-      name: `projects/test/databases/(default)/documents/listes/commune/articles/${id}`,
+    const documents = [...collection.entries()].map(([id, doc]) => ({
+      name: `${chemin.replace(/^\/__firestore\/v1\//, '')}/${id}`,
       fields: doc.fields,
     }));
     repondre(reponse, 200, documents.length ? { documents } : {});
@@ -179,7 +218,7 @@ async function traiter(requete, reponse) {
     if (masque.length > 0) {
       // Mise a jour partielle : seuls les champs du masque changent. C'est ce qui
       // permet a deux personnes de modifier le meme article sans s'ecraser.
-      const existant = etat.articles.get(id);
+      const existant = collection.get(id);
       if (!existant) {
         repondre(reponse, 404, { error: { code: 404, message: 'document absent' } });
         return true;
@@ -191,18 +230,18 @@ async function traiter(requete, reponse) {
       return true;
     }
 
-    etat.articles.set(id, { fields: demande.fields || {} });
+    collection.set(id, { fields: demande.fields || {} });
     repondre(reponse, 200, { name: id, fields: demande.fields || {} });
     return true;
   }
 
   if (requete.method === 'DELETE') {
     etat.appels.suppressions += 1;
-    if (!etat.articles.has(id)) {
+    if (!collection.has(id)) {
       repondre(reponse, 404, { error: { code: 404, message: 'document absent' } });
       return true;
     }
-    etat.articles.delete(id);
+    collection.delete(id);
     repondre(reponse, 200, {});
     return true;
   }

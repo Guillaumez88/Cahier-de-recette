@@ -75,6 +75,12 @@ async function nettoyer() {
   for (const article of residus) {
     await Sync.supprimerArticle(article.cle);
   }
+  // Et la recette de verification, si la collection est accessible.
+  try {
+    await Sync.supprimerRecette('__verification__');
+  } catch (erreur) {
+    /* collection refusee ou deja propre : sans consequence */
+  }
   return residus.length;
 }
 
@@ -171,6 +177,55 @@ async function nettoyer() {
   await test('les articles réels préexistants sont intacts', async () => {
     const apres = (await Sync.lireArticles()).length;
     assert.strictEqual(apres, articlesAvant, `${articlesAvant} articles avant, ${apres} après`);
+  });
+
+  // --- Collection des recettes modifiees --------------------------------------
+  //
+  // Cette collection a ete ajoutee apres la premiere publication des regles : si
+  // firestore.rules n'a pas ete republie depuis, ces controles echouent en 403 et
+  // c'est precisement le message a lire.
+
+  const Recettes = require(path.join(racine, 'js/recettes.js'));
+  const ID_TEST = '__verification__';
+
+  await test('la collection des recettes est accessible', async () => {
+    try {
+      await Sync.lireRecettesModifiees();
+    } catch (erreur) {
+      if (/PERMISSION_DENIED|insufficient/i.test(erreur.message)) {
+        throw new Error(
+          'Firestore refuse la collection « recettes ». Republier firestore.rules dans la ' +
+            'console Firebase : les regles actuellement publiees ne couvrent que les articles.'
+        );
+      }
+      throw erreur;
+    }
+  });
+
+  await test('une recette modifiee est enregistree, relue puis supprimee', async () => {
+    Recettes.definirBase([
+      { id: ID_TEST, titre: 'Original', portions: '6 personnes', ingredients: [], instructions: [] },
+    ]);
+    await Recettes.rafraichir();
+
+    const modifiee = {
+      id: ID_TEST,
+      titre: 'Modifié',
+      portions: '12 personnes',
+      ingredients: [],
+      instructions: [],
+    };
+    await Recettes.enregistrer(modifiee);
+    assert.ok(!Recettes.etatChargement().erreur, `envoi refuse : ${Recettes.etatChargement().erreur}`);
+
+    const distantes = await Sync.lireRecettesModifiees();
+    assert.ok(distantes[ID_TEST], 'recette introuvable cote serveur');
+    assert.strictEqual(distantes[ID_TEST].titre, 'Modifié');
+    assert.strictEqual(distantes[ID_TEST].portions, '12 personnes');
+
+    await Recettes.reinitialiser(ID_TEST);
+    const apres = await Sync.lireRecettesModifiees();
+    assert.ok(!apres[ID_TEST], 'la recette de verification n a pas ete supprimee');
   });
 
   // Filet de sécurité : quoi qu'il se soit passé, on ne laisse rien.

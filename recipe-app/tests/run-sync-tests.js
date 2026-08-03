@@ -43,7 +43,7 @@ function faireLocalStorage() {
 
 /** Recharge config, sync et storage pour que chacun reprenne le localStorage courant. */
 function chargerModules() {
-  ['js/firebase-config.js', 'js/sync.js', 'js/storage.js'].forEach((relatif) => {
+  ['js/firebase-config.js', 'js/sync.js', 'js/recettes.js', 'js/storage.js'].forEach((relatif) => {
     delete require.cache[require.resolve(path.join(racine, relatif))];
   });
   const config = require(path.join(racine, 'js/firebase-config.js'));
@@ -52,8 +52,9 @@ function chargerModules() {
   config.baseSecureToken = `http://127.0.0.1:${PORT}/__auth/v1`;
   config.projectId = 'projet-de-test';
   const Sync = require(path.join(racine, 'js/sync.js'));
+  const Recettes = require(path.join(racine, 'js/recettes.js'));
   const Storage = require(path.join(racine, 'js/storage.js'));
-  return { config, Sync, Storage };
+  return { config, Sync, Recettes, Storage };
 }
 
 function neuf() {
@@ -547,6 +548,207 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     });
     await Storage.addFreeItem('Pain', '1');
     assert.ok(appels > 0, 'aucune notification recue');
+  });
+
+  // --- Recettes modifiees ----------------------------------------------------
+
+  const CARNET = JSON.parse(
+    require('fs').readFileSync(path.join(racine, 'data/recipes.json'), 'utf8')
+  );
+  const ID_LASAGNES = 'lasagnes-bolognaise-la-meilleure-recette';
+
+  await test('sans modification, la liste effective est celle du fichier', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    await Recettes.rafraichir();
+    assert.strictEqual(Recettes.toutes().length, 17);
+    assert.strictEqual(Recettes.estModifiee(ID_LASAGNES), false);
+  });
+
+  await test('une modification est enregistree et relue', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+
+    const modifiee = JSON.parse(JSON.stringify(Recettes.parId(ID_LASAGNES)));
+    modifiee.titre = 'Lasagnes revisitées';
+    await Recettes.enregistrer(modifiee);
+
+    assert.strictEqual(Recettes.parId(ID_LASAGNES).titre, 'Lasagnes revisitées');
+    assert.strictEqual(Recettes.estModifiee(ID_LASAGNES), true);
+    assert.strictEqual(stub.etat.recettes.size, 1, `${stub.etat.recettes.size} documents recette`);
+
+    // L'originale reste accessible : rien n'est ecrase.
+    assert.strictEqual(Recettes.originale(ID_LASAGNES).titre, 'Lasagnes bolognaise : la meilleure recette');
+  });
+
+  await test('un autre appareil voit la recette modifiee', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const modifiee = JSON.parse(JSON.stringify(Recettes.parId(ID_LASAGNES)));
+    modifiee.titre = 'Lasagnes partagées';
+    await Recettes.enregistrer(modifiee);
+
+    global.localStorage = faireLocalStorage();
+    const autre = chargerModules().Recettes;
+    autre.definirBase(CARNET);
+    assert.strictEqual(autre.parId(ID_LASAGNES).titre, 'Lasagnes bolognaise : la meilleure recette');
+
+    await autre.rafraichir();
+    assert.strictEqual(autre.parId(ID_LASAGNES).titre, 'Lasagnes partagées');
+    assert.strictEqual(autre.toutes().length, 17, 'le nombre de recettes ne doit pas changer');
+  });
+
+  await test('reinitialiser retablit la recette d origine', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const modifiee = JSON.parse(JSON.stringify(Recettes.parId(ID_LASAGNES)));
+    modifiee.titre = 'À jeter';
+    await Recettes.enregistrer(modifiee);
+    await Recettes.reinitialiser(ID_LASAGNES);
+
+    assert.strictEqual(Recettes.estModifiee(ID_LASAGNES), false);
+    assert.strictEqual(Recettes.parId(ID_LASAGNES).titre, 'Lasagnes bolognaise : la meilleure recette');
+    assert.strictEqual(stub.etat.recettes.size, 0, 'le document modifie devrait etre supprime');
+  });
+
+  await test('l ordre des recettes ne bouge pas apres une modification', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const avant = Recettes.toutes().map((r) => r.id);
+
+    const modifiee = JSON.parse(JSON.stringify(Recettes.parId('brookies')));
+    modifiee.titre = 'Brookies maison';
+    await Recettes.enregistrer(modifiee);
+
+    assert.deepStrictEqual(Recettes.toutes().map((r) => r.id), avant);
+  });
+
+  await test('hors ligne, la modification reste visible en local', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    await basculerPanne(true);
+
+    const modifiee = JSON.parse(JSON.stringify(Recettes.parId(ID_LASAGNES)));
+    modifiee.titre = 'Modifié sans réseau';
+    await Recettes.enregistrer(modifiee);
+
+    assert.strictEqual(Recettes.parId(ID_LASAGNES).titre, 'Modifié sans réseau');
+    assert.ok(Recettes.etatChargement().erreur, 'l echec d envoi devrait etre signale');
+
+    await basculerPanne(false);
+  });
+
+  // --- Nombre de parts et mise a l echelle -----------------------------------
+
+  await test('doubler les parts double les quantites des ingredients', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const lasagnes = Recettes.parId(ID_LASAGNES);
+    assert.strictEqual(lasagnes.portions, '6 personnes');
+
+    const r = Recettes.echelonner(lasagnes, 12);
+    assert.strictEqual(r.possible, true);
+    assert.strictEqual(r.facteur, 2);
+    assert.strictEqual(r.recette.portions, '12 personnes');
+
+    const trouver = (recette, nom) =>
+      recette.ingredients.flatMap((g) => g.items).find((i) => i.nom === nom);
+    assert.strictEqual(trouver(r.recette, 'Bœuf haché').quantite, '600 g');
+    assert.strictEqual(trouver(r.recette, 'Ail').quantite, '2 gousses');
+    assert.strictEqual(trouver(r.recette, 'Sucre').quantite, '4 morceaux');
+    assert.strictEqual(trouver(r.recette, 'Lait').quantite, '100 cl');
+  });
+
+  await test('une quantite non chiffrable est laissee telle quelle et signalee', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const r = Recettes.echelonner(Recettes.parId(ID_LASAGNES), 12);
+    const sel = r.recette.ingredients.flatMap((g) => g.items).find((i) => i.nom === 'Sel, poivre');
+    assert.strictEqual(sel.quantite, 'Selon le goût');
+    assert.deepStrictEqual(r.ignorees, ['Sel, poivre']);
+  });
+
+  await test('les durees et temperatures des instructions ne bougent jamais', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+
+    CARNET.forEach((recette) => {
+      const r = Recettes.echelonner(recette, 24);
+      if (!r.possible) return;
+      recette.instructions.forEach((etape, i) => {
+        const motif = /(\d+(?:[.,]\d+)?)\s*(minutes?|mn|min|heures?|h\b|°\s*C|cm|mm)/gi;
+        const avant = (etape.texte.match(motif) || []).join('|');
+        const apres = (r.recette.instructions[i].texte.match(motif) || []).join('|');
+        assert.strictEqual(apres, avant, `${recette.id} etape ${i + 1} : une durée ou une température a bougé`);
+      });
+    });
+  });
+
+  await test('les quantites des instructions sont mises a l echelle', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const r = Recettes.echelonner(Recettes.parId(ID_LASAGNES), 12);
+    assert.ok(r.remplacements.length >= 3, `${r.remplacements.length} remplacements`);
+    const jointes = r.recette.instructions.map((e) => e.texte).join(' ');
+    assert.ok(/1600 g/.test(jointes), 'les 800 g de pulpe n ont pas ete doubles');
+    assert.ok(!/800 g/.test(jointes), 'la valeur d origine subsiste');
+  });
+
+  await test('diviser les parts fonctionne aussi', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const r = Recettes.echelonner(Recettes.parId(ID_LASAGNES), 3);
+    assert.strictEqual(r.facteur, 0.5);
+    assert.strictEqual(r.recette.portions, '3 personnes');
+    const boeuf = r.recette.ingredients.flatMap((g) => g.items).find((i) => i.nom === 'Bœuf haché');
+    assert.strictEqual(boeuf.quantite, '150 g');
+  });
+
+  await test('deux mises a l echelle successives se composent', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const une = Recettes.echelonner(Recettes.parId(ID_LASAGNES), 12);
+    const deux = Recettes.echelonner(une.recette, 24);
+    assert.strictEqual(deux.recette.portions, '24 personnes');
+    const boeuf = deux.recette.ingredients.flatMap((g) => g.items).find((i) => i.nom === 'Bœuf haché');
+    assert.strictEqual(boeuf.quantite, '1200 g');
+  });
+
+  await test('un nombre de parts absurde est refuse', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const lasagnes = Recettes.parId(ID_LASAGNES);
+    [0, -3, NaN, 'six'].forEach((valeur) => {
+      assert.strictEqual(Recettes.echelonner(lasagnes, valeur).possible, false, `${valeur} accepte a tort`);
+    });
+  });
+
+  await test('la mise a l echelle ne modifie pas la recette source', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const lasagnes = Recettes.parId(ID_LASAGNES);
+    const copie = JSON.parse(JSON.stringify(lasagnes));
+    Recettes.echelonner(lasagnes, 12);
+    assert.deepStrictEqual(lasagnes, copie, 'la recette d origine a ete modifiee sur place');
+  });
+
+  await test('une recette mise a l echelle puis enregistree est bien persistee', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const r = Recettes.echelonner(Recettes.parId(ID_LASAGNES), 12);
+    delete r.recette.__dernierEchelonnage;
+    await Recettes.enregistrer(r.recette);
+
+    global.localStorage = faireLocalStorage();
+    const autre = chargerModules().Recettes;
+    autre.definirBase(CARNET);
+    await autre.rafraichir();
+    assert.strictEqual(autre.parId(ID_LASAGNES).portions, '12 personnes');
+    const boeuf = autre
+      .parId(ID_LASAGNES)
+      .ingredients.flatMap((g) => g.items)
+      .find((i) => i.nom === 'Bœuf haché');
+    assert.strictEqual(boeuf.quantite, '600 g');
   });
 
   // --- Restitution -----------------------------------------------------------

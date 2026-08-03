@@ -21,6 +21,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : cinq fichie
     │   ├── quantites.js         Lecture, addition et mise à l'échelle des quantités
     │   ├── rayons.js            Classement des ingrédients par rayon de magasin
     │   ├── sync.js              Firestore par son API REST, session anonyme
+    │   ├── recettes.js          Recettes d'origine, modifications partagées, parts
     │   ├── storage.js           Liste commune : cache local, fusion, file d'attente
     │   └── app.js               Rendu DOM et routage par ancre
     ├── data/recipes.json        Les 17 recettes
@@ -30,6 +31,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : cinq fichie
         ├── run-sync-tests.js       26 tests de la synchronisation
         ├── test-web.js             57 vérifications navigateur, parcours général
         ├── test-partage.js         28 vérifications navigateur, partage et hors ligne
+        ├── test-edition.js         47 vérifications navigateur, modification et parts
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -54,12 +56,13 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 
 ## Fonctionnalités
 
-- **Routage par ancre** : `#/`, `#/recette/<id>`, `#/liste-de-courses`. Les URL sont partageables et le bouton de retour du navigateur fonctionne. C'est aussi ce qui permet un hébergement statique sans configuration : aucun chemin profond n'est demandé au serveur.
+- **Routage par ancre** : `#/`, `#/recette/<id>`, `#/recette/<id>/modifier`, `#/liste-de-courses`. Les URL sont partageables et le bouton de retour du navigateur fonctionne. C'est aussi ce qui permet un hébergement statique sans configuration : aucun chemin profond n'est demandé au serveur.
 - **Recherche** insensible à la casse et aux accents, portant sur le titre, la catégorie, l'origine, les ingrédients et le texte des étapes. Plusieurs mots se cumulent.
 - **Filtres** par catégorie, origine, difficulté et tranche de temps total. Un clic sur un filtre actif le désactive.
 - **Fiche complète** : temps, origine, ingrédients par groupe, étapes numérotées avec leurs astuces, tableau de flux, astuces, variantes, recettes associées, ce que la source ne donne pas, source citée avec son lien.
 - **Tableau de flux** rendu comme un vrai `<table>` avec les `rowspan`/`colspan` d'origine, dans un conteneur qui défile horizontalement sur petit écran.
 - **Liste de courses commune** (voir la section suivante) : partagée entre tous les appareils, rangée par rayon de magasin, avec addition des quantités d'un même ingrédient, sélection d'ingrédients à la carte, ajout d'articles libres, compteur dans l'en-tête et fonctionnement hors ligne.
+- **Modification des recettes** et **changement du nombre de parts** (voir plus bas).
 - **Impression** (`@media print`) : la navigation, les filtres et les boutons disparaissent, le fond repasse en blanc, et les étapes comme les lignes du tableau ne sont pas coupées entre deux pages.
 
 ## Liste de courses commune
@@ -100,7 +103,9 @@ La session est ouverte automatiquement en mode anonyme, sans rien demander. Elle
 
 La configuration Firebase est déjà dans `recipe-app/js/firebase-config.js`. Elle est publique par conception : elle identifie le projet, elle ne donne aucun droit. Ce qui protège les données, ce sont les règles de sécurité.
 
-Le projet `cahier-de-cuisine-88` est configuré et opérationnel : base Firestore créée, règles de `firestore.rules` publiées, connexion anonyme activée, domaine `guillaumez88.github.io` autorisé. Vérifié le 3 août 2026 par appel direct aux API, puis par le contrôle en conditions réelles décrit ci-dessous.
+Le projet `cahier-de-cuisine-88` est configuré : base Firestore créée, connexion anonyme activée, domaine `guillaumez88.github.io` autorisé, et la liste de courses fonctionne (vérifiée en conditions réelles, voir ci-dessous).
+
+**Une action reste à faire : republier `firestore.rules`.** Les règles publiées ne couvrent que la collection des articles ; celle des recettes modifiées a été ajoutée ensuite. Tant qu'elles ne sont pas republiées, Firestore refuse la collection `recettes` en `PERMISSION_DENIED` et la modification d'une recette ne peut pas être enregistrée. L'application le dit alors explicitement, au lieu de laisser croire que c'est sauvegardé. Console Firebase → Firestore Database → Règles → coller `firestore.rules` → Publier, puis relancer `node tests/verifier-firebase.js --reel` pour confirmer.
 
 Les quatre réglages, pour mémoire, s'il fallait refaire le projet ou en créer un second :
 
@@ -118,7 +123,9 @@ node tests/verifier-firebase.js --reel
 
 À la différence des autres suites, celle-ci n'utilise **aucune émulation** : elle charge `sync.js` et `storage.js` avec la configuration réelle et écrit dans la vraie base. Le drapeau `--reel` est obligatoire pour qu'elle ne puisse pas partir par accident ni en CI. Les articles créés portent la recette `__verification__` et sont supprimés à la fin, même en cas d'échec ; le script compte les articles réels avant et après pour prouver qu'il n'y a pas touché.
 
-Neuf contrôles : session anonyme, écriture d'un document par article, conservation des accents et des quantités à l'aller-retour, cochage n'écrivant que le champ concerné, relecture depuis un cache local vide (le cas du second appareil), article libre, retrait des cochés, suppression, et intégrité des articles préexistants.
+Onze contrôles : session anonyme, écriture d'un document par article, conservation des accents et des quantités à l'aller-retour, cochage n'écrivant que le champ concerné, relecture depuis un cache local vide (le cas du second appareil), article libre, retrait des cochés, suppression, intégrité des articles préexistants, puis accès à la collection des recettes et cycle complet d'une recette modifiée.
+
+Au 3 août 2026, les neuf premiers passent et les deux derniers échouent, faute de règles republiées. Le message d'échec nomme précisément l'action à faire.
 
 C'est le contrôle à lancer après toute modification de la configuration Firebase ou des règles : si le bandeau du site reste sur « Hors ligne », il nomme la cause exacte (`SERVICE_DISABLED`, `CONFIGURATION_NOT_FOUND` ou `PERMISSION_DENIED`).
 
@@ -138,8 +145,8 @@ C'est le contrôle à lancer après toute modification de la configuration Fireb
 ```bash
 cd recipe-app
 node tests/run-tests.js           # 53 tests de la logique métier
-node tests/run-sync-tests.js      # 35 tests de la synchronisation
-node tests/run-browser-tests.js   # 88 vérifications dans un vrai Chromium
+node tests/run-sync-tests.js      # 50 tests de la synchronisation
+node tests/run-browser-tests.js   # 135 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux et l'intégrité du jeu de données.
@@ -153,6 +160,29 @@ node tests/run-browser-tests.js   # 88 vérifications dans un vrai Chromium
 Playwright n'est pas une dépendance du projet. Pour l'installer : `npm i -D playwright && npx playwright install chromium`. Pour désigner une installation existante : `PLAYWRIGHT_MODULE=/chemin/vers/node_modules/playwright CHROMIUM_PATH=/chemin/vers/chromium node tests/run-browser-tests.js`.
 
 La CI joue les tests unitaires et ceux de synchronisation, qui ne demandent aucune installation. Les tests navigateur restent une étape locale, faute de Playwright en CI.
+
+## Modifier une recette, changer le nombre de parts
+
+Depuis une fiche, « Modifier la recette » ouvre un formulaire (`#/recette/<id>/modifier`) qui permet de corriger le titre, la catégorie, l'origine, la difficulté, les quatre durées, les ingrédients (avec leurs sections) et les étapes avec leurs astuces. Le rayon déduit de chaque ingrédient est affiché en regard, ce qui permet de voir tout de suite l'effet d'un renommage sur la liste de courses.
+
+Les modifications sont **partagées** comme la liste de courses, dans une collection Firestore `recettes`. Chaque recette modifiée y est enregistrée comme une seule chaîne JSON : une recette est un objet profondément imbriqué, et on ne l'interroge jamais champ par champ, on la lit en entier. Le coût assumé est qu'une recette n'est pas interrogeable côté serveur.
+
+**`data/recipes.json` n'est jamais modifié.** Une recette modifiée remplace l'originale à l'affichage ; « Rétablir l'originale » supprime la version modifiée et la recette d'origine reprend sa place. Aucune modification n'est donc irréversible.
+
+Une nuance à connaître : les recettes modifiées sont relues au chargement de la page et après chaque enregistrement, pas en continu. Une recette modifiée sur un autre appareil apparaît donc au prochain rafraîchissement de la page, contrairement à la liste de courses qui se met à jour toutes les cinq secondes. Sonder en permanence des données qui changent quelques fois par mois coûterait des lectures Firestore pour rien.
+
+### Nombre de parts
+
+Le formulaire porte un réglage du nombre de parts, avec deux boutons et un champ. Le changer recalcule proportionnellement :
+
+- les quantités des ingrédients, en accordant les unités dénombrables (« 1 gousse » devient « 2 gousses », « 2 morceaux » devient « 4 morceaux ») ;
+- les quantités qui figurent **dans le texte des instructions** (« ajouter 800 g de pulpe » devient « 1600 g »).
+
+Un rapport affiche le facteur appliqué, la liste des quantités ajustées dans les instructions, et ce qui a été laissé inchangé faute de quantité chiffrée (« Sel, poivre : Selon le goût »). Rien n'est enregistré avant d'avoir cliqué sur « Enregistrer ».
+
+**Le point délicat, traité explicitement : les durées et les températures ne sont jamais multipliées.** Doubler une recette ne double ni le temps de cuisson ni la température du four. Sur les 51 occurrences numériques des instructions des 17 recettes, 44 sont des durées (minutes, heures), des températures (°C) ou des dimensions (cm, mm) : un facteur appliqué naïvement transformerait « 45 minutes » en « 90 minutes » et « 165 °C » en « 330 °C ». La mise à l'échelle travaille donc sur **liste blanche d'unités** (masses, volumes, cuillerées, gousses, pincées, sachets, tranches) et ne touche jamais un nombre nu, qui serait ambigu (« thermostat 6 »). Un test vérifie, sur les 17 recettes et pour chaque étape, qu'aucune durée ni température ne bouge après un changement de parts.
+
+Si le nombre de parts ne commence pas par un nombre, le recalcul automatique est désactivé et le formulaire le dit, plutôt que de deviner.
 
 ## Schéma d'une recette
 

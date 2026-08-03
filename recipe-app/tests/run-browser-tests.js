@@ -55,6 +55,7 @@ function attendre(url, restants = 40) {
   const suites = [
     ['Parcours general', 'test-web.js'],
     ['Liste commune, partage et hors ligne', 'test-partage.js'],
+    ['Modification des recettes et nombre de parts', 'test-edition.js'],
   ];
 
   let echecs = 0;
