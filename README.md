@@ -31,6 +31,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : cinq fichie
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
+        ├── verifier-firebase.js     Contrôle en conditions réelles (opt-in)
         └── serveur.js              Serveur statique sans dépendance
 ```
 
@@ -82,17 +83,27 @@ La session est ouverte automatiquement en mode anonyme, sans rien demander. Elle
 
 La configuration Firebase est déjà dans `recipe-app/js/firebase-config.js`. Elle est publique par conception : elle identifie le projet, elle ne donne aucun droit. Ce qui protège les données, ce sont les règles de sécurité.
 
-**Au 3 août 2026, deux réglages manquent dans le projet `cahier-de-cuisine-88`** et la liste ne fonctionnera pas avant qu'ils soient faits. Vérifié par appel direct aux API : Firestore répond `SERVICE_DISABLED`, l'authentification répond `CONFIGURATION_NOT_FOUND`. Enregistrer l'application web ne suffit pas.
+Le projet `cahier-de-cuisine-88` est configuré et opérationnel : base Firestore créée, règles de `firestore.rules` publiées, connexion anonyme activée, domaine `guillaumez88.github.io` autorisé. Vérifié le 3 août 2026 par appel direct aux API, puis par le contrôle en conditions réelles décrit ci-dessous.
 
-1. **Créer la base Firestore.** Console Firebase → *Firestore Database* → *Créer une base de données* → mode **production** → région `europe-west` (ou une autre région européenne). Le mode test n'est pas conseillé : il ouvre tout pendant 30 jours puis ferme tout d'un coup, ce qui donne une panne inexpliquée un mois plus tard.
+Les quatre réglages, pour mémoire, s'il fallait refaire le projet ou en créer un second :
 
-2. **Publier les règles.** Onglet *Règles* de Firestore → coller le contenu de `firestore.rules` (à la racine de ce dépôt) → *Publier*. En mode production, les règles par défaut refusent tout : sans cette étape le bandeau affichera « Hors ligne » en permanence.
+1. **Créer la base Firestore.** Console Firebase → *Firestore Database* → *Créer une base de données* → mode **production** → région européenne. Le mode test n'est pas conseillé : il ouvre tout pendant 30 jours puis ferme tout d'un coup, ce qui donne une panne inexpliquée un mois plus tard.
+2. **Publier les règles** : onglet *Règles* de Firestore → coller `firestore.rules` → *Publier*. En mode production, les règles par défaut refusent tout.
+3. **Activer la connexion anonyme** : *Authentication* → *Sign-in method* → *Anonyme*.
+4. **Autoriser le domaine** : *Authentication* → *Settings* → *Authorized domains* → `guillaumez88.github.io`.
 
-3. **Activer la connexion anonyme.** Console → *Authentication* → *Commencer* → onglet *Sign-in method* → *Anonyme* → activer.
+### Contrôler que Firebase répond vraiment
 
-4. **Autoriser le domaine du site.** Console → *Authentication* → *Settings* → *Authorized domains* → ajouter `guillaumez88.github.io` s'il n'y figure pas.
+```bash
+cd recipe-app
+node tests/verifier-firebase.js --reel
+```
 
-Une fois ces quatre points faits, ouvrir le site : le bandeau doit passer à « Liste commune, à jour à hh:mm:ss ». S'il reste sur « Hors ligne », le message d'erreur affiché juste en dessous indique la cause exacte (`PERMISSION_DENIED` pour des règles non publiées, `CONFIGURATION_NOT_FOUND` pour la connexion anonyme non activée).
+À la différence des autres suites, celle-ci n'utilise **aucune émulation** : elle charge `sync.js` et `storage.js` avec la configuration réelle et écrit dans la vraie base. Le drapeau `--reel` est obligatoire pour qu'elle ne puisse pas partir par accident ni en CI. Les articles créés portent la recette `__verification__` et sont supprimés à la fin, même en cas d'échec ; le script compte les articles réels avant et après pour prouver qu'il n'y a pas touché.
+
+Neuf contrôles : session anonyme, écriture d'un document par article, conservation des accents et des quantités à l'aller-retour, cochage n'écrivant que le champ concerné, relecture depuis un cache local vide (le cas du second appareil), article libre, retrait des cochés, suppression, et intégrité des articles préexistants.
+
+C'est le contrôle à lancer après toute modification de la configuration Firebase ou des règles : si le bandeau du site reste sur « Hors ligne », il nomme la cause exacte (`SERVICE_DISABLED`, `CONFIGURATION_NOT_FOUND` ou `PERMISSION_DENIED`).
 
 ### Ce que ce choix implique, sans le cacher
 
