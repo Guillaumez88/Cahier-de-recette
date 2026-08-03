@@ -35,9 +35,9 @@ Aucune dépendance, aucune étape de construction, aucun framework : douze fichi
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
         ├── run-tests.js            83 tests de la logique métier
-        ├── run-sync-tests.js       87 tests de la synchronisation
+        ├── run-sync-tests.js       92 tests de la synchronisation
         ├── test-web.js             66 vérifications navigateur, parcours général
-        ├── test-partage.js         28 vérifications navigateur, partage et hors ligne
+        ├── test-partage.js         33 vérifications navigateur, partage et hors ligne
         ├── test-edition.js         59 vérifications navigateur, modification, parts, déroulé
         ├── test-semainier.js       84 vérifications navigateur, semainier, photos, création
         ├── stub-firestore.js       Émulation de Firestore pour les tests
@@ -88,7 +88,7 @@ La page d'accueil répond à une seule question : qu'est-ce qu'on mange. Elle mo
 - **Toucher une case** ouvre le choix du repas : un plat du livre (avec sa propre recherche), ou un repas hors carnet. Cinq raccourcis sont proposés (Restaurant, Pizzas, Japonais, Restes, Chacun pour soi) et un champ libre accepte n'importe quoi d'autre.
 - **Glisser-déposer** sur ordinateur : un plat se glisse d'une case à l'autre, et la réserve sous le semainier permet de glisser un plat du livre directement dans une case. Glisser sur une case occupée **échange** les deux plats au lieu d'en effacer un.
 - La réserve glissable est masquée au tactile et sous 700 px : le glisser-déposer HTML5 n'existe pas sur mobile, et l'appui sur une case fait déjà le travail. **Toute action est faisable sans glisser.**
-- Le semainier se rafraîchit **toutes les 20 secondes**, plus lentement que la liste de courses, et un bouton force la mise à jour. C'est délibéré : en magasin on coche à plusieurs mains dans la même minute, alors qu'un menu change quelques fois par semaine, et Firestore facture à la lecture de document.
+- Les menus sont lus **une fois au chargement de la page**, puis mis à jour par le bouton « Rafraîchir ». Voir « Pourquoi il n'y a plus de rafraîchissement automatique » plus bas.
 
 ### Ajouter les plats de la semaine aux courses
 
@@ -107,7 +107,7 @@ Un document Firestore **par créneau de repas**, dans `semainiers/commune/crenea
 
 **Un créneau vide n'est pas un document vide, c'est un document absent** : vider un repas est une suppression. Cela évite d'accumuler des documents pour les repas non prévus, qui sont la majorité.
 
-Le reste suit exactement le modèle de la liste de courses : cache local comme source du rendu, file d'attente persistée, sondage suspendu quand l'onglet n'est pas visible. Poser un plat fonctionne donc sans réseau et part au retour de la connexion.
+Le reste suit exactement le modèle de la liste de courses : cache local comme source du rendu, file d'attente persistée, lecture initiale au chargement puis rafraîchissement manuel. Poser un plat fonctionne donc sans réseau et part au retour de la connexion.
 
 Deux pièges de dates sont traités dans `js/semaine.js`, et des tests les fixent, parce que chacun produit un décalage d'un jour :
 
@@ -147,7 +147,7 @@ Une seule liste, partagée par tous ceux qui ouvrent le site. Ce que l'un ajoute
 - Sur une fiche recette : cocher les ingrédients voulus puis « Ajouter la sélection », ou « Tout ajouter à la liste » pour la recette entière. Les ingrédients déjà dans la liste sont marqués et leur case est désactivée.
 - Sur la page liste : un champ permet d'ajouter un article libre (« pain », « lessive ») avec sa quantité, hors recette. Les articles sont groupés par recette, les ajouts libres à part.
 - Cocher un article le barre chez tout le monde. « Retirer les cochés » fait le ménage au retour des courses.
-- La liste se rafraîchit **toutes les 5 secondes** et un bouton « Rafraîchir » force la mise à jour. Un bandeau indique l'heure de la dernière synchronisation.
+- La liste est lue **une fois au chargement**, puis mise à jour par le bouton « Rafraîchir ». Le bandeau indique l'âge de ce qui est affiché et vous invite à rafraîchir au bout de deux minutes.
 
 ### Rangement par rayon et addition des quantités
 
@@ -168,7 +168,7 @@ La fusion est faite à l'affichage, pas en base : chaque ingrédient de chaque r
 
 Un document Firestore **par article**, dans `listes/commune/articles`, et non un seul document contenant toute la liste. C'est ce qui permet à deux personnes de cocher en même temps sans que l'une écrase le travail de l'autre : chacune modifie un document différent, et une modification n'envoie que le champ concerné.
 
-Le rendu lit toujours une copie locale de la liste, jamais le réseau directement. Les modifications sont appliquées d'abord en local, puis inscrites dans une file d'attente persistée et envoyées. Conséquence concrète : au supermarché, sans réseau, la liste reste consultable et cochable, le bandeau affiche « Hors ligne, N modifications en attente d'envoi », et tout part au retour de la connexion. Sans cette file, cocher hors ligne serait perdu au rafraîchissement suivant.
+Le rendu lit toujours une copie locale de la liste, jamais le réseau directement. Les modifications sont appliquées d'abord en local, puis inscrites dans une file d'attente persistée et envoyées. Conséquence concrète : au supermarché, sans réseau, la liste reste consultable et cochable, le bandeau affiche « Hors ligne, N modifications en attente », et tout part au retour de la connexion. Sans cette file, cocher hors ligne serait perdu au rafraîchissement suivant.
 
 La session est ouverte automatiquement en mode anonyme, sans rien demander. Elle ne sert qu'à satisfaire les règles de sécurité.
 
@@ -210,11 +210,33 @@ C'est le contrôle à lancer après toute modification de la configuration Fireb
 
 - **Qui connaît l'URL du site peut lire et modifier la liste.** La session anonyme est gratuite et automatique : elle bloque les robots qui scannent les clés d'API publiques, pas une personne qui ouvre le site. C'est le compromis retenu pour une liste familiale. Pour aller plus loin il faudrait de vrais comptes, ou App Check pour n'autoriser que votre domaine.
 - **On ne sait pas qui a coché quoi.** Les sessions anonymes ne portent pas de nom. Le champ existe côté données si vous voulez l'ajouter plus tard.
-- **Un sondage toutes les 5 secondes, pas du temps réel.** C'est ce qui a été demandé, et cela évite le SDK Firebase et son bundle.
+- **Aucun rafraîchissement automatique.** Voir la section suivante : la mise à jour est déclenchée par un bouton.
 
-  Attention au coût, car il n'est pas négligeable : Firestore facture à la lecture de document, et le palier gratuit est de 50 000 lectures par jour. À 5 secondes d'intervalle, un onglet fait 720 sondages par heure ; avec 10 articles en liste cela fait 7 200 lectures par heure, soit le palier gratuit épuisé en **sept heures** par un seul onglet laissé ouvert.
+## Pourquoi il n'y a plus de rafraîchissement automatique
 
-  Pour cette raison, le sondage est **suspendu quand l'onglet n'est pas visible** et relancé immédiatement au retour dessus : le coût suit alors l'usage réel, quelques minutes de consultation par jour. Si le palier était malgré tout atteint, le levier suivant est de porter `intervalleRafraichissement` à 15 ou 30 secondes dans `firebase-config.js`, une seule valeur à changer.
+La liste était relue toutes les 5 secondes et le semainier toutes les 20 secondes. **Cela a épuisé le palier gratuit de Firestore**, et le projet a répondu `429 Quota exceeded` sur tout, y compris les écritures. Constaté le 3 août 2026 sur les quatre collections, la session anonyme fonctionnant toujours.
+
+L'arithmétique, mesurée et non estimée : Firestore facture **à la lecture de document**, le palier gratuit est de 50 000 lectures par jour, et un sondage lit tous les documents de la collection. À 5 secondes d'intervalle, cela fait 720 sondages par heure, donc 18 720 lectures par heure avec 26 articles en liste, **et par onglet ouvert**. Deux onglets oubliés épuisaient la journée en deux heures.
+
+Le symptôme était trompeur : quand les lectures et les écritures échouent, chaque appareil retombe sur sa copie locale et les copies divergent. La liste et les menus paraissaient alors ne pas être partagés, alors qu'il n'existe qu'une seule version commune côté serveur.
+
+La mise à jour est donc désormais **explicite** :
+
+- une seule lecture au chargement de la page, pour chaque collection ;
+- un bouton « Rafraîchir » sur la liste de courses et sur l'accueil ;
+- aucun sondage périodique, aucune relecture au retour sur l'onglet.
+
+En échange, **l'âge de ce qui est affiché est visible en permanence** : « Liste partagée, à jour il y a 3 minutes ». Au-delà de deux minutes (`seuilDonneesAgees`), le bandeau change de couleur et affiche « Rafraîchir pour voir les modifications faites depuis les autres appareils ». Un minuteur de 15 secondes réécrit ce seul libellé, sans aucune lecture réseau : sans lui, l'âge affiché resterait figé à sa valeur du dernier rendu, ce qui serait pire que de ne rien afficher.
+
+Le bandeau distingue par ailleurs **trois causes d'échec**, qui n'appellent pas les mêmes actions :
+
+| Ce que dit le bandeau | Cause réelle | Ce qu'il faut faire |
+|---|---|---|
+| Hors ligne | Pas de réseau | Attendre, les modifications sont conservées et partiront |
+| Service momentanément indisponible | `429`, quota gratuit du jour épuisé | Rien, cela repart le lendemain |
+| Accès refusé par la base | `403 PERMISSION_DENIED` | Republier `firestore.rules` |
+
+Confondre les trois était le vrai défaut de la version précédente : elle annonçait « Hors ligne » pour un quota épuisé.
 - **Aucun test ne touche votre projet réel.** L'émulation locale sert à tout vérifier. Le revers est que le comportement contre le vrai Firestore n'est pas prouvé : c'est le premier point à confirmer après la configuration.
 
 ## Tests
@@ -222,8 +244,8 @@ C'est le contrôle à lancer après toute modification de la configuration Fireb
 ```bash
 cd recipe-app
 node tests/run-tests.js           # 83 tests de la logique métier
-node tests/run-sync-tests.js      # 87 tests de la synchronisation
-node tests/run-browser-tests.js   # 237 vérifications dans un vrai Chromium
+node tests/run-sync-tests.js      # 92 tests de la synchronisation
+node tests/run-browser-tests.js   # 242 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.
@@ -234,7 +256,7 @@ node tests/run-browser-tests.js   # 237 vérifications dans un vrai Chromium
 
 `test-semainier.js` couvre le semainier, les photos et la création de recettes, également sur **deux contextes isolés** : poser un plat du livre et un repas hors carnet, remplacer, vider, glisser d'une case à l'autre, échanger deux plats occupés, glisser depuis la réserve, la validation plat par plat avant ajout aux courses (dont le plat déjà en liste décoché et le repas hors carnet non ajoutable), l'envoi d'une photo réduite en deux tailles dans les bornes des règles Firestore, la création refusée sans titre, la suppression d'une recette ajoutée, un repas posé hors ligne, et l'absence de débordement horizontal en 360 px.
 
-`test-partage.js` ouvre **deux contextes Chromium isolés**, c'est-à-dire deux appareils avec des stockages locaux distincts, sur la même base. C'est le seul montage qui prouve réellement le partage : ce que l'un ajoute ou coche doit apparaître chez l'autre, par le rafraîchissement automatique comme par le bouton manuel. La même suite coupe le réseau, vérifie que cocher fonctionne quand même et que les modifications en attente sont annoncées, puis rétablit le réseau et vérifie qu'elles sont bien parties.
+`test-partage.js` ouvre **deux contextes Chromium isolés**, c'est-à-dire deux appareils avec des stockages locaux distincts, sur la même base. C'est le seul montage qui prouve réellement le partage : ce que l'un ajoute ou coche doit apparaître chez l'autre après un rafraîchissement. La même suite vérifie qu'**aucune** lecture Firestore n'a lieu pendant quatre secondes d'inactivité, que la nouveauté de l'autre appareil n'arrive donc pas toute seule, et que le bandeau invite à rafraîchir. Puis elle coupe le réseau, vérifie que cocher fonctionne quand même et que les modifications en attente sont annoncées, et enfin qu'elles sont bien parties au retour.
 
 Playwright n'est pas une dépendance du projet. Pour l'installer : `npm i -D playwright && npx playwright install chromium`. Pour désigner une installation existante : `PLAYWRIGHT_MODULE=/chemin/vers/node_modules/playwright CHROMIUM_PATH=/chemin/vers/chromium node tests/run-browser-tests.js`.
 
@@ -280,7 +302,7 @@ Les modifications sont **partagées** comme la liste de courses, dans une collec
 
 **`data/recipes.json` n'est jamais modifié.** Une recette modifiée remplace l'originale à l'affichage ; « Rétablir l'originale » supprime la version modifiée et la recette d'origine reprend sa place. Aucune modification n'est donc irréversible.
 
-Une nuance à connaître : les recettes modifiées sont relues au chargement de la page et après chaque enregistrement, pas en continu. Une recette modifiée sur un autre appareil apparaît donc au prochain rafraîchissement de la page, contrairement à la liste de courses qui se met à jour toutes les cinq secondes. Sonder en permanence des données qui changent quelques fois par mois coûterait des lectures Firestore pour rien.
+Une nuance à connaître : les recettes modifiées sont relues au chargement de la page et après chaque enregistrement, pas en continu. Une recette modifiée sur un autre appareil apparaît donc au prochain rechargement de la page. C'est désormais la même politique que pour la liste et les menus, à ceci près que ces deux-là ont un bouton de rafraîchissement.
 
 ### Nombre de parts
 

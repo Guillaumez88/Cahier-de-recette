@@ -786,39 +786,9 @@ body {
   }
 }
 
-/* --- Liste commune : etat de synchronisation, ajout libre, selection ------- */
-
-.sync {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding: 10px 14px;
-  background: var(--surface-creuse);
-  border-radius: var(--rayon-md);
-  border-left: 4px solid var(--bordure-forte);
-  font-family: system-ui, sans-serif;
-  font-size: 13px;
-  color: var(--texte-doux);
-}
-.sync--ok {
-  border-left-color: var(--olive);
-}
-.sync--hors-ligne {
-  border-left-color: var(--ocre);
-}
-.sync__etat {
-  flex: 1;
-  min-width: 200px;
-}
-.sync__erreur {
-  flex-basis: 100%;
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--terracotta-sombre);
-  overflow-wrap: anywhere;
-}
+/* --- Liste commune : ajout libre, selection -------------------------------- */
+   /* Le bandeau d'etat est defini en fin de fichier, il est partage avec le
+      semainier. */
 
 .ajout-libre {
   display: flex;
@@ -2124,12 +2094,6 @@ textarea.champ-edition {
   margin-bottom: 4px;
 }
 
-.sync--fine {
-  margin-bottom: 14px;
-  padding: 8px 12px;
-  font-size: 13px;
-}
-
 /* --- Petits écrans, semainier et boîte ------------------------------------- */
 
 @media (max-width: 900px) {
@@ -2214,5 +2178,75 @@ textarea.champ-edition {
   }
   .fiche__photo img {
     max-height: 60mm;
+  }
+}
+
+/* --- Bandeau d'état : quatre situations distinctes -------------------------
+   Depuis la suppression du sondage automatique, ce bandeau porte deux
+   informations que rien d'autre ne donne : l'âge de ce qui est affiché, et la
+   cause exacte d'un échec. « Pas de réseau », « quota du service épuisé » et
+   « règles de sécurité non publiées » appellent trois actions différentes. */
+
+.sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: var(--surface-creuse);
+  border-left: 4px solid var(--bordure-forte);
+  border-radius: var(--rayon-md);
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.sync__etat {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--texte-doux);
+}
+
+.sync--ok {
+  border-left-color: var(--olive);
+}
+.sync--age {
+  border-left-color: var(--ocre);
+}
+.sync--age .sync__etat {
+  color: var(--texte);
+  font-weight: 600;
+}
+.sync--hors-ligne,
+.sync--quota,
+.sync--config {
+  border-left-color: #a4352b;
+  background: var(--terracotta-clair);
+}
+.sync--hors-ligne .sync__etat,
+.sync--quota .sync__etat,
+.sync--config .sync__etat {
+  color: var(--texte);
+  font-weight: 700;
+}
+
+.sync__erreur {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--texte);
+  line-height: 1.45;
+}
+
+.sync .bouton--sobre {
+  flex: 0 0 auto;
+}
+.sync .bouton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@media print {
+  .sync {
+    display: none !important;
   }
 }

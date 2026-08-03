@@ -851,6 +851,57 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     assert.strictEqual(Storage.getShoppingList().length, 3);
   });
 
+  // --- Absence de sondage periodique ------------------------------------------
+
+  await test('initialiser ne lit qu une fois, meme appele plusieurs fois', async () => {
+    const { Storage } = neuf();
+    const avant = stub.etat.appels.lectures;
+    await Storage.initialiser();
+    await Storage.initialiser();
+    await Storage.initialiser();
+    // Une seule lecture : c'est ce qui remplace le sondage a 5 secondes, dont
+    // 720 iterations par heure epuisaient le palier gratuit de Firestore.
+    assert.strictEqual(stub.etat.appels.lectures - avant, 1, 'plusieurs lectures pour un chargement');
+  });
+
+  await test('ageDonnees vaut null avant toute lecture, puis un age', async () => {
+    const { Storage } = neuf();
+    assert.strictEqual(Storage.ageDonnees(), null);
+    await Storage.initialiser();
+    const age = Storage.ageDonnees();
+    assert.ok(typeof age === 'number' && age >= 0 && age < 5000, `age invraisemblable : ${age}`);
+  });
+
+  await test('le semainier ne lit lui aussi qu une fois au chargement', async () => {
+    const { Semainier } = neuf();
+    const avant = stub.etat.appels.lectures;
+    await Semainier.initialiser();
+    await Semainier.initialiser();
+    assert.strictEqual(stub.etat.appels.lectures - avant, 1);
+    assert.ok(Semainier.ageDonnees() !== null);
+  });
+
+  await test('un echec porte son statut HTTP jusqu a l ecran', async () => {
+    const { Storage } = neuf();
+    await basculerPanne(true);
+    await Storage.rafraichir();
+    await basculerPanne(false);
+    // Sans le statut, l'ecran ne peut pas distinguer « pas de reseau » d'un
+    // « 429 Quota exceeded », qui n'appellent pas la meme action.
+    assert.strictEqual(Storage.etatSync().enLigne, false);
+    assert.strictEqual(Storage.etatSync().statut, 503, `statut ${Storage.etatSync().statut}`);
+  });
+
+  await test('le statut est efface par une lecture reussie', async () => {
+    const { Storage } = neuf();
+    await basculerPanne(true);
+    await Storage.rafraichir();
+    await basculerPanne(false);
+    await Storage.rafraichir();
+    assert.strictEqual(Storage.etatSync().statut, null);
+    assert.strictEqual(Storage.etatSync().erreur, null);
+  });
+
   // --- Semainier -------------------------------------------------------------
 
   const Sn = require(path.join(racine, 'js/semaine.js'));

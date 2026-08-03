@@ -28,15 +28,17 @@
     // Identifiant du semainier partage, meme principe que listeId.
     semainierId: 'commune',
 
-    // Intervalle de rafraichissement automatique, en millisecondes.
-    intervalleRafraichissement: 5000,
+    // Age a partir duquel l'ecran signale que la donnee affichee vieillit et qu'un
+    // rafraichissement serait utile, en millisecondes.
+    //
+    // Il n'y a plus de sondage periodique : la mise a jour passe par un bouton. Ce
+    // seuil est ce qui remplace le sondage, en rendant visible ce qu'on ne rafraichit
+    // plus automatiquement. Voir l'arithmetique des lectures dans storage.js.
+    seuilDonneesAgees: 120000,
 
-    // Le semainier est sonde plus lentement que la liste de courses, et c'est
-    // delibere : en magasin on coche a plusieurs mains dans la meme minute, alors
-    // qu'un menu de la semaine change quelques fois par semaine. Firestore facture
-    // a la lecture de document ; sonder le semainier aussi vite que la liste
-    // doublerait la facture pour un confort nul.
-    intervalleSemainier: 20000,
+    // Cadence de mise a jour du libelle d'age dans le bandeau d'etat. N'entraine
+    // aucune lecture reseau : ce minuteur ne reecrit qu'un texte deja affiche.
+    intervalleAge: 15000,
 
     // Nombre de semaines affichees sur l'accueil : la semaine en cours et la
     // suivante. Une semaine passee ne sert ni aux courses ni a la cuisine.

@@ -221,6 +221,147 @@
     });
   }
 
+  /* --- bandeau d'etat partage ---------------------------------------------- */
+  //
+  // Cadence de rafraichissement du seul libelle d'age, sans acces reseau.
+  var INTERVALLE_AGE = window.CarnetConfig.intervalleAge || 15000;
+
+  var INVITE_AGE = 'Rafraîchir pour voir les modifications faites depuis les autres appareils.';
+
+  //
+  // Un seul constructeur pour la liste de courses et pour le semainier : les deux
+  // ont le meme contrat vis-a-vis de l'utilisateur, il n'y a pas de raison qu'ils
+  // formulent differemment la meme situation.
+
+  /**
+   * Classe une erreur de synchronisation. Trois causes appellent trois actions
+   * differentes, les confondre laisse l'utilisateur sans recours :
+   *
+   * - 429 « Quota exceeded » : le palier gratuit Firestore du jour est epuise. Rien
+   *   a reparer, cela repart le lendemain. C'est ce qui est arrive en aout 2026.
+   * - 403 PERMISSION_DENIED : les regles de securite publiees ne couvrent pas cette
+   *   collection. Il faut republier firestore.rules.
+   * - le reste, dont l'absence de reponse : pas de reseau.
+   */
+  function diagnostiquer(etatSync) {
+    if (!etatSync.erreur) return null;
+
+    if (etatSync.statut === 429 || /quota/i.test(etatSync.erreur)) {
+      return {
+        classe: 'sync--quota',
+        titre: 'Service momentanément indisponible',
+        explication:
+          'Le quota gratuit de la base de données est épuisé pour aujourd’hui. Les modifications faites ici sont conservées et partiront dès que le service répondra à nouveau, au plus tard demain.',
+      };
+    }
+    if (etatSync.statut === 403 || /permission|insufficient/i.test(etatSync.erreur)) {
+      return {
+        classe: 'sync--config',
+        titre: 'Accès refusé par la base',
+        explication:
+          'Les règles de sécurité publiées ne couvrent pas cette collection : republier firestore.rules depuis le dépôt.',
+      };
+    }
+    return {
+      classe: 'sync--hors-ligne',
+      titre: 'Hors ligne',
+      explication: 'Les modifications faites ici sont conservées et partiront au retour de la connexion.',
+    };
+  }
+
+  /** « il y a 3 minutes », en clair. */
+  function depuisQuand(age) {
+    var secondes = Math.round(age / 1000);
+    if (secondes < 45) return 'à l’instant';
+    var minutes = Math.round(secondes / 60);
+    if (minutes < 60) return 'il y a ' + minutes + (minutes > 1 ? ' minutes' : ' minute');
+    var heures = Math.round(minutes / 60);
+    return 'il y a ' + heures + (heures > 1 ? ' heures' : ' heure');
+  }
+
+  /**
+   * Bandeau d'etat. `sujet` est le module concerne (S ou Sm), `libelleOk` la phrase
+   * affichee quand tout va bien, accordee par l'appelant.
+   *
+   * L'age de la donnee y est affiche, et signale au-dela d'un seuil. Ce n'est pas
+   * decoratif : depuis la suppression du sondage automatique, c'est la seule chose
+   * qui empeche de cocher dans une liste vieille d'une heure sans le savoir.
+   */
+  function barreEtat(sujet, libelleOk, apresRafraichissement, identifiantBouton) {
+    var e = sujet.etatSync();
+    var age = sujet.ageDonnees();
+    var probleme = diagnostiquer(e);
+
+    var libelle;
+    var classe = 'sync';
+    var invite = null;
+
+    if (e.enCours) {
+      libelle = 'Mise à jour…';
+    } else if (probleme) {
+      libelle = probleme.titre;
+      if (e.enAttente > 0) {
+        libelle += ', ' + e.enAttente + ' modification' + (e.enAttente > 1 ? 's' : '') + ' en attente';
+      }
+      classe += ' ' + probleme.classe;
+      invite = probleme.explication;
+    } else if (e.enLigne === true) {
+      libelle = libelleOk + ', à jour ' + depuisQuand(age === null ? 0 : age);
+      if (age !== null && age > window.CarnetConfig.seuilDonneesAgees) {
+        classe += ' sync--age';
+        // L'etat « vieillissant » doit dire quoi faire, sinon il n'est qu'une couleur.
+        invite = INVITE_AGE;
+      } else {
+        classe += ' sync--ok';
+      }
+    } else {
+      libelle = 'Connexion…';
+    }
+
+    var bandeau = el('div', { class: classe, 'data-bandeau': identifiantBouton }, [
+      el('span', { class: 'sync__etat', texte: libelle }),
+      el('button', {
+        type: 'button',
+        class: 'bouton bouton--sobre',
+        id: identifiantBouton,
+        disabled: e.enCours ? true : null,
+        onclick: function () {
+          sujet.rafraichir().then(apresRafraichissement);
+        },
+      }, [icone('fleche', { taille: 16 }), el('span', { texte: 'Rafraîchir' })]),
+      invite ? el('p', { class: 'sync__erreur', texte: invite }) : null,
+      probleme ? el('p', { class: 'url-source', texte: e.erreur }) : null,
+    ]);
+
+    // Le libelle porte un age (« à jour il y a 3 minutes ») qui doit vieillir tout
+    // seul. Sans sondage reseau, rien ne re-rend l'ecran : ce minuteur ne touche donc
+    // que ce texte et cette classe, sans aucune lecture Firestore. C'est ce qui evite
+    // de cocher dans une liste vieille d'une heure en croyant qu'elle est fraiche.
+    bandeau.__minuteurAge = setInterval(function () {
+      if (!bandeau.isConnected) {
+        clearInterval(bandeau.__minuteurAge);
+        return;
+      }
+      var courant = sujet.etatSync();
+      var ageCourant = sujet.ageDonnees();
+      if (courant.enCours || diagnostiquer(courant) || courant.enLigne !== true || ageCourant === null) return;
+
+      var vieillissant = ageCourant > window.CarnetConfig.seuilDonneesAgees;
+      bandeau.querySelector('.sync__etat').textContent = libelleOk + ', à jour ' + depuisQuand(ageCourant);
+      bandeau.classList.toggle('sync--age', vieillissant);
+      bandeau.classList.toggle('sync--ok', !vieillissant);
+
+      var explication = bandeau.querySelector('.sync__erreur');
+      if (vieillissant && !explication) {
+        bandeau.appendChild(el('p', { class: 'sync__erreur', texte: INVITE_AGE }));
+      } else if (!vieillissant && explication) {
+        bandeau.removeChild(explication);
+      }
+    }, INTERVALLE_AGE);
+
+    return bandeau;
+  }
+
   /* --- vue : accueil, le semainier ----------------------------------------- */
 
   // Plat en cours de glissement. Deux formes :
@@ -408,41 +549,9 @@
     ]);
   }
 
-  /** Bandeau d'etat du semainier, distinct de celui de la liste de courses. */
+  /** Bandeau d'etat du semainier. */
   function barreSyncSemainier() {
-    var e = Sm.etatSync();
-
-    var libelle;
-    var classe = 'sync sync--fine';
-    if (e.enCours) {
-      libelle = 'Synchronisation du semainier…';
-    } else if (e.enLigne === true) {
-      var heure = e.dernierSucces ? new Date(e.dernierSucces).toLocaleTimeString('fr-FR') : null;
-      libelle = heure ? 'Menus partagés, à jour à ' + heure : 'Menus partagés, à jour';
-      classe += ' sync--ok';
-    } else if (e.enLigne === false) {
-      libelle =
-        e.enAttente > 0
-          ? 'Hors ligne, ' + e.enAttente + ' modification' + (e.enAttente > 1 ? 's' : '') + ' en attente'
-          : 'Hors ligne, menus affichés depuis la copie locale';
-      classe += ' sync--hors-ligne';
-    } else {
-      libelle = 'Connexion…';
-    }
-
-    return el('div', { class: classe }, [
-      el('span', { class: 'sync__etat', texte: libelle }),
-      el('button', {
-        type: 'button',
-        class: 'lien-action',
-        id: 'rafraichir-semainier',
-        texte: 'Rafraîchir',
-        onclick: function () {
-          Sm.rafraichir().then(rendreAccueil);
-        },
-      }),
-      e.erreur ? el('p', { class: 'sync__erreur', texte: e.erreur }) : null,
-    ]);
+    return barreEtat(Sm, 'Menus partagés', rendreAccueil, 'rafraichir-semainier');
   }
 
   /**
@@ -1613,43 +1722,11 @@
 
   /* --- vue : liste de courses ---------------------------------------------- */
 
-  /** Bandeau d'etat de la synchronisation, avec le bouton de rafraichissement. */
+  /** Bandeau d'etat de la liste de courses. */
   function barreSync() {
-    var e = S.etatSync();
-
-    var libelle;
-    var classe = 'sync';
-    if (e.enCours) {
-      libelle = 'Synchronisation…';
-    } else if (e.enLigne === true) {
-      var heure = e.dernierSucces ? new Date(e.dernierSucces).toLocaleTimeString('fr-FR') : null;
-      libelle = heure ? 'Liste commune, à jour à ' + heure : 'Liste commune, à jour';
-      classe += ' sync--ok';
-    } else if (e.enLigne === false) {
-      libelle =
-        e.enAttente > 0
-          ? 'Hors ligne, ' + e.enAttente + ' modification' + (e.enAttente > 1 ? 's' : '') + ' en attente d’envoi'
-          : 'Hors ligne, liste affichée depuis la copie locale';
-      classe += ' sync--hors-ligne';
-    } else {
-      libelle = 'Connexion…';
-    }
-
-    return el('div', { class: classe }, [
-      el('span', { class: 'sync__etat', texte: libelle }),
-      el('button', {
-        type: 'button',
-        class: 'lien-action',
-        id: 'rafraichir',
-        texte: 'Rafraîchir',
-        onclick: function () {
-          S.rafraichir().then(function () {
-            monter(vueListeDeCourses());
-          });
-        },
-      }),
-      e.erreur ? el('p', { class: 'sync__erreur', texte: e.erreur }) : null,
-    ]);
+    return barreEtat(S, 'Liste partagée', function () {
+      monter(vueListeDeCourses());
+    }, 'rafraichir');
   }
 
   /** Formulaire d'ajout d'un article hors recette. */
@@ -2604,7 +2681,7 @@
     );
   }
 
-  /* --- rafraichissement automatique de la liste commune --------------------- */
+  /* --- reactions aux changements de donnees --------------------------------- */
 
   function surEcranListe() {
     return window.location.hash.replace(/^#/, '') === '/liste-de-courses';
@@ -2613,7 +2690,7 @@
   /**
    * Un rafraichissement peut survenir pendant que l'utilisateur tape dans le champ
    * d'ajout : re-rendre effacerait sa saisie. On saute donc le re-rendu tant qu'un
-   * champ a le focus. Le sondage suivant s'en chargera.
+   * champ a le focus.
    */
   function saisieEnCours() {
     var actif = document.activeElement;
@@ -2654,13 +2731,14 @@
         window.addEventListener('hashchange', router);
         router();
 
-        // Le sondage n'est lance qu'une fois les recettes chargees : avant, l'ecran
-        // ne peut rien afficher d'utile de toute facon.
+        // Une seule lecture, au chargement. Il n'y a plus de sondage periodique :
+        // la mise a jour passe par le bouton « Rafraichir » de chaque ecran. Voir
+        // l'arithmetique des lectures Firestore dans storage.js.
         S.surChangement(surChangementListe);
-        S.demarrer();
+        S.initialiser();
 
         Sm.surChangement(surChangementSemainier);
-        Sm.demarrer();
+        Sm.initialiser();
 
         // Les recettes modifiees sont relues une fois, au chargement. Elles changent
         // trop rarement pour justifier un sondage permanent.

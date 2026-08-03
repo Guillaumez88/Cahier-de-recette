@@ -4,7 +4,7 @@
  * pointent sur la meme emulation de Firestore. C'est le seul montage qui prouve
  * reellement le partage : ce que l'un ajoute doit apparaitre chez l'autre.
  *
- * Verifie aussi le rafraichissement automatique, le bouton de rafraichissement,
+ * Verifie aussi l'absence de sondage periodique, le bouton de rafraichissement,
  * l'ajout libre, la selection partielle d'ingredients, et le comportement hors
  * ligne, provoque par la panne simulee du stub.
  */
@@ -127,17 +127,20 @@ async function attendreTexte(page, motif, limite = 8000) {
   verifier('le second appareil voit la liste du premier', vuParB, (await texteDe(pageB)).slice(0, 300));
   verifier('le second appareil voit le bon decompte', /2 lignes à acheter sur 2/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
 
-  // B coche un article, A doit le voir sans rien faire (rafraichissement automatique).
+  // B coche un article. A ne le verra qu'en rechargeant ou en rafraichissant : il
+  // n'y a plus de sondage periodique, c'est le choix assume depuis l'epuisement du
+  // quota Firestore.
   await pageB.locator('.liste-courses input[type="checkbox"]').first().check();
   await attendre(800);
   verifier('le cochage est pris en compte chez B', /1 ligne à acheter sur 2/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
 
   await pageA.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
+  await pageA.reload({ waitUntil: 'networkidle' });
   const cochageVuParA = await attendreTexte(pageA, /1 ligne à acheter sur 2/);
   verifier('le premier appareil voit le cochage du second', cochageVuParA, (await texteDe(pageA)).slice(0, 300));
   verifier('la ligne cochee est barree chez A', (await pageA.locator('.liste-courses li.coche').count()) === 1);
 
-  // --- 4. Rafraichissement automatique, sans intervention --------------------
+  // --- 4. Aucun sondage periodique -------------------------------------------
 
   await pageB.locator('#ajout-nom').fill('Pain de campagne');
   await pageB.locator('#ajout-quantite').fill('1');
@@ -152,30 +155,68 @@ async function attendreTexte(page, motif, limite = 8000) {
     (await texteDe(pageB)).slice(0, 400)
   );
 
-  // A ne touche a rien : c'est le sondage periodique qui doit apporter la nouveaute.
-  const ajoutVuParA = await attendreTexte(pageA, /Pain de campagne/);
+  // A ne touche a rien : la nouveaute ne doit PAS arriver toute seule. C'est le coeur
+  // du correctif de quota : 720 sondages par heure et par onglet epuisaient le palier
+  // gratuit de Firestore en deux heures.
+  const lectures = async () =>
+    (await (await pageA.request.get(new URL('__stub/etat', BASE).href)).json()).appels.lectures;
+  const lecturesAvant = await lectures();
+  await attendre(4000);
+  const lecturesApres = await lectures();
   verifier(
-    'le rafraichissement automatique apporte l ajout de l autre appareil',
-    ajoutVuParA,
+    'aucune lecture Firestore pendant quatre secondes d inactivite',
+    lecturesApres === lecturesAvant,
+    `${lecturesApres - lecturesAvant} lecture(s) pendant l attente`
+  );
+  verifier(
+    'la nouveaute de l autre appareil n arrive pas sans rafraichir',
+    !/Pain de campagne/.test(await texteDe(pageA)),
     (await texteDe(pageA)).slice(0, 300)
+  );
+
+  // Et l age de la donnee affichee est signale, ce qui remplace le sondage.
+  verifier(
+    'le bandeau invite a rafraichir quand la donnee vieillit',
+    /Rafraîchir pour voir les modifications faites depuis les autres appareils/.test(await texteDe(pageA)),
+    (await texteDe(pageA)).slice(0, 400)
+  );
+  verifier(
+    'le bandeau passe en etat vieillissant',
+    (await pageA.locator('.sync--age').count()) === 1,
+    await pageA.locator('.sync').first().getAttribute('class')
   );
 
   // --- 5. Bouton de rafraichissement manuel ----------------------------------
 
-  await pageB.locator('#ajout-nom').fill('Lait');
-  await pageB.locator('#ajout-valider').click();
-  await attendre(700);
-
   verifier('le bouton de rafraichissement existe', (await pageA.locator('#rafraichir').count()) === 1);
   await pageA.locator('#rafraichir').click();
-  await attendre(700);
-  verifier('le rafraichissement manuel ramene la nouveaute', /Lait/.test(await texteDe(pageA)), (await texteDe(pageA)).slice(0, 300));
+  await attendre(900);
+  verifier(
+    'le rafraichissement manuel ramene la nouveaute',
+    /Pain de campagne/.test(await texteDe(pageA)),
+    (await texteDe(pageA)).slice(0, 300)
+  );
+  verifier(
+    'le bandeau repasse a jour apres rafraichissement',
+    (await pageA.locator('.sync--ok').count()) === 1,
+    await pageA.locator('.sync').first().getAttribute('class')
+  );
 
   // --- 6. Hors ligne ---------------------------------------------------------
 
   await panne(pageA, true);
+  // Sans sondage periodique, une coupure ne se manifeste qu'au premier echange :
+  // c'est le rafraichissement manuel qui la revele. Le dire est plus honnete que
+  // d'afficher « hors ligne » sur la foi d'un sondage qu'on ne fait plus.
+  await pageA.locator('#rafraichir').click();
   const passeHorsLigne = await attendreTexte(pageA, /Hors ligne/);
-  verifier('la coupure reseau est signalee a l utilisateur', passeHorsLigne, (await texteDe(pageA)).slice(0, 300));
+  verifier('la coupure reseau est signalee au premier echange', passeHorsLigne, (await texteDe(pageA)).slice(0, 300));
+  verifier(
+    'la cause est expliquee et distinguee d un refus de la base',
+    /Les modifications faites ici sont conservées/.test(await texteDe(pageA)) &&
+      (await pageA.locator('.sync--hors-ligne').count()) === 1,
+    (await texteDe(pageA)).slice(0, 400)
+  );
 
   const avantCoupure = await texteDe(pageA);
   verifier('la liste reste affichee hors ligne', /Pain de campagne/.test(avantCoupure), avantCoupure.slice(0, 300));
@@ -191,17 +232,19 @@ async function attendreTexte(page, motif, limite = 8000) {
   );
   verifier(
     'les modifications en attente sont annoncees',
-    /en attente d’envoi/.test(await texteDe(pageA)),
+    /modification en attente/.test(await texteDe(pageA)),
     (await texteDe(pageA)).slice(0, 300)
   );
 
-  // Rien ne doit avoir atteint le serveur pendant la panne.
+  // Rien ne doit avoir atteint le serveur pendant la panne. Le retour n'est pas
+  // detecte tout seul : c'est le bouton qui le constate.
   await panne(pageA, false);
+  await pageA.locator('#rafraichir').click();
   const revenuEnLigne = await attendreTexte(pageA, /à jour/, 10000);
-  verifier('le retour du reseau est detecte', revenuEnLigne, (await texteDe(pageA)).slice(0, 300));
+  verifier('le retour du reseau est constate au rafraichissement', revenuEnLigne, (await texteDe(pageA)).slice(0, 300));
   verifier(
     'plus aucune modification en attente apres reconnexion',
-    !/en attente d’envoi/.test(await texteDe(pageA)),
+    !/modification en attente/.test(await texteDe(pageA)),
     (await texteDe(pageA)).slice(0, 300)
   );
 

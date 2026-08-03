@@ -30,10 +30,11 @@ const SURCHARGE = `<script>
     baseAuth: '/__auth/v1',
     baseSecureToken: '/__auth/v1',
     projectId: 'projet-de-test',
-    intervalleRafraichissement: 1000,
-    // Le semainier est sonde plus lentement que la liste en production ; en test on
-    // le rapproche pour ne pas attendre vingt secondes qu'un changement apparaisse.
-    intervalleSemainier: 1000
+    // Le seuil de vieillissement est rapproche pour que les tests puissent verifier
+    // le signalement sans attendre deux minutes.
+    seuilDonneesAgees: 3000,
+    // Idem pour la cadence du libelle d'age, qui n'entraine aucune lecture reseau.
+    intervalleAge: 1000
   };
 </script>`;
 

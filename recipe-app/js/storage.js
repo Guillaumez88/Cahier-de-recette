@@ -22,7 +22,6 @@
   'use strict';
 
   var estNode = typeof module !== 'undefined' && module.exports;
-  var config = estNode ? require('./firebase-config.js') : global.CarnetConfig;
   var Sync = estNode ? require('./sync.js') : global.CarnetSync;
   var Rayons = estNode ? require('./rayons.js') : global.CarnetRayons;
   var Quantites = estNode ? require('./quantites.js') : global.CarnetQuantites;
@@ -34,12 +33,13 @@
   var TITRE_LIBRE = 'Ajouts libres';
 
   var abonnes = [];
-  var minuteur = null;
+  var dejaCharge = false;
 
   var etat = {
     enLigne: null, // null tant qu'aucun echange n'a eu lieu
     dernierSucces: null, // horodatage du dernier rafraichissement reussi
     erreur: null, // message de la derniere erreur
+    statut: null, // statut HTTP de la derniere erreur, pour la distinguer a l'ecran
     enCours: false,
 
     // Compteur incremente a chaque modification locale. Sert a detecter qu'une
@@ -141,9 +141,11 @@
       await viderFile();
       etat.enLigne = true;
       etat.erreur = null;
+      etat.statut = null;
     } catch (erreur) {
       etat.enLigne = false;
       etat.erreur = erreur.message;
+      etat.statut = erreur.statut || null;
     }
     notifier();
     return getShoppingList();
@@ -183,6 +185,7 @@
       if (etat.versionLocale !== versionAvant) {
         etat.enLigne = true;
         etat.erreur = null;
+        etat.statut = null;
         return getShoppingList();
       }
 
@@ -211,12 +214,14 @@
 
       etat.enLigne = true;
       etat.erreur = null;
+      etat.statut = null;
       etat.dernierSucces = Date.now();
       ecrireCache(articles);
       return articles;
     } catch (erreur) {
       etat.enLigne = false;
       etat.erreur = erreur.message;
+      etat.statut = erreur.statut || null;
       return getShoppingList();
     } finally {
       etat.enCours = false;
@@ -225,42 +230,34 @@
   }
 
   /**
-   * Demarre le rafraichissement automatique. Idempotent.
+   * Lecture initiale de la liste, au chargement de la page. Idempotente.
    *
-   * Le sondage est suspendu quand l'onglet n'est pas visible, et relance des qu'il
-   * le redevient. Ce n'est pas une optimisation cosmetique : Firestore facture a la
-   * lecture de document, et le palier gratuit est de 50 000 lectures par jour. A
-   * 5 secondes d'intervalle, un onglet laisse ouvert fait 720 sondages par heure ;
-   * avec 10 articles en liste cela represente 7 200 lectures par heure, soit le
-   * palier gratuit epuise en sept heures par un seul onglet oublie. En ne sondant
-   * que l'onglet actif, le cout suit l'usage reel.
+   * IL N'Y A PLUS DE SONDAGE PERIODIQUE, et c'est le point le plus important de ce
+   * fichier. La liste etait relue toutes les 5 secondes ; cela a epuise le palier
+   * gratuit de Firestore, qui est de 50 000 lectures de document par jour et facture
+   * chaque document a chaque lecture. L'arithmetique : 720 sondages par heure, tous
+   * les articles lus a chaque fois, soit 18 720 lectures par heure avec 26 articles,
+   * et par onglet ouvert. Deux onglets oublies epuisaient la journee en deux heures,
+   * apres quoi le serveur repondait « 429 Quota exceeded » sur tout, y compris les
+   * ecritures : la liste et les menus paraissaient alors non partages, chaque
+   * appareil retombant sur sa copie locale.
+   *
+   * La mise a jour est donc explicite : un bouton « Rafraichir » sur les ecrans
+   * concernes. En echange, l'age de la donnee affichee doit etre visible, sinon on
+   * coche dans une liste perimee sans le savoir : voir `ageDonnees()`.
    */
-  function demarrer() {
-    if (minuteur) return;
-
-    var aUnDocument = typeof document !== 'undefined' && document;
-    var estVisible = function () {
-      return !aUnDocument || document.visibilityState !== 'hidden';
-    };
-
-    rafraichir();
-    minuteur = setInterval(function () {
-      if (estVisible()) rafraichir();
-    }, config.intervalleRafraichissement);
-
-    if (aUnDocument && !document.__carnetVisibiliteBranchee) {
-      document.__carnetVisibiliteBranchee = true;
-      document.addEventListener('visibilitychange', function () {
-        // Au retour sur l'onglet, ne pas attendre le prochain intervalle : la liste
-        // affichee peut avoir plusieurs minutes de retard.
-        if (estVisible()) rafraichir();
-      });
-    }
+  function initialiser() {
+    if (dejaCharge) return Promise.resolve(getShoppingList());
+    dejaCharge = true;
+    return rafraichir();
   }
 
-  function arreter() {
-    if (minuteur) clearInterval(minuteur);
-    minuteur = null;
+  /**
+   * Age de la donnee affichee, en millisecondes, ou null si rien n'a encore ete lu.
+   * Sert a signaler a l'ecran qu'un rafraichissement serait utile.
+   */
+  function ageDonnees() {
+    return etat.dernierSucces === null ? null : Date.now() - etat.dernierSucces;
   }
 
   function etatSync() {
@@ -268,6 +265,7 @@
       enLigne: etat.enLigne,
       dernierSucces: etat.dernierSucces,
       erreur: etat.erreur,
+      statut: etat.statut,
       enCours: etat.enCours,
       enAttente: nbEnAttente(),
     };
@@ -667,9 +665,9 @@
     cleArticle: cleArticle,
     getShoppingList: getShoppingList,
 
-    demarrer: demarrer,
-    arreter: arreter,
+    initialiser: initialiser,
     rafraichir: rafraichir,
+    ageDonnees: ageDonnees,
     etatSync: etatSync,
 
     addItemsToList: addItemsToList,

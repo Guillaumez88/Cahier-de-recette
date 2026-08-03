@@ -24,7 +24,6 @@
   'use strict';
 
   var estNode = typeof module !== 'undefined' && module.exports;
-  var config = estNode ? require('./firebase-config.js') : global.CarnetConfig;
   var Sync = estNode ? require('./sync.js') : global.CarnetSync;
   var Semaine = estNode ? require('./semaine.js') : global.CarnetSemaine;
 
@@ -35,12 +34,13 @@
   var TYPE_LIBRE = 'libre';
 
   var abonnes = [];
-  var minuteur = null;
+  var dejaCharge = false;
 
   var etat = {
     enLigne: null,
     dernierSucces: null,
     erreur: null,
+    statut: null, // statut HTTP de la derniere erreur, pour la distinguer a l'ecran
     enCours: false,
     versionLocale: 0,
   };
@@ -131,9 +131,11 @@
       await viderFile();
       etat.enLigne = true;
       etat.erreur = null;
+      etat.statut = null;
     } catch (erreur) {
       etat.enLigne = false;
       etat.erreur = erreur.message;
+      etat.statut = erreur.statut || null;
     }
     notifier();
     return tous();
@@ -178,6 +180,7 @@
       if (etat.versionLocale !== versionAvant) {
         etat.enLigne = true;
         etat.erreur = null;
+        etat.statut = null;
         return tous();
       }
 
@@ -203,12 +206,14 @@
 
       etat.enLigne = true;
       etat.erreur = null;
+      etat.statut = null;
       etat.dernierSucces = Date.now();
       ecrireCache(creneaux);
       return creneaux;
     } catch (erreur) {
       etat.enLigne = false;
       etat.erreur = erreur.message;
+      etat.statut = erreur.statut || null;
       return tous();
     } finally {
       etat.enCours = false;
@@ -217,34 +222,20 @@
   }
 
   /**
-   * Demarre le sondage. Idempotent, suspendu quand l'onglet est cache.
-   * L'intervalle est celui de config.intervalleSemainier, plus lent que celui de la
-   * liste de courses : voir le commentaire de firebase-config.js.
+   * Lecture initiale des menus, au chargement de la page. Idempotente.
+   * Comme pour la liste de courses, il n'y a plus de sondage periodique : la mise a
+   * jour passe par un bouton explicite. Voir le commentaire de storage.js, qui donne
+   * l'arithmetique des lectures Firestore ayant motive ce choix.
    */
-  function demarrer() {
-    if (minuteur) return;
-
-    var aUnDocument = typeof document !== 'undefined' && document;
-    var estVisible = function () {
-      return !aUnDocument || document.visibilityState !== 'hidden';
-    };
-
-    rafraichir();
-    minuteur = setInterval(function () {
-      if (estVisible()) rafraichir();
-    }, config.intervalleSemainier);
-
-    if (aUnDocument && !document.__carnetVisibiliteSemainier) {
-      document.__carnetVisibiliteSemainier = true;
-      document.addEventListener('visibilitychange', function () {
-        if (estVisible()) rafraichir();
-      });
-    }
+  function initialiser() {
+    if (dejaCharge) return Promise.resolve(tous());
+    dejaCharge = true;
+    return rafraichir();
   }
 
-  function arreter() {
-    if (minuteur) clearInterval(minuteur);
-    minuteur = null;
+  /** Age des menus affiches, en millisecondes, ou null si rien n'a encore ete lu. */
+  function ageDonnees() {
+    return etat.dernierSucces === null ? null : Date.now() - etat.dernierSucces;
   }
 
   function etatSync() {
@@ -252,6 +243,7 @@
       enLigne: etat.enLigne,
       dernierSucces: etat.dernierSucces,
       erreur: etat.erreur,
+      statut: etat.statut,
       enCours: etat.enCours,
       enAttente: nbEnAttente(),
     };
@@ -438,9 +430,9 @@
     TYPE_LIBRE: TYPE_LIBRE,
 
     surChangement: surChangement,
-    demarrer: demarrer,
-    arreter: arreter,
+    initialiser: initialiser,
     rafraichir: rafraichir,
+    ageDonnees: ageDonnees,
     etatSync: etatSync,
 
     tous: tous,
