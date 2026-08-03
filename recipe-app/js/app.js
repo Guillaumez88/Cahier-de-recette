@@ -11,6 +11,7 @@
 
   var L = window.CarnetLogic;
   var S = window.CarnetStorage;
+  var R = window.CarnetRayons;
 
   var criteresVides = L.criteresVides;
   var origineCourte = L.origineCourte;
@@ -679,6 +680,77 @@
     ]);
   }
 
+  /** Bloc compact listant les recettes presentes, avec un retrait par recette. */
+  function blocRecettes(articles) {
+    var recettes = S.recettesDansListe(articles);
+    if (recettes.length === 0) return null;
+
+    return el('details', { class: 'bloc-recettes' }, [
+      el('summary', {
+        texte: recettes.length + ' recette' + (recettes.length > 1 ? 's' : '') + ' dans la liste',
+      }),
+      el(
+        'ul',
+        { class: 'liste-recettes' },
+        recettes.map(function (recette) {
+          return el('li', {}, [
+            el('a', { href: '#/recette/' + recette.recetteId, texte: recette.titre }),
+            el('span', { class: 'compte-articles', texte: recette.nb + ' article' + (recette.nb > 1 ? 's' : '') }),
+            el('button', {
+              type: 'button',
+              class: 'lien-action',
+              texte: 'Retirer',
+              'aria-label': 'Retirer les ingrédients de ' + recette.titre,
+              onclick: function () {
+                removeRecipeFromList(recette.recetteId).then(function () {
+                  monter(vueListeDeCourses());
+                });
+              },
+            }),
+          ]);
+        })
+      ),
+    ]);
+  }
+
+  /** Une ligne de la liste : un ingredient, quantites additionnees. */
+  function ligneCourses(ligne) {
+    var caseCoche = el('input', {
+      type: 'checkbox',
+      checked: ligne.coche ? true : null,
+      onchange: function (evenement) {
+        // Une ligne peut recouvrir plusieurs articles : on les coche tous.
+        S.cocherArticles(ligne.articles, evenement.target.checked).then(function () {
+          monter(vueListeDeCourses());
+        });
+      },
+    });
+
+    return el('li', { class: ligne.coche ? 'coche' : null }, [
+      el('label', {}, [
+        caseCoche,
+        el('span', { class: 'nom', texte: ligne.nom }),
+        ligne.quantite ? el('span', { class: 'quantite', texte: ligne.quantite }) : null,
+      ]),
+      // Provenance affichee seulement quand l'ingredient vient de plusieurs recettes :
+      // c'est la que le total additionne demande une explication.
+      ligne.nbSources > 1
+        ? el('span', { class: 'provenance', texte: ligne.recettes.join(' + ') })
+        : null,
+      el('button', {
+        type: 'button',
+        class: 'supprimer',
+        texte: '×',
+        'aria-label': 'Supprimer ' + ligne.nom,
+        onclick: function () {
+          S.removeArticles(ligne.articles).then(function () {
+            monter(vueListeDeCourses());
+          });
+        },
+      }),
+    ]);
+  }
+
   function vueListeDeCourses() {
     document.title = 'Liste de courses — Mon carnet de recettes';
 
@@ -688,7 +760,10 @@
     fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour au carnet' }));
     fragment.appendChild(el('h1', { class: 'fiche__titre', texte: 'Liste de courses commune' }));
     fragment.appendChild(
-      el('p', { class: 'accroche', texte: 'Partagée : ce que vous cochez ou ajoutez apparaît chez les autres.' })
+      el('p', {
+        class: 'accroche',
+        texte: 'Rangée par rayon, dans l’ordre du magasin. Un même ingrédient venu de plusieurs recettes est additionné.',
+      })
     );
 
     fragment.appendChild(barreSync());
@@ -707,15 +782,19 @@
       return fragment;
     }
 
-    var restants = articles.filter(function (a) {
-      return !a.coche;
+    var groupes = S.listeParRayon(articles);
+    var lignes = groupes.reduce(function (total, g) {
+      return total.concat(g.lignes);
+    }, []);
+    var restants = lignes.filter(function (l) {
+      return !l.coche;
     }).length;
-    var coches = articles.length - restants;
+    var coches = lignes.length - restants;
 
     fragment.appendChild(
       el('div', { class: 'barre-resultats' }, [
         el('span', {
-          texte: restants + ' article' + (restants > 1 ? 's' : '') + ' à acheter sur ' + articles.length,
+          texte: restants + ' ligne' + (restants > 1 ? 's' : '') + ' à acheter sur ' + lignes.length,
         }),
         el('div', { class: 'actions-liste' }, [
           el('button', {
@@ -753,56 +832,17 @@
       ])
     );
 
-    grouperParRecette(articles).forEach(function (groupe) {
+    var recettes = blocRecettes(articles);
+    if (recettes) fragment.appendChild(recettes);
+
+    groupes.forEach(function (groupe) {
       fragment.appendChild(
-        el('div', { class: 'groupe-courses' }, [
-          el('div', { class: 'groupe-courses__haut' }, [
-            el('h2', { class: 'groupe-courses__titre', texte: groupe.titre }),
-            el('button', {
-              type: 'button',
-              class: 'lien-action',
-              texte: 'Retirer',
-              'aria-label': 'Retirer les ingrédients de ' + groupe.titre,
-              onclick: function () {
-                removeRecipeFromList(groupe.recetteId).then(function () {
-                  monter(vueListeDeCourses());
-                });
-              },
-            }),
+        el('section', { class: 'rayon' }, [
+          el('h2', { class: 'rayon__titre' }, [
+            el('span', { texte: groupe.rayon }),
+            el('span', { class: 'rayon__compte', texte: String(groupe.lignes.length) }),
           ]),
-          el(
-            'ul',
-            { class: 'liste-courses' },
-            groupe.articles.map(function (article) {
-              var caseCoche = el('input', {
-                type: 'checkbox',
-                checked: article.coche ? true : null,
-                onchange: function () {
-                  toggleArticle(article.cle).then(function () {
-                    monter(vueListeDeCourses());
-                  });
-                },
-              });
-              return el('li', { class: article.coche ? 'coche' : null }, [
-                el('label', {}, [
-                  caseCoche,
-                  el('span', { class: 'nom', texte: article.nom }),
-                  article.quantite ? el('span', { class: 'quantite', texte: article.quantite }) : null,
-                ]),
-                el('button', {
-                  type: 'button',
-                  class: 'supprimer',
-                  texte: '×',
-                  'aria-label': 'Supprimer ' + article.nom,
-                  onclick: function () {
-                    removeArticle(article.cle).then(function () {
-                      monter(vueListeDeCourses());
-                    });
-                  },
-                }),
-              ]);
-            })
-          ),
+          el('ul', { class: 'liste-courses' }, groupe.lignes.map(ligneCourses)),
         ])
       );
     });

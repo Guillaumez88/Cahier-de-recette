@@ -274,6 +274,143 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     assert.strictEqual(Storage.etatSync().enLigne, true);
   });
 
+  // --- Fusion par ingredient et rangement par rayon --------------------------
+
+  const RECETTE_B = {
+    id: 'brownie-verification',
+    titre: 'Brownie',
+    ingredients: [
+      {
+        groupe: null,
+        items: [
+          { nom: 'Beurre', quantite: '125 g' },
+          { nom: 'Olives noires', quantite: '50 g' },
+        ],
+      },
+    ],
+  };
+  const RECETTE_A = {
+    id: 'flan-verification',
+    titre: 'Flan',
+    ingredients: [
+      {
+        groupe: null,
+        items: [
+          { nom: 'Beurre', quantite: '300 g' },
+          { nom: 'Œufs', quantite: '3' },
+        ],
+      },
+    ],
+  };
+
+  await test('le meme ingredient venu de deux recettes est additionne', async () => {
+    const { Storage } = neuf();
+    await Storage.addRecipeToList(RECETTE_A);
+    await Storage.addRecipeToList(RECETTE_B);
+
+    const lignes = Storage.fusionner(Storage.getShoppingList());
+    const beurre = lignes.find((l) => l.nom === 'Beurre');
+    assert.ok(beurre, 'ligne beurre introuvable');
+    assert.strictEqual(beurre.quantite, '425 g', `quantite « ${beurre.quantite} »`);
+    assert.strictEqual(beurre.nbSources, 2, 'la ligne devrait recouvrir deux articles');
+    assert.deepStrictEqual(beurre.recettes.sort(), ['Brownie', 'Flan']);
+  });
+
+  await test('la fusion ne change rien en base : un document par contribution', async () => {
+    const { Storage } = neuf();
+    await Storage.addRecipeToList(RECETTE_A);
+    await Storage.addRecipeToList(RECETTE_B);
+    // 2 + 2 ingredients, dont un nom commun : 4 documents, 3 lignes affichees.
+    assert.strictEqual(stub.etat.articles.size, 4, `${stub.etat.articles.size} documents`);
+    assert.strictEqual(Storage.fusionner(Storage.getShoppingList()).length, 3);
+  });
+
+  await test('retirer une recette fait baisser le total additionne', async () => {
+    const { Storage } = neuf();
+    await Storage.addRecipeToList(RECETTE_A);
+    await Storage.addRecipeToList(RECETTE_B);
+    await Storage.removeRecipeFromList(RECETTE_B.id);
+
+    const beurre = Storage.fusionner(Storage.getShoppingList()).find((l) => l.nom === 'Beurre');
+    assert.strictEqual(beurre.quantite, '300 g', `quantite « ${beurre.quantite} »`);
+    assert.strictEqual(beurre.nbSources, 1);
+  });
+
+  await test('cocher une ligne fusionnee coche ses deux contributions', async () => {
+    const { Storage, Sync } = neuf();
+    await Storage.addRecipeToList(RECETTE_A);
+    await Storage.addRecipeToList(RECETTE_B);
+
+    const beurre = Storage.fusionner(Storage.getShoppingList()).find((l) => l.nom === 'Beurre');
+    await Storage.cocherArticles(beurre.articles, true);
+
+    const distants = await Sync.lireArticles();
+    const contributions = distants.filter((a) => a.nom === 'Beurre');
+    assert.strictEqual(contributions.length, 2);
+    contributions.forEach((c) => assert.strictEqual(c.coche, true, 'une contribution est restee decochee'));
+
+    const apres = Storage.fusionner(Storage.getShoppingList()).find((l) => l.nom === 'Beurre');
+    assert.strictEqual(apres.coche, true, 'la ligne fusionnee devrait etre cochee');
+  });
+
+  await test('une ligne fusionnee n est cochee que si tout est coche', async () => {
+    const { Storage } = neuf();
+    await Storage.addRecipeToList(RECETTE_A);
+    await Storage.addRecipeToList(RECETTE_B);
+
+    const beurre = Storage.fusionner(Storage.getShoppingList()).find((l) => l.nom === 'Beurre');
+    await Storage.cocherArticles([beurre.articles[0]], true);
+
+    const apres = Storage.fusionner(Storage.getShoppingList()).find((l) => l.nom === 'Beurre');
+    assert.strictEqual(apres.coche, false, 'une seule contribution cochee ne suffit pas');
+  });
+
+  await test('supprimer une ligne fusionnee supprime ses deux contributions', async () => {
+    const { Storage, Sync } = neuf();
+    await Storage.addRecipeToList(RECETTE_A);
+    await Storage.addRecipeToList(RECETTE_B);
+
+    const beurre = Storage.fusionner(Storage.getShoppingList()).find((l) => l.nom === 'Beurre');
+    await Storage.removeArticles(beurre.articles);
+
+    const distants = await Sync.lireArticles();
+    assert.strictEqual(distants.filter((a) => a.nom === 'Beurre').length, 0, 'du beurre subsiste en base');
+    assert.strictEqual(distants.length, 2, `${distants.length} documents restants`);
+  });
+
+  await test('la liste est rangee par rayon dans l ordre du magasin', async () => {
+    const { Storage } = neuf();
+    await Storage.addRecipeToList(RECETTE_A);
+    await Storage.addRecipeToList(RECETTE_B);
+    await Storage.addFreeItem('Courgettes', '3');
+
+    const groupes = Storage.listeParRayon(Storage.getShoppingList());
+    assert.deepStrictEqual(
+      groupes.map((g) => g.rayon),
+      ['Fruits et légumes', 'Crèmerie', 'Épicerie salée']
+    );
+  });
+
+  await test('les singuliers et pluriels d un meme ingredient se rejoignent', async () => {
+    const { Storage } = neuf();
+    await Storage.addItemsToList(RECETTE_A, [{ nom: 'Œufs', quantite: '3', groupe: null }]);
+    await Storage.addItemsToList(RECETTE_B, [{ nom: 'Œuf', quantite: '1', groupe: null }]);
+
+    const lignes = Storage.fusionner(Storage.getShoppingList());
+    assert.strictEqual(lignes.length, 1, `${lignes.length} lignes au lieu d une seule`);
+    assert.strictEqual(lignes[0].quantite, '4');
+  });
+
+  await test('deux sucres differents ne sont pas confondus', async () => {
+    const { Storage } = neuf();
+    await Storage.addItemsToList(RECETTE_A, [
+      { nom: 'Sucre glace', quantite: '80 g', groupe: null },
+      { nom: 'Sucre en poudre', quantite: '160 g', groupe: null },
+    ]);
+    const lignes = Storage.fusionner(Storage.getShoppingList());
+    assert.strictEqual(lignes.length, 2, 'deux produits distincts ont ete fusionnes a tort');
+  });
+
   // --- Hors ligne ------------------------------------------------------------
 
   await test('hors ligne, cocher fonctionne et la modification est mise en attente', async () => {

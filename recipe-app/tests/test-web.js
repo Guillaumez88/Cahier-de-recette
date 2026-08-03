@@ -175,21 +175,40 @@ function verifier(nom, condition, detail = '') {
   const courses = await texte();
   verifier('la liste de courses est atteinte', page.url().includes('#/liste-de-courses'), page.url());
   verifier('le titre annonce une liste commune', /Liste de courses commune/.test(courses));
-  verifier('la liste groupe par recette', /Lasagnes bolognaise/.test(courses));
-  verifier('la liste compte 14 articles', /sur 14/.test(courses), courses.slice(0, 250));
+  // Rangement par rayon : les 14 ingredients des lasagnes couvrent 6 rayons.
+  const rayonsAffiches = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.rayon__titre span:first-child')).map((n) => n.textContent)
+  );
+  verifier(
+    'les rayons suivent l ordre du magasin',
+    JSON.stringify(rayonsAffiches) ===
+      JSON.stringify([
+        'Fruits et légumes',
+        'Viandes et poissons',
+        'Crèmerie',
+        'Épices et herbes',
+        'Épicerie salée',
+        'Épicerie sucrée',
+      ]),
+    JSON.stringify(rayonsAffiches)
+  );
+  verifier('le boeuf hache est au rayon des viandes', /Viandes et poissons[\s\S]{0,90}Bœuf haché/.test(courses));
+  verifier('le beurre est a la cremerie', /Crèmerie[\s\S]{0,140}Beurre/.test(courses));
+  verifier('la recette reste accessible depuis la liste', /1 recette dans la liste/.test(courses), courses.slice(0, 500));
+  verifier('la liste compte 14 lignes', /sur 14/.test(courses), courses.slice(0, 250));
   verifier('les quantites sont reprises', /300 g/.test(courses));
   verifier("l etat de synchronisation est affiche", /à jour/.test(courses), courses.slice(0, 250));
 
   await page.locator('.liste-courses input[type="checkbox"]').first().click();
   await page.waitForTimeout(700);
-  verifier('cocher decremente le compteur', /13 articles à acheter sur 14/.test(await texte()), (await texte()).slice(0, 250));
-  verifier('l article coche est barre', (await page.locator('.liste-courses li.coche').count()) === 1);
+  verifier('cocher decremente le compteur', /13 lignes à acheter sur 14/.test(await texte()), (await texte()).slice(0, 250));
+  verifier('la ligne cochee est barree', (await page.locator('.liste-courses li.coche').count()) === 1);
   verifier('un bouton de retrait des coches apparait', /Retirer les 1 cochés/.test(await texte()));
 
   // Persistance : la liste vient desormais du serveur, pas du seul cache local
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
-  verifier('la liste survit au rechargement', /13 articles à acheter sur 14/.test(await texte()), (await texte()).slice(0, 250));
+  verifier('la liste survit au rechargement', /13 lignes à acheter sur 14/.test(await texte()), (await texte()).slice(0, 250));
 
   // Retirer uniquement les articles coches
   await page.locator('#retirer-coches').click();
@@ -197,12 +216,12 @@ function verifier(nom, condition, detail = '') {
   // Pas d'ancre \b ici : dans textContent les elements sont colles (« Ajouter13
   // articles... »), il n'y a donc pas de limite de mot autour des nombres.
   verifier(
-    'retirer les coches ne laisse que les articles restants',
-    /13 articles à acheter sur 13/.test(await texte()),
+    'retirer les coches ne laisse que les lignes restantes',
+    /13 lignes à acheter sur 13/.test(await texte()),
     (await page.locator('.barre-resultats span').first().textContent()) || ''
   );
   verifier(
-    'plus aucun article coche apres retrait',
+    'plus aucune ligne cochee apres retrait',
     (await page.locator('.liste-courses li.coche').count()) === 0
   );
   verifier('13 lignes restent affichees', (await page.locator('.liste-courses li').count()) === 13);

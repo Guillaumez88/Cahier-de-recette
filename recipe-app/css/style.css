@@ -901,3 +901,118 @@ body {
     display: none !important;
   }
 }
+
+/* --- Liste rangee par rayon ------------------------------------------------ */
+
+.rayon {
+  margin-bottom: 18px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-lg);
+}
+
+.rayon__titre {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--terracotta-sombre);
+  font-family: system-ui, sans-serif;
+}
+
+.rayon__compte {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-creuse);
+  color: var(--texte-doux);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* Provenance d'une ligne fusionnee, affichee sous le nom sur petit écran */
+.provenance {
+  flex: 0 0 auto;
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  color: var(--texte-faible);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+
+.bloc-recettes {
+  margin-bottom: 18px;
+  padding: 12px 18px;
+  background: var(--surface-creuse);
+  border-radius: var(--rayon-md);
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+}
+.bloc-recettes summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--texte-doux);
+}
+.liste-recettes {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.liste-recettes li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--bordure);
+}
+.liste-recettes li:last-child {
+  border-bottom: 0;
+}
+.liste-recettes a {
+  flex: 1;
+  color: var(--terracotta-sombre);
+  font-weight: 600;
+}
+.compte-articles {
+  color: var(--texte-faible);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .provenance {
+    display: none;
+  }
+}
+
+@media print {
+  .bloc-recettes {
+    display: none !important;
+  }
+  .rayon {
+    padding: 0 0 8pt;
+    background: none;
+    border: 0;
+    border-bottom: 0.5pt solid #999;
+    border-radius: 0;
+    break-inside: avoid;
+  }
+  .rayon__titre {
+    color: #000;
+  }
+  .rayon__compte {
+    display: none;
+  }
+  .provenance {
+    display: inline;
+    color: #444;
+  }
+}

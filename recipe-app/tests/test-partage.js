@@ -125,17 +125,17 @@ async function attendreTexte(page, motif, limite = 8000) {
   await pageB.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
   const vuParB = await attendreTexte(pageB, /Tapenade maison/);
   verifier('le second appareil voit la liste du premier', vuParB, (await texteDe(pageB)).slice(0, 300));
-  verifier('le second appareil voit le bon decompte', /2 articles à acheter sur 2/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
+  verifier('le second appareil voit le bon decompte', /2 lignes à acheter sur 2/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
 
   // B coche un article, A doit le voir sans rien faire (rafraichissement automatique).
   await pageB.locator('.liste-courses input[type="checkbox"]').first().check();
   await attendre(800);
-  verifier('le cochage est pris en compte chez B', /1 article à acheter sur 2/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
+  verifier('le cochage est pris en compte chez B', /1 ligne à acheter sur 2/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
 
   await pageA.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
-  const cochageVuParA = await attendreTexte(pageA, /1 article à acheter sur 2/);
+  const cochageVuParA = await attendreTexte(pageA, /1 ligne à acheter sur 2/);
   verifier('le premier appareil voit le cochage du second', cochageVuParA, (await texteDe(pageA)).slice(0, 300));
-  verifier('l article coche est barre chez A', (await pageA.locator('.liste-courses li.coche').count()) === 1);
+  verifier('la ligne cochee est barree chez A', (await pageA.locator('.liste-courses li.coche').count()) === 1);
 
   // --- 4. Rafraichissement automatique, sans intervention --------------------
 
@@ -144,7 +144,13 @@ async function attendreTexte(page, motif, limite = 8000) {
   await pageB.locator('#ajout-valider').click();
   await attendre(900);
   verifier('l ajout libre apparait chez B', /Pain de campagne/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
-  verifier('l ajout libre est regroupe a part', /Ajouts libres/.test(await texteDe(pageB)));
+  // Un ajout libre est classe par rayon comme les autres : « Pain de campagne »
+  // va en boulangerie, il n'existe plus de groupe « Ajouts libres ».
+  verifier(
+    'l ajout libre est classe dans son rayon',
+    /Boulangerie[\s\S]{0,90}Pain de campagne/.test(await texteDe(pageB)),
+    (await texteDe(pageB)).slice(0, 400)
+  );
 
   // A ne touche a rien : c'est le sondage periodique qui doit apporter la nouveaute.
   const ajoutVuParA = await attendreTexte(pageA, /Pain de campagne/);
@@ -216,7 +222,7 @@ async function attendreTexte(page, motif, limite = 8000) {
   await attendre(900);
   const apresRetrait = await texteDe(pageA);
   verifier(
-    'retirer les coches ne laisse que les articles restants',
+    'retirer les coches ne laisse que les lignes restantes',
     (await pageA.locator('.liste-courses li.coche').count()) === 0,
     apresRetrait.slice(0, 300)
   );

@@ -9,6 +9,8 @@ const assert = require('assert');
 
 const racine = path.join(__dirname, '..');
 const L = require(path.join(racine, 'js/logic.js'));
+const Q = require(path.join(racine, 'js/quantites.js'));
+const Ry = require(path.join(racine, 'js/rayons.js'));
 
 const recettes = JSON.parse(fs.readFileSync(path.join(racine, 'data/recipes.json'), 'utf8'));
 
@@ -286,6 +288,221 @@ test('la liste de courses resiste a un stockage corrompu', () => {
   const St = chargerStockage();
   assert.deepStrictEqual(St.getShoppingList(), [], 'un stockage illisible doit donner une liste vide');
   delete global.localStorage;
+});
+
+// --- quantites.js : lecture ---------------------------------------------------
+
+test('analyser lit les nombres, unites et fractions', () => {
+  assert.strictEqual(Q.analyser('200 g').valeur, 200);
+  assert.strictEqual(Q.analyser('200 g').unite, 'g');
+  assert.strictEqual(Q.analyser('1,5 kg').valeur, 1.5);
+  assert.strictEqual(Q.analyser('3/4 l').valeur, 0.75);
+  assert.strictEqual(Q.analyser('1/2 c. à c.').unite, 'c. à c.');
+  assert.strictEqual(Q.analyser('8').unite, '');
+  assert.strictEqual(Q.analyser('1 gousse').unite, 'gousse');
+});
+
+test('analyser conserve le texte residuel au lieu de le perdre', () => {
+  const q = Q.analyser('130 g, plus pour le moule');
+  assert.strictEqual(q.valeur, 130);
+  assert.strictEqual(q.unite, 'g');
+  assert.strictEqual(q.reste, 'plus pour le moule');
+});
+
+test('analyser signale une quantite sans nombre', () => {
+  ['Selon goût', 'Pour le plat', 'Quelques pincées', ''].forEach((t) => {
+    assert.strictEqual(Q.analyser(t).lisible, false, `${t} devrait etre illisible`);
+  });
+});
+
+test('les 169 quantites du carnet sont analysees sans lever', () => {
+  let lisibles = 0;
+  recettes.forEach((r) =>
+    r.ingredients.forEach((g) =>
+      g.items.forEach((i) => {
+        const q = Q.analyser(i.quantite);
+        assert.ok(typeof q.lisible === 'boolean');
+        if (q.lisible) lisibles += 1;
+      })
+    )
+  );
+  // Le reste est du texte libre (« Selon goût »), conserve tel quel.
+  assert.strictEqual(lisibles, 150, `${lisibles} quantites lisibles au lieu de 150`);
+});
+
+// --- quantites.js : addition -------------------------------------------------
+
+test('additionner somme les memes unites', () => {
+  assert.strictEqual(Q.additionner(['300 g', '125 g']), '425 g');
+  assert.strictEqual(Q.additionner(['70 g', '50 g', '250 g']), '370 g');
+});
+
+test('additionner convertit dans une meme famille', () => {
+  assert.strictEqual(Q.additionner(['50 cl', '1 l']), '1,5 l');
+  assert.strictEqual(Q.additionner(['500 g', '600 g']), '1,1 kg');
+  // 200 ml + 30 cl = 500 ml, exprimes en centilitres : plus lisible en cuisine.
+  assert.strictEqual(Q.additionner(['200 ml', '30 cl']), '50 cl');
+  // En dessous de 100 ml on reste en millilitres.
+  assert.strictEqual(Q.additionner(['20 ml', '5 ml']), '25 ml');
+});
+
+test('additionner ne melange pas des familles differentes', () => {
+  assert.strictEqual(Q.additionner(['3 c. à s.', '200 g']), '3 c. à s. + 200 g');
+  // Cuillere a soupe et cuillere a cafe ne sont pas interchangeables.
+  assert.strictEqual(Q.additionner(['1 c. à s.', '1 c. à c.']), '1 c. à s. + 1 c. à c.');
+});
+
+test('additionner accorde les unites denombrables', () => {
+  assert.strictEqual(Q.additionner(['1 gousse', '1 gousse', '1 gousse']), '3 gousses');
+  assert.strictEqual(Q.additionner(['2 morceaux', '1 morceau']), '3 morceaux');
+  assert.strictEqual(Q.additionner(['1 pincée', '2 pincées']), '3 pincées');
+  assert.strictEqual(Q.additionner(['2', '4', '3']), '9');
+});
+
+test('additionner conserve ce qui n est pas chiffrable', () => {
+  assert.strictEqual(Q.additionner(['Selon goût', '3 c. à s.']), '3 c. à s. + Selon goût');
+  // Un commentaire ne se fond pas dans un total : il serait perdu.
+  assert.strictEqual(Q.additionner(['130 g, plus pour le moule', '70 g']), '70 g + 130 g, plus pour le moule');
+  // Deux mentions identiques ne sont pas repetees.
+  assert.strictEqual(Q.additionner(['Selon goût', 'Selon goût']), 'Selon goût');
+});
+
+test('additionner rend une quantite seule mot pour mot', () => {
+  assert.strictEqual(Q.additionner(['200 g']), '200 g');
+  assert.strictEqual(Q.additionner(['Selon goût']), 'Selon goût');
+  assert.strictEqual(Q.additionner([]), '');
+});
+
+// --- quantites.js : mise a l echelle -----------------------------------------
+
+test('echelonner multiplie en gardant l unite et le residu', () => {
+  assert.strictEqual(Q.echelonner('200 g', 1.5), '300 g');
+  assert.strictEqual(Q.echelonner('1/2 c. à c.', 2), '1 c. à c.');
+  assert.strictEqual(Q.echelonner('1 gousse', 2), '2 gousses');
+  assert.strictEqual(Q.echelonner('130 g, plus pour le moule', 2), '260 g, plus pour le moule');
+});
+
+test('echelonner laisse intacte une quantite sans nombre', () => {
+  assert.strictEqual(Q.echelonner('Selon goût', 2), 'Selon goût');
+  assert.strictEqual(Q.echelonner('Pour le moule', 3), 'Pour le moule');
+});
+
+test('echelonner refuse un facteur absurde', () => {
+  assert.strictEqual(Q.echelonner('200 g', 0), '200 g');
+  assert.strictEqual(Q.echelonner('200 g', -1), '200 g');
+  assert.strictEqual(Q.echelonner('200 g', NaN), '200 g');
+});
+
+test('echelonnerTexte ne touche ni aux durees ni aux temperatures', () => {
+  const source = 'Enfourner 45 minutes à 165 °C, thermostat 6, pendant 2 heures, sur 22 cm.';
+  const r = Q.echelonnerTexte(source, 2);
+  assert.strictEqual(r.texte, source, 'un temps ou une temperature a ete multiplie');
+  assert.strictEqual(r.remplacements.length, 0);
+});
+
+test('echelonnerTexte multiplie les masses et les volumes', () => {
+  const r = Q.echelonnerTexte('Ajouter 800 g de pulpe et 50 cl de lait.', 2);
+  assert.strictEqual(r.texte, 'Ajouter 1600 g de pulpe et 100 cl de lait.');
+  assert.strictEqual(r.remplacements.length, 2);
+});
+
+test('echelonnerTexte ne touche jamais a un nombre nu', () => {
+  // « thermostat 6 » ou « étape 2 » n'ont pas d'unite : les multiplier serait faux.
+  const r = Q.echelonnerTexte('Thermostat 6, four numéro 2, 3 fois de suite.', 2);
+  assert.strictEqual(r.texte, 'Thermostat 6, four numéro 2, 3 fois de suite.');
+});
+
+test('echelonnerTexte laisse les 17 recettes intactes a facteur 1', () => {
+  recettes.forEach((r) =>
+    r.instructions.forEach((etape) => {
+      assert.strictEqual(Q.echelonnerTexte(etape.texte, 1).texte, etape.texte);
+    })
+  );
+});
+
+test('aucune duree ni temperature des 17 recettes n est modifiee par un doublement', () => {
+  const motifsInterdits = /(\d+)\s*(minutes?|mn|min|heures?|h\b|°\s*C|cm|mm)/gi;
+  recettes.forEach((r) =>
+    r.instructions.forEach((etape) => {
+      const avant = (etape.texte.match(motifsInterdits) || []).join('|');
+      const apres = (Q.echelonnerTexte(etape.texte, 2).texte.match(motifsInterdits) || []).join('|');
+      assert.strictEqual(apres, avant, `${r.id} : une durée ou une température a bougé`);
+    })
+  );
+});
+
+// --- quantites.js : portions -------------------------------------------------
+
+test('analyserPortions lit le nombre et garde le libelle', () => {
+  assert.deepStrictEqual(Q.analyserPortions('6 personnes'), { nombre: 6, libelle: 'personnes' });
+  assert.deepStrictEqual(Q.analyserPortions('4 gros gourmands'), { nombre: 4, libelle: 'gros gourmands' });
+  assert.deepStrictEqual(Q.analyserPortions('1 galette de 22 cm'), { nombre: 1, libelle: 'galette de 22 cm' });
+});
+
+test('les portions des 17 recettes sont toutes lisibles', () => {
+  recettes.forEach((r) => {
+    const p = Q.analyserPortions(r.portions);
+    assert.ok(typeof p.nombre === 'number' && p.nombre > 0, `${r.id} : portions « ${r.portions} »`);
+  });
+});
+
+test('ecrirePortions est la reciproque', () => {
+  assert.strictEqual(Q.ecrirePortions(12, 'personnes'), '12 personnes');
+  assert.strictEqual(Q.ecrirePortions(1.5, 'galette de 22 cm'), '1,5 galette de 22 cm');
+});
+
+// --- rayons.js ---------------------------------------------------------------
+
+test('les 114 ingredients du carnet sont tous classes', () => {
+  const noms = [...new Set(recettes.flatMap((r) => r.ingredients.flatMap((g) => g.items.map((i) => i.nom))))];
+  const nonClasses = noms.filter((n) => Ry.rayonDe(n) === Ry.RAYON_DEFAUT);
+  assert.deepStrictEqual(nonClasses, [], `${nonClasses.length} ingredient(s) sans rayon`);
+  assert.strictEqual(noms.length, 114, `${noms.length} noms distincts au lieu de 114`);
+});
+
+test('la ligature oe ne fait pas echouer le classement', () => {
+  assert.strictEqual(Ry.rayonDe('Œufs'), 'Crèmerie');
+  assert.strictEqual(Ry.rayonDe('Jaune d’œuf'), 'Crèmerie');
+  // Et « boeuf » ne doit pas etre pris pour un oeuf.
+  assert.strictEqual(Ry.rayonDe('Bœuf haché'), 'Viandes et poissons');
+});
+
+test('ce qui suit « pour » est un usage, pas le produit', () => {
+  assert.strictEqual(Ry.rayonDe('Farine pour beurre manié'), 'Épicerie sucrée');
+  assert.strictEqual(Ry.rayonDe('Beurre froid pour beurre manié'), 'Crèmerie');
+  assert.strictEqual(Ry.rayonDe('Sucre et eau pour sirop'), 'Épicerie sucrée');
+  assert.strictEqual(Ry.rayonDe('Maïzena pour crème pâtissière'), 'Épicerie sucrée');
+});
+
+test('les pieges de mots-cles sont desamorces', () => {
+  assert.strictEqual(Ry.rayonDe('Vinaigre de vin'), 'Épicerie salée');
+  assert.strictEqual(Ry.rayonDe('Vin blanc sec'), 'Boissons');
+  assert.strictEqual(Ry.rayonDe('Noix de muscade'), 'Épices et herbes');
+  assert.strictEqual(Ry.rayonDe('Noix de pécan'), 'Épicerie sucrée');
+  assert.strictEqual(Ry.rayonDe('Beurre aux cristaux de sel'), 'Crèmerie');
+  assert.strictEqual(Ry.rayonDe('Coulis de framboise'), 'Épicerie sucrée');
+  assert.strictEqual(
+    Ry.rayonDe('Pulpe de tomate en conserve (ou 500 g de tomates fraîches)'),
+    'Épicerie salée'
+  );
+});
+
+test('grouperParRayon respecte l ordre de parcours du magasin', () => {
+  const groupes = Ry.grouperParRayon([
+    { nom: 'Sucre' },
+    { nom: 'Courgettes' },
+    { nom: 'Lait' },
+    { nom: 'Vin blanc sec' },
+  ]);
+  assert.deepStrictEqual(
+    groupes.map((g) => g.rayon),
+    ['Fruits et légumes', 'Crèmerie', 'Épicerie sucrée', 'Boissons']
+  );
+});
+
+test('un rayon inconnu est place en fin de parcours', () => {
+  assert.ok(Ry.ordreRayon('Autre') >= Ry.RAYONS.length - 1);
+  assert.strictEqual(Ry.ordreRayon('Rayon imaginaire'), Ry.RAYONS.length);
 });
 
 // --- Integrite du jeu de donnees ---------------------------------------------

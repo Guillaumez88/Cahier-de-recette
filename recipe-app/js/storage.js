@@ -24,6 +24,8 @@
   var estNode = typeof module !== 'undefined' && module.exports;
   var config = estNode ? require('./firebase-config.js') : global.CarnetConfig;
   var Sync = estNode ? require('./sync.js') : global.CarnetSync;
+  var Rayons = estNode ? require('./rayons.js') : global.CarnetRayons;
+  var Quantites = estNode ? require('./quantites.js') : global.CarnetQuantites;
 
   var CLE_CACHE = 'carnet-de-recettes:liste-commune';
   var CLE_FILE = 'carnet-de-recettes:file-attente';
@@ -372,10 +374,55 @@
   }
 
   function removeArticle(cle) {
-    var articles = getShoppingList().filter(function (a) {
-      return a.cle !== cle;
+    return removeArticles([cle]);
+  }
+
+  /**
+   * Coche ou decoche plusieurs articles d'un coup.
+   * Une ligne de la liste peut representer plusieurs articles fusionnes (le meme
+   * ingredient venu de deux recettes) : la cocher doit cocher tout ce qu'elle
+   * recouvre, en une seule salve d'operations.
+   */
+  function cocherArticles(cles, valeur) {
+    var aChanger = {};
+    cles.forEach(function (c) {
+      aChanger[c] = true;
     });
-    return appliquer(articles, { type: 'supprimer', cle: cle });
+
+    var operations = [];
+    var articles = getShoppingList().map(function (a) {
+      if (!aChanger[a.cle] || a.coche === valeur) return a;
+      operations.push({ type: 'modifier', cle: a.cle, champs: { coche: valeur } });
+      return Object.assign({}, a, { coche: valeur });
+    });
+
+    if (operations.length === 0) return Promise.resolve(articles);
+    return appliquer(articles, operations);
+  }
+
+  /** Supprime plusieurs articles d'un coup. */
+  function removeArticles(cles) {
+    var aSupprimer = {};
+    cles.forEach(function (c) {
+      aSupprimer[c] = true;
+    });
+
+    var articles = getShoppingList();
+    var operations = articles
+      .filter(function (a) {
+        return aSupprimer[a.cle];
+      })
+      .map(function (a) {
+        return { type: 'supprimer', cle: a.cle };
+      });
+
+    if (operations.length === 0) return Promise.resolve(articles);
+    return appliquer(
+      articles.filter(function (a) {
+        return !aSupprimer[a.cle];
+      }),
+      operations
+    );
   }
 
   /** Retire d'un coup tous les articles correspondant a un predicat. */
@@ -431,6 +478,110 @@
     return noms;
   }
 
+  /**
+   * Clef de fusion d'un ingredient : deux articles de meme clef sont le meme produit
+   * et voient leurs quantites additionnees.
+   *
+   * On normalise la casse, les accents, la ligature oe et le pluriel, si bien que
+   * « Œufs » et « Œuf » se rejoignent. On ne va pas plus loin volontairement :
+   * « Sucre glace » et « Sucre en poudre » restent deux produits distincts, et
+   * « Beurre » n'est pas confondu avec « Beurre mou ». Fusionner sur une
+   * ressemblance approximative reviendrait a additionner 200 g de sucre glace avec
+   * 160 g de sucre en poudre, ce qui donnerait une liste de courses fausse.
+   */
+  function cleFusion(nom) {
+    return String(nom || '')
+      .replace(/œ/gi, 'oe')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\u2019]/g, "'")
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/(s|x)$/, '');
+  }
+
+  /**
+   * Fusionne les articles portant le meme ingredient.
+   *
+   * Retourne des lignes { cleFusion, nom, quantite, rayon, coche, articles, recettes }
+   * ou `quantite` est la somme quand elle est calculable, `coche` vaut vrai
+   * seulement si tout ce que la ligne recouvre est coche, et `articles` porte les
+   * clefs sous-jacentes pour que cocher ou supprimer agisse sur l'ensemble.
+   *
+   * La fusion est faite a l'affichage, pas en base : chaque contribution reste un
+   * document Firestore distinct. C'est ce qui permet de retirer une recette de la
+   * liste et de voir le total diminuer d'autant, sans recalcul fragile.
+   */
+  function fusionner(articles) {
+    var lignes = [];
+    var index = {};
+
+    (articles || []).forEach(function (article) {
+      var cle = cleFusion(article.nom);
+      if (!index[cle]) {
+        index[cle] = {
+          cleFusion: cle,
+          nom: article.nom,
+          rayon: Rayons.rayonDe(article.nom),
+          quantites: [],
+          articles: [],
+          recettes: [],
+          coche: true,
+        };
+        lignes.push(index[cle]);
+      }
+      var ligne = index[cle];
+      ligne.quantites.push(article.quantite);
+      ligne.articles.push(article.cle);
+      if (!article.coche) ligne.coche = false;
+      if (article.recetteTitre && ligne.recettes.indexOf(article.recetteTitre) === -1) {
+        ligne.recettes.push(article.recetteTitre);
+      }
+    });
+
+    lignes.forEach(function (ligne) {
+      ligne.quantite = Quantites.additionner(ligne.quantites);
+      ligne.nbSources = ligne.articles.length;
+    });
+
+    return lignes;
+  }
+
+  /**
+   * Liste prete a afficher : fusionnee par ingredient, puis groupee par rayon dans
+   * l'ordre d'un parcours de magasin.
+   */
+  function listeParRayon(articles) {
+    var lignes = fusionner(articles);
+    return Rayons.grouperParRayon(lignes).map(function (groupe) {
+      return {
+        rayon: groupe.rayon,
+        lignes: groupe.articles.slice().sort(function (a, b) {
+          return String(a.nom).localeCompare(String(b.nom), 'fr');
+        }),
+      };
+    });
+  }
+
+  /** Recettes actuellement representees dans la liste, pour pouvoir les retirer. */
+  function recettesDansListe(articles) {
+    var vues = [];
+    var index = {};
+    (articles || []).forEach(function (a) {
+      if (a.recetteId === RECETTE_LIBRE) return;
+      if (index[a.recetteId]) {
+        index[a.recetteId].nb += 1;
+        return;
+      }
+      index[a.recetteId] = { recetteId: a.recetteId, titre: a.recetteTitre, nb: 1 };
+      vues.push(index[a.recetteId]);
+    });
+    return vues.sort(function (a, b) {
+      return String(a.titre).localeCompare(String(b.titre), 'fr');
+    });
+  }
+
   function grouperParRecette(articles) {
     var groupes = [];
     var index = {};
@@ -464,6 +615,8 @@
     addFreeItem: addFreeItem,
     toggleArticle: toggleArticle,
     removeArticle: removeArticle,
+    removeArticles: removeArticles,
+    cocherArticles: cocherArticles,
     removeRecipeFromList: removeRecipeFromList,
     removeCheckedArticles: removeCheckedArticles,
     clearShoppingList: clearShoppingList,
@@ -471,6 +624,10 @@
     recetteDansListe: recetteDansListe,
     nomsPresents: nomsPresents,
     grouperParRecette: grouperParRecette,
+    cleFusion: cleFusion,
+    fusionner: fusionner,
+    listeParRayon: listeParRayon,
+    recettesDansListe: recettesDansListe,
   };
 
   if (estNode) module.exports = api;

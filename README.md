@@ -18,8 +18,10 @@ Aucune dépendance, aucune étape de construction, aucun framework : cinq fichie
     ├── js/
     │   ├── firebase-config.js   Configuration Firebase (publique) et réglages de sync
     │   ├── logic.js             Logique métier : durées, filtres, recherche, tableau de flux
+    │   ├── quantites.js         Lecture, addition et mise à l'échelle des quantités
+    │   ├── rayons.js            Classement des ingrédients par rayon de magasin
     │   ├── sync.js              Firestore par son API REST, session anonyme
-    │   ├── storage.js           Liste commune : cache local, file d'attente hors ligne
+    │   ├── storage.js           Liste commune : cache local, fusion, file d'attente
     │   └── app.js               Rendu DOM et routage par ancre
     ├── data/recipes.json        Les 17 recettes
     ├── favicon.svg
@@ -57,7 +59,7 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 - **Filtres** par catégorie, origine, difficulté et tranche de temps total. Un clic sur un filtre actif le désactive.
 - **Fiche complète** : temps, origine, ingrédients par groupe, étapes numérotées avec leurs astuces, tableau de flux, astuces, variantes, recettes associées, ce que la source ne donne pas, source citée avec son lien.
 - **Tableau de flux** rendu comme un vrai `<table>` avec les `rowspan`/`colspan` d'origine, dans un conteneur qui défile horizontalement sur petit écran.
-- **Liste de courses commune** (voir la section suivante) : partagée entre tous les appareils, avec sélection d'ingrédients à la carte, ajout d'articles libres, cases à cocher, compteur dans l'en-tête et fonctionnement hors ligne.
+- **Liste de courses commune** (voir la section suivante) : partagée entre tous les appareils, rangée par rayon de magasin, avec addition des quantités d'un même ingrédient, sélection d'ingrédients à la carte, ajout d'articles libres, compteur dans l'en-tête et fonctionnement hors ligne.
 - **Impression** (`@media print`) : la navigation, les filtres et les boutons disparaissent, le fond repasse en blanc, et les étapes comme les lignes du tableau ne sont pas coupées entre deux pages.
 
 ## Liste de courses commune
@@ -70,6 +72,21 @@ Une seule liste, partagée par tous ceux qui ouvrent le site. Ce que l'un ajoute
 - Sur la page liste : un champ permet d'ajouter un article libre (« pain », « lessive ») avec sa quantité, hors recette. Les articles sont groupés par recette, les ajouts libres à part.
 - Cocher un article le barre chez tout le monde. « Retirer les cochés » fait le ménage au retour des courses.
 - La liste se rafraîchit **toutes les 5 secondes** et un bouton « Rafraîchir » force la mise à jour. Un bandeau indique l'heure de la dernière synchronisation.
+
+### Rangement par rayon et addition des quantités
+
+La liste est rangée dans l'ordre d'un parcours de magasin : Fruits et légumes, Viandes et poissons, Crèmerie, Boulangerie, Surgelés, Épices et herbes, Épicerie salée, Épicerie sucrée, Boissons. On ne revient donc pas trois fois au même rayon.
+
+Le classement se fait par mots-clés dans `js/rayons.js`, et les 114 ingrédients du carnet sont tous classés, ce qu'un test vérifie. Trois traitements évitent des erreurs constatées sur les données réelles : la ligature `œ` est convertie en `oe` (sans quoi « Œufs » n'était pas reconnu, et « Bœuf haché » partait en crèmerie), ce qui suit « pour » est ignoré car c'est un usage et non un produit (« Farine pour beurre manié » est de la farine), et les parenthèses de la source sont retirées. Un ingrédient inclassable tomberait dans « Autre », ce qui est un signal à traiter, pas un résultat normal.
+
+**Les quantités du même ingrédient s'additionnent** : 300 g de beurre venus d'une recette et 125 g d'une autre donnent une seule ligne « Beurre 425 g », avec le nom des recettes d'origine en regard. Les conversions se font dans une même famille (50 cl + 1 l = 1,5 l), jamais entre familles : « 3 c. à s. » et « 200 g » restent affichés côte à côte, et une cuillère à soupe n'est pas convertie en cuillère à café.
+
+Deux garde-fous délibérés :
+
+- **Rien n'est perdu.** Une quantité non chiffrable (« Selon goût », « Pour le moule ») est conservée mot pour mot, et un commentaire attaché à un nombre (« 130 g, plus pour le moule ») n'est jamais fondu dans un total, ce qui l'effacerait.
+- **La fusion ne rapproche que des noms identiques**, à la casse, aux accents, à la ligature et au pluriel près : « Œufs » rejoint « Œuf », mais « Sucre glace » n'est pas confondu avec « Sucre en poudre », ni « Beurre » avec « Beurre mou ». Additionner sur une ressemblance approximative donnerait une liste fausse. Pour regrouper deux libellés voisins, renommez l'un des deux dans la recette.
+
+La fusion est faite à l'affichage, pas en base : chaque ingrédient de chaque recette reste un document Firestore distinct. C'est ce qui permet de retirer une recette et de voir le total baisser d'autant, et c'est aussi ce qui préserve la propriété de concurrence : deux personnes qui cochent ne se marchent pas dessus. Cocher ou supprimer une ligne agit sur toutes ses contributions en une seule salve.
 
 ### Comment ça marche
 
@@ -120,9 +137,9 @@ C'est le contrôle à lancer après toute modification de la configuration Fireb
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 26 tests de la logique métier
-node tests/run-sync-tests.js      # 26 tests de la synchronisation
-node tests/run-browser-tests.js   # 85 vérifications dans un vrai Chromium
+node tests/run-tests.js           # 53 tests de la logique métier
+node tests/run-sync-tests.js      # 35 tests de la synchronisation
+node tests/run-browser-tests.js   # 88 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux et l'intégrité du jeu de données.
