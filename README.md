@@ -20,6 +20,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : cinq fichie
     │   ├── logic.js             Logique métier : durées, filtres, recherche, tableau de flux
     │   ├── quantites.js         Lecture, addition et mise à l'échelle des quantités
     │   ├── rayons.js            Classement des ingrédients par rayon de magasin
+    │   ├── flux.js              Déroulé des préparations : génération et mise à l'échelle
     │   ├── sync.js              Firestore par son API REST, session anonyme
     │   ├── recettes.js          Recettes d'origine, modifications partagées, parts
     │   ├── storage.js           Liste commune : cache local, fusion, file d'attente
@@ -31,7 +32,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : cinq fichie
         ├── run-sync-tests.js       26 tests de la synchronisation
         ├── test-web.js             57 vérifications navigateur, parcours général
         ├── test-partage.js         28 vérifications navigateur, partage et hors ligne
-        ├── test-edition.js         47 vérifications navigateur, modification et parts
+        ├── test-edition.js         59 vérifications navigateur, modification, parts, déroulé
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -60,7 +61,7 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 - **Recherche** insensible à la casse et aux accents, portant sur le titre, la catégorie, l'origine, les ingrédients et le texte des étapes. Plusieurs mots se cumulent.
 - **Filtres** par catégorie, origine, difficulté et tranche de temps total. Un clic sur un filtre actif le désactive.
 - **Fiche complète** : temps, origine, ingrédients par groupe, étapes numérotées avec leurs astuces, tableau de flux, astuces, variantes, recettes associées, ce que la source ne donne pas, source citée avec son lien.
-- **Tableau de flux** rendu comme un vrai `<table>` avec les `rowspan`/`colspan` d'origine, dans un conteneur qui défile horizontalement sur petit écran.
+- **Déroulé des préparations** : le tableau fourni avec la recette quand il existe, reconstitué automatiquement sinon (voir plus bas).
 - **Liste de courses commune** (voir la section suivante) : partagée entre tous les appareils, rangée par rayon de magasin, avec addition des quantités d'un même ingrédient, sélection d'ingrédients à la carte, ajout d'articles libres, compteur dans l'en-tête et fonctionnement hors ligne.
 - **Modification des recettes** et **changement du nombre de parts** (voir plus bas).
 - **Impression** (`@media print`) : la navigation, les filtres et les boutons disparaissent, le fond repasse en blanc, et les étapes comme les lignes du tableau ne sont pas coupées entre deux pages.
@@ -105,7 +106,9 @@ La configuration Firebase est déjà dans `recipe-app/js/firebase-config.js`. El
 
 Le projet `cahier-de-cuisine-88` est configuré : base Firestore créée, connexion anonyme activée, domaine `guillaumez88.github.io` autorisé, et la liste de courses fonctionne (vérifiée en conditions réelles, voir ci-dessous).
 
-**Une action reste à faire : republier `firestore.rules`.** Les règles publiées ne couvrent que la collection des articles ; celle des recettes modifiées a été ajoutée ensuite. Tant qu'elles ne sont pas republiées, Firestore refuse la collection `recettes` en `PERMISSION_DENIED` et la modification d'une recette ne peut pas être enregistrée. L'application le dit alors explicitement, au lieu de laisser croire que c'est sauvegardé. Console Firebase → Firestore Database → Règles → coller `firestore.rules` → Publier, puis relancer `node tests/verifier-firebase.js --reel` pour confirmer.
+Les règles couvrant la collection des recettes modifiées ont été republiées et vérifiées : `node tests/verifier-firebase.js --reel` passe ses 11 contrôles, collection `recettes` comprise.
+
+Si l'application affiche un jour un bandeau `PERMISSION_DENIED` sur les recettes, c'est que les règles publiées ont divergé de `firestore.rules` : les republier depuis le fichier du dépôt, puis relancer ce contrôle.
 
 Les quatre réglages, pour mémoire, s'il fallait refaire le projet ou en créer un second :
 
@@ -125,7 +128,7 @@ node tests/verifier-firebase.js --reel
 
 Onze contrôles : session anonyme, écriture d'un document par article, conservation des accents et des quantités à l'aller-retour, cochage n'écrivant que le champ concerné, relecture depuis un cache local vide (le cas du second appareil), article libre, retrait des cochés, suppression, intégrité des articles préexistants, puis accès à la collection des recettes et cycle complet d'une recette modifiée.
 
-Au 3 août 2026, les neuf premiers passent et les deux derniers échouent, faute de règles republiées. Le message d'échec nomme précisément l'action à faire.
+Au 3 août 2026, les onze passent. En cas d'échec sur la collection des recettes, le message nomme précisément l'action à faire.
 
 C'est le contrôle à lancer après toute modification de la configuration Firebase ou des règles : si le bandeau du site reste sur « Hors ligne », il nomme la cause exacte (`SERVICE_DISABLED`, `CONFIGURATION_NOT_FOUND` ou `PERMISSION_DENIED`).
 
@@ -144,9 +147,9 @@ C'est le contrôle à lancer après toute modification de la configuration Fireb
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 53 tests de la logique métier
-node tests/run-sync-tests.js      # 50 tests de la synchronisation
-node tests/run-browser-tests.js   # 135 vérifications dans un vrai Chromium
+node tests/run-tests.js           # 67 tests de la logique métier
+node tests/run-sync-tests.js      # 53 tests de la synchronisation
+node tests/run-browser-tests.js   # 148 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux et l'intégrité du jeu de données.
@@ -160,6 +163,38 @@ node tests/run-browser-tests.js   # 135 vérifications dans un vrai Chromium
 Playwright n'est pas une dépendance du projet. Pour l'installer : `npm i -D playwright && npx playwright install chromium`. Pour désigner une installation existante : `PLAYWRIGHT_MODULE=/chemin/vers/node_modules/playwright CHROMIUM_PATH=/chemin/vers/chromium node tests/run-browser-tests.js`.
 
 La CI joue les tests unitaires et ceux de synchronisation, qui ne demandent aucune installation. Les tests navigateur restent une étape locale, faute de Playwright en CI.
+
+## Déroulé des préparations
+
+La fiche affiche un tableau qui montre à quelle étape chaque ingrédient entre. Deux sources possibles, dans cet ordre de préférence :
+
+**1. Le tableau fourni avec la recette.** Une seule recette du carnet en a un : `lasagnes-bolognaise`. Il est rendu comme un vrai `<table>` avec ses `rowspan`/`colspan` d'origine, dans un conteneur qui défile horizontalement sur petit écran. Il va plus loin que ce qu'on sait générer : il regroupe les ingrédients en sous-préparations qui convergent (la sauce tomate, la béchamel), ce qui est une interprétation humaine du texte. Un tableau fourni est donc toujours préféré.
+
+**2. Un déroulé reconstitué**, pour les seize autres. Le tableau que la source avait produit pour elles ne contenait que des marqueurs répétés (« ✓ », « Selon étapes », « Si concerné ») sans information propre à la recette : il n'est plus affiché. À la place, `js/flux.js` reconstruit le déroulé à partir de ce que la recette contient déjà, en cherchant pour chaque ingrédient la première étape qui le nomme. Le tableau se lit « à l'étape 2, ces ingrédients entrent, et voilà ce qu'on en fait ».
+
+**Il n'y a donc rien à réimporter.**
+
+### Ce que la reconstitution sait faire, et ce qu'elle ne sait pas
+
+Mesuré sur les 17 recettes : **158 ingrédients sur 169 sont rattachés à une étape, soit 93 %**, et 10 recettes le sont entièrement. Un test protège ce plancher.
+
+Les 11 restants ne sont pas des défauts réparables, mais des cas où l'instruction désigne une catégorie plutôt qu'un produit :
+
+| Cas | Ce que dit l'instruction | Ce que dit la liste |
+| --- | --- | --- |
+| Fondue savoyarde | « faire fondre les fromages » | Beaufort, Comté, Tomme de Savoie |
+| Gratin, cake aux olives | « saler » | Sel |
+| Carrot cake | « ajouter les épices » | Cannelle, gingembre en poudre |
+| Tiramisu | « les jaunes », « les blancs » | Œufs |
+
+Ces ingrédients sont **listés sous le tableau**, sous la mention « Non rattaché à une étape, faute d'être nommé dans le texte », plutôt que placés au hasard à une étape plausible. Pour les rattacher, il suffit de reformuler l'étape dans l'éditeur (« faire fondre le Beaufort, le Comté et la Tomme »), ce qui est de toute façon plus clair à la lecture.
+
+### Les quantités du tableau suivent le nombre de parts
+
+Les deux formes sont traitées, mais pas de la même façon :
+
+- **Le déroulé reconstitué** n'a rien à recalculer : il est dérivé des ingrédients et des étapes, déjà mis à l'échelle. C'est un argument de fond en faveur de la génération plutôt que du stockage.
+- **Le tableau fourni** a ses quantités écrites dans ses cellules, sous la forme « Oignon : 1 », « Beurre : 70 g ». Elles sont recalculées, sinon la fiche afficherait deux valeurs différentes pour le même ingrédient. Un détail avait son importance : la partie droite d'un « Nom : quantité » est souvent un **nombre nu**, que la liste blanche d'unités refuse par principe de toucher. Ces cellules sont donc traitées comme des quantités et non comme du texte libre, tandis que les cellules d'action (« Enfourner 45 min à 165 °C ») restent sous la liste blanche et gardent leurs durées et températures. Un test vérifie cellule par cellule qu'aucune durée ni température ne bouge, et que les fusions `rowspan`/`colspan` sont préservées.
 
 ## Modifier une recette, changer le nombre de parts
 

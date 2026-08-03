@@ -714,6 +714,64 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     assert.strictEqual(boeuf.quantite, '1200 g');
   });
 
+  await test('le tableau de flux fourni suit le nombre de parts', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const r = Recettes.echelonner(Recettes.parId(ID_LASAGNES), 12);
+
+    const cellules = r.recette.flowTable.rows.flat().map((c) => c.text);
+    assert.ok(cellules.includes('Bœuf haché : 600 g'), 'la viande du tableau n a pas suivi');
+    assert.ok(cellules.includes('Oignon : 2'), 'le nombre nu du tableau n a pas suivi');
+    assert.ok(!cellules.includes('Beurre : 70 g'), 'la valeur d origine subsiste dans le tableau');
+
+    // Coherence : la meme valeur des deux cotes de la fiche.
+    const boeufIngredient = r.recette.ingredients
+      .flatMap((g) => g.items)
+      .find((i) => i.nom === 'Bœuf haché').quantite;
+    assert.strictEqual(boeufIngredient, '600 g');
+    assert.ok(
+      cellules.some((c) => c.indexOf(boeufIngredient) !== -1),
+      'la liste d ingredients et le tableau annoncent des valeurs differentes'
+    );
+  });
+
+  await test('les durees du tableau de flux ne bougent pas non plus', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const original = Recettes.parId(ID_LASAGNES);
+    const r = Recettes.echelonner(original, 24);
+    const motif = /(\d+(?:[.,]\d+)?)\s*(minutes?|mn|min|heures?|h\b|°\s*C|cm|mm)/gi;
+
+    original.flowTable.rows.forEach((ligne, i) => {
+      ligne.forEach((cellule, j) => {
+        const avant = (cellule.text.match(motif) || []).join('|');
+        const apres = (r.recette.flowTable.rows[i][j].text.match(motif) || []).join('|');
+        assert.strictEqual(apres, avant, `tableau, ligne ${i} cellule ${j} : durée ou température modifiée`);
+      });
+    });
+  });
+
+  await test('une recette mise a l echelle conserve son tableau apres enregistrement', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const r = Recettes.echelonner(Recettes.parId(ID_LASAGNES), 12);
+    delete r.recette.__dernierEchelonnage;
+    await Recettes.enregistrer(r.recette);
+
+    global.localStorage = faireLocalStorage();
+    const autre = chargerModules().Recettes;
+    autre.definirBase(CARNET);
+    await autre.rafraichir();
+
+    const cellules = autre.parId(ID_LASAGNES).flowTable.rows.flat().map((c) => c.text);
+    assert.ok(cellules.includes('Bœuf haché : 600 g'), 'le tableau n a pas survecu a l aller-retour');
+    assert.strictEqual(
+      autre.parId(ID_LASAGNES).flowTable.rows.length,
+      CARNET.find((x) => x.id === ID_LASAGNES).flowTable.rows.length,
+      'des lignes du tableau ont ete perdues'
+    );
+  });
+
   await test('un nombre de parts absurde est refuse', async () => {
     const { Recettes } = neuf();
     Recettes.definirBase(CARNET);

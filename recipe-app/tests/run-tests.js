@@ -11,6 +11,7 @@ const racine = path.join(__dirname, '..');
 const L = require(path.join(racine, 'js/logic.js'));
 const Q = require(path.join(racine, 'js/quantites.js'));
 const Ry = require(path.join(racine, 'js/rayons.js'));
+const Fx = require(path.join(racine, 'js/flux.js'));
 
 const recettes = JSON.parse(fs.readFileSync(path.join(racine, 'data/recipes.json'), 'utf8'));
 
@@ -503,6 +504,165 @@ test('grouperParRayon respecte l ordre de parcours du magasin', () => {
 test('un rayon inconnu est place en fin de parcours', () => {
   assert.ok(Ry.ordreRayon('Autre') >= Ry.RAYONS.length - 1);
   assert.strictEqual(Ry.ordreRayon('Rayon imaginaire'), Ry.RAYONS.length);
+});
+
+// --- flux.js : deroule reconstitue -------------------------------------------
+
+test('le deroule est reconstitue pour les 17 recettes', () => {
+  recettes.forEach((r) => {
+    const d = Fx.genererDeroule(r);
+    assert.ok(Array.isArray(d.phases), `${r.id} : phases invalides`);
+    assert.ok(d.phases.length > 0, `${r.id} : aucune phase`);
+    assert.strictEqual(
+      d.couverture.total,
+      r.ingredients.reduce((n, g) => n + g.items.length, 0),
+      `${r.id} : total d ingredients incoherent`
+    );
+  });
+});
+
+test('aucun ingredient n est perdu entre les phases et le reste', () => {
+  recettes.forEach((r) => {
+    const d = Fx.genererDeroule(r);
+    const places = d.phases.reduce((n, p) => n + p.ingredients.length, 0);
+    assert.strictEqual(
+      places + d.nonRattaches.length,
+      d.couverture.total,
+      `${r.id} : ${places} + ${d.nonRattaches.length} au lieu de ${d.couverture.total}`
+    );
+  });
+});
+
+test('la couverture globale reste au niveau mesure', () => {
+  let places = 0;
+  let total = 0;
+  recettes.forEach((r) => {
+    const d = Fx.genererDeroule(r);
+    places += d.couverture.places;
+    total += d.couverture.total;
+  });
+  // 158/169 au moment de l ecriture. Le test protege contre une regression, pas
+  // contre une amelioration : on verifie un plancher.
+  assert.strictEqual(total, 169);
+  assert.ok(places >= 158, `couverture tombee a ${places}/169`);
+});
+
+test('un ingredient est place a la premiere etape qui le nomme', () => {
+  const tapenade = recettes.find((r) => r.id === 'tapenade-maison');
+  const d = Fx.genererDeroule(tapenade);
+  // L ail est hache a l etape 1, puis remis au mixeur a l etape 2 : c est la
+  // premiere qui compte.
+  const etape1 = d.phases.find((p) => p.numero === '1');
+  assert.ok(
+    etape1.ingredients.some((i) => i.nom === 'Ail'),
+    JSON.stringify(etape1.ingredients.map((i) => i.nom))
+  );
+  d.phases
+    .filter((p) => p.numero !== '1')
+    .forEach((p) => {
+      assert.ok(!p.ingredients.some((i) => i.nom === 'Ail'), 'l ail est place deux fois');
+    });
+});
+
+test('le deroule reprend les quantites des ingredients', () => {
+  const tapenade = recettes.find((r) => r.id === 'tapenade-maison');
+  const d = Fx.genererDeroule(tapenade);
+  const olives = d.phases.flatMap((p) => p.ingredients).find((i) => i.nom === 'Olives noires');
+  assert.strictEqual(olives.quantite, '200 g');
+});
+
+test('ce qu aucune etape ne nomme est signale, pas place au hasard', () => {
+  // La fondue parle des « fromages » sans les nommer : les trois fromages doivent
+  // se retrouver dans nonRattaches et nulle part ailleurs.
+  const fondue = recettes.find((r) => r.id === 'veritable-fondue-savoyarde');
+  const d = Fx.genererDeroule(fondue);
+  const restes = d.nonRattaches.map((i) => i.nom);
+  ['Beaufort', 'Comté', 'Tomme de Savoie'].forEach((nom) => {
+    assert.ok(restes.includes(nom), `${nom} devrait etre signale comme non rattache`);
+    assert.ok(
+      !d.phases.some((p) => p.ingredients.some((i) => i.nom === nom)),
+      `${nom} a ete place alors qu aucune etape ne le nomme`
+    );
+  });
+});
+
+test('motsCles ecarte les qualificatifs de forme', () => {
+  assert.deepStrictEqual(Fx.motsCles('Beurre mou'), ['beurre']);
+  assert.deepStrictEqual(Fx.motsCles('Emmental râpé'), ['emmental']);
+  assert.deepStrictEqual(Fx.motsCles('Farine pour beurre manié'), ['farine']);
+  assert.deepStrictEqual(Fx.motsCles('Pulpe de tomate en conserve (ou 500 g de tomates fraîches)'), [
+    'pulpe',
+    'tomate',
+    'conserve',
+  ]);
+});
+
+test('actionCourte garde la premiere phrase', () => {
+  assert.strictEqual(Fx.actionCourte('Hacher l’ail. Puis mixer le tout.'), 'Hacher l’ail');
+  assert.ok(Fx.actionCourte('a'.repeat(300)).length <= 161);
+});
+
+// --- flux.js : mise a l echelle du tableau fourni -----------------------------
+
+test('les cellules « Nom : quantite » du tableau suivent le facteur', () => {
+  const lasagnes = recettes.find((r) => r.id === 'lasagnes-bolognaise-la-meilleure-recette');
+  const r = Fx.echelonnerFlowTable(lasagnes.flowTable, 2);
+  const cellules = r.flowTable.rows.flat().map((c) => c.text);
+
+  assert.ok(cellules.includes('Bœuf haché : 600 g'), 'la viande n a pas ete doublee');
+  assert.ok(cellules.includes('Oignon : 2'), 'un nombre nu apres deux-points n a pas ete double');
+  assert.ok(cellules.includes('Ail : 2 gousses'), 'le pluriel n a pas ete accorde');
+  assert.ok(cellules.includes('Lait : 100 cl'));
+  assert.ok(cellules.includes('Sucre : 4 morceaux'));
+  assert.ok(!cellules.includes('Bœuf haché : 300 g'), 'la valeur d origine subsiste');
+});
+
+test('le tableau garde ses fusions de cellules apres mise a l echelle', () => {
+  const lasagnes = recettes.find((r) => r.id === 'lasagnes-bolognaise-la-meilleure-recette');
+  const r = Fx.echelonnerFlowTable(lasagnes.flowTable, 2);
+  assert.strictEqual(r.flowTable.rows.length, lasagnes.flowTable.rows.length);
+  lasagnes.flowTable.rows.forEach((ligne, i) => {
+    assert.strictEqual(r.flowTable.rows[i].length, ligne.length, `ligne ${i} : nombre de cellules`);
+    ligne.forEach((cellule, j) => {
+      assert.strictEqual(r.flowTable.rows[i][j].rowspan, cellule.rowspan, `ligne ${i} cellule ${j} : rowspan`);
+      assert.strictEqual(r.flowTable.rows[i][j].colspan, cellule.colspan, `ligne ${i} cellule ${j} : colspan`);
+    });
+  });
+});
+
+test('aucune duree ni temperature du tableau ne bouge', () => {
+  const lasagnes = recettes.find((r) => r.id === 'lasagnes-bolognaise-la-meilleure-recette');
+  const r = Fx.echelonnerFlowTable(lasagnes.flowTable, 3);
+  const motif = /(\d+(?:[.,]\d+)?)\s*(minutes?|mn|min|heures?|h\b|°\s*C|cm|mm)/gi;
+
+  lasagnes.flowTable.rows.forEach((ligne, i) => {
+    ligne.forEach((cellule, j) => {
+      const avant = (cellule.text.match(motif) || []).join('|');
+      const apres = (r.flowTable.rows[i][j].text.match(motif) || []).join('|');
+      assert.strictEqual(apres, avant, `ligne ${i} cellule ${j} : une durée ou une température a bougé`);
+    });
+  });
+});
+
+test('echelonnerFlowTable ne modifie pas le tableau source', () => {
+  const lasagnes = recettes.find((r) => r.id === 'lasagnes-bolognaise-la-meilleure-recette');
+  const copie = JSON.parse(JSON.stringify(lasagnes.flowTable));
+  Fx.echelonnerFlowTable(lasagnes.flowTable, 2);
+  assert.deepStrictEqual(lasagnes.flowTable, copie, 'le tableau d origine a ete modifie sur place');
+});
+
+test('echelonnerFlowTable tolere un tableau absent ou un facteur neutre', () => {
+  assert.deepStrictEqual(Fx.echelonnerFlowTable(null, 2).flowTable, null);
+  const t = { headers: [], rows: [[{ text: 'x : 2 g', rowspan: 1, colspan: 1 }]] };
+  assert.strictEqual(Fx.echelonnerFlowTable(t, 1).flowTable, t, 'un facteur 1 devrait rendre le tableau tel quel');
+});
+
+test('echelonnerCellule laisse une cellule sans quantite intacte', () => {
+  assert.strictEqual(Fx.echelonnerCellule('Sel, poivre', 2).texte, 'Sel, poivre');
+  assert.strictEqual(
+    Fx.echelonnerCellule('Mélanger la sauce tomate et la viande : sauce bolognaise', 2).texte,
+    'Mélanger la sauce tomate et la viande : sauce bolognaise'
+  );
 });
 
 // --- Integrite du jeu de donnees ---------------------------------------------

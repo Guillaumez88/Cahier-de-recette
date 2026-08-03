@@ -145,6 +145,32 @@ async function attendreTexte(page, motif, limite = 8000) {
   verifier('les grammes des instructions sont doubles', /1600 g/.test(etapesJointes));
   verifier("l ancienne valeur ne subsiste pas", !/800 g/.test(etapesJointes));
 
+  // --- 2 bis. Le tableau de flux de la fiche suit aussi -----------------------
+
+  await pageA.locator('#enregistrer').click();
+  await attendre(1200);
+  const ficheApresParts = await texteDe(pageA);
+  verifier(
+    'le tableau de flux de la fiche est mis a l echelle',
+    /Bœuf haché : 600 g/.test(ficheApresParts),
+    (ficheApresParts.match(/Bœuf haché : [^|]{0,12}/) || [''])[0]
+  );
+  verifier(
+    'un nombre nu du tableau suit aussi',
+    /Oignon : 2/.test(ficheApresParts),
+    (ficheApresParts.match(/Oignon : ./) || [''])[0]
+  );
+  verifier("la valeur d origine ne subsiste pas dans le tableau", !/Bœuf haché : 300 g/.test(ficheApresParts));
+  verifier(
+    'les durees du tableau sont intactes',
+    /45 min/.test(ficheApresParts) && /165 °C/.test(ficheApresParts) && !/90 min/.test(ficheApresParts),
+    'une durée ou une température du tableau a bougé'
+  );
+
+  // On revient a l editeur pour la suite du parcours.
+  await pageA.locator('#modifier-recette').click();
+  await attendre(1000);
+
   // --- 3. Modifier un champ et enregistrer ------------------------------------
 
   await pageA.locator('.ligne-edition .champ-edition').first().fill('Lasagnes pour douze');
@@ -277,7 +303,57 @@ async function attendreTexte(page, motif, limite = 8000) {
 
   await pageA.request.post(new URL('__stub/refuser-recettes', BASE).href, { data: { refuser: false } });
 
-  // --- 11. Aucune erreur JavaScript ------------------------------------------
+  // --- 11. Deroule reconstitue sur une recette sans tableau fourni ------------
+
+  await pageB.goto(`${BASE}#/recette/tapenade-maison`, { waitUntil: 'networkidle' });
+  await attendre(1200);
+  const tapenade = await texteDe(pageB);
+
+  verifier('un deroule est propose sans tableau fourni', /Déroulé des préparations/.test(tapenade), tapenade.slice(0, 400));
+  verifier(
+    'le deroule est annonce comme reconstitue',
+    /Reconstitué automatiquement/.test(tapenade),
+    tapenade.slice(0, 500)
+  );
+  verifier(
+    'le deroule a les trois colonnes attendues',
+    /Étape/.test(tapenade) && /Ingrédients qui entrent/.test(tapenade) && /Ce qu’on en fait/.test(tapenade)
+  );
+
+  const lignesDeroule = await pageB.evaluate(() =>
+    Array.from(document.querySelectorAll('.tableau-flux--genere tbody tr')).map((tr) => ({
+      etape: tr.querySelector('.deroule__etape').textContent,
+      ingredients: Array.from(tr.querySelectorAll('.deroule__ligne .nom')).map((n) => n.textContent),
+      quantites: Array.from(tr.querySelectorAll('.deroule__ligne .quantite')).map((n) => n.textContent),
+    }))
+  );
+  verifier('le deroule compte deux etapes utiles', lignesDeroule.length === 2, JSON.stringify(lignesDeroule));
+  verifier(
+    'l ail est place a l etape ou il est hache',
+    lignesDeroule[0] && lignesDeroule[0].ingredients.includes('Ail'),
+    JSON.stringify(lignesDeroule[0])
+  );
+  verifier(
+    'les quantites figurent dans le deroule',
+    lignesDeroule.some((l) => l.quantites.includes('200 g')),
+    JSON.stringify(lignesDeroule.map((l) => l.quantites))
+  );
+
+  // La fondue nomme « les fromages » sans les lister : ils doivent etre signales.
+  await pageB.goto(`${BASE}#/recette/veritable-fondue-savoyarde`, { waitUntil: 'networkidle' });
+  await attendre(1200);
+  const fondue = await texteDe(pageB);
+  verifier(
+    'ce qu aucune etape ne nomme est signale sous le tableau',
+    /Non rattaché à une étape/.test(fondue),
+    fondue.slice(0, 500)
+  );
+  verifier(
+    'les trois fromages sont nommes dans ce signalement',
+    /Beaufort/.test(fondue) && /Comté/.test(fondue) && /Tomme de Savoie/.test(fondue)
+  );
+
+  // --- 12. Aucune erreur JavaScript ------------------------------------------
 
   verifier('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
 

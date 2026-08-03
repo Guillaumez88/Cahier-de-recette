@@ -25,6 +25,7 @@
   var estNode = typeof module !== 'undefined' && module.exports;
   var Sync = estNode ? require('./sync.js') : global.CarnetSync;
   var Q = estNode ? require('./quantites.js') : global.CarnetQuantites;
+  var Flux = estNode ? require('./flux.js') : global.CarnetFlux;
 
   var CLE_CACHE = 'carnet-de-recettes:recettes-modifiees';
 
@@ -209,6 +210,15 @@
         item.quantite = Q.echelonner(avant, facteur);
       });
     });
+
+    // Le tableau de flux fourni avec la recette porte lui aussi des quantites :
+    // elles doivent suivre, sinon la fiche s'affiche avec deux valeurs differentes
+    // pour le meme ingredient.
+    if (copie.flowTable) {
+      var tableau = Flux.echelonnerFlowTable(copie.flowTable, facteur);
+      copie.flowTable = tableau.flowTable;
+      remplacements = remplacements.concat(tableau.remplacements);
+    }
 
     (copie.instructions || []).forEach(function (etape) {
       var texte = Q.echelonnerTexte(etape.texte, facteur);

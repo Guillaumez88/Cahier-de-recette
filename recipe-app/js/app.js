@@ -14,6 +14,7 @@
   var R = window.CarnetRayons;
   var Rc = window.CarnetRecettes;
   var Q = window.CarnetQuantites;
+  var Fx = window.CarnetFlux;
 
   var criteresVides = L.criteresVides;
   var origineCourte = L.origineCourte;
@@ -326,6 +327,65 @@
     return el('div', { class: 'flux-enveloppe' }, tableau);
   }
 
+  /**
+   * Rend le deroule reconstitue a partir des ingredients et des etapes.
+   * Utilise quand la recette n'apporte pas de tableau exploitable, c'est-a-dire
+   * pour 16 des 17 recettes du carnet.
+   */
+  function tableauDerouleGenere(recette) {
+    var deroule = Fx.genererDeroule(recette);
+    if (deroule.phases.length === 0) return null;
+
+    var corps = el(
+      'tbody',
+      {},
+      deroule.phases.map(function (phase) {
+        return el('tr', {}, [
+          el('td', { class: 'deroule__etape', texte: phase.numero }),
+          el(
+            'td',
+            { class: 'deroule__ingredients' },
+            phase.ingredients.map(function (item) {
+              return el('div', { class: 'deroule__ligne' }, [
+                el('span', { class: 'nom', texte: item.nom }),
+                item.quantite ? el('span', { class: 'quantite', texte: item.quantite }) : null,
+              ]);
+            })
+          ),
+          el('td', { class: 'deroule__action', texte: phase.action }),
+        ]);
+      })
+    );
+
+    var tableau = el('table', { class: 'tableau-flux tableau-flux--genere' }, [
+      el('thead', {}, [
+        el('tr', {}, [
+          el('th', { scope: 'col', texte: 'Étape' }),
+          el('th', { scope: 'col', texte: 'Ingrédients qui entrent' }),
+          el('th', { scope: 'col', texte: 'Ce qu’on en fait' }),
+        ]),
+      ]),
+      corps,
+    ]);
+
+    return el('div', {}, [
+      el('div', { class: 'flux-enveloppe' }, tableau),
+      // On dit ce qui n'a pas pu etre rattache, au lieu de le placer au hasard.
+      deroule.nonRattaches.length
+        ? el('p', { class: 'deroule__reste' }, [
+            el('span', { texte: 'Non rattaché à une étape, faute d’être nommé dans le texte : ' }),
+            el('span', {
+              texte: deroule.nonRattaches
+                .map(function (i) {
+                  return i.quantite ? i.nom + ' (' + i.quantite + ')' : i.nom;
+                })
+                .join(', '),
+            }),
+          ])
+        : null,
+    ]);
+  }
+
   function vueRecette(id) {
     var recette = Rc.parId(id);
 
@@ -558,6 +618,9 @@
     /* Les 16 recettes du lot 2 ont un tableau de flux généré automatiquement, ne
        contenant que des marqueurs (« ✓ », « Selon étapes »). On ne l'affiche que
        lorsqu'il porte une information, comme la v2. */
+    // Un tableau fourni avec la recette est toujours prefere : il porte une
+    // interpretation (les sous-preparations qui convergent) que la generation ne
+    // sait pas deviner. Sinon on reconstitue le deroule depuis les etapes.
     if (isFlowTableInformative(recette.flowTable)) {
       fragment.appendChild(
         section(
@@ -566,6 +629,17 @@
           tableauFlux(recette.flowTable)
         )
       );
+    } else {
+      var genere = tableauDerouleGenere(recette);
+      if (genere) {
+        fragment.appendChild(
+          section(
+            'Déroulé des préparations',
+            'Reconstitué automatiquement : à quelle étape chaque ingrédient entre.',
+            genere
+          )
+        );
+      }
     }
 
     if (recette.astuces.recette.length) {

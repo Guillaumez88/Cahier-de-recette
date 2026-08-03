@@ -245,10 +245,18 @@ function verifier(nom, condition, detail = '') {
   await page.goto(`${BASE}#/recette/tapenade-maison`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
   verifier('la fiche tapenade est atteinte', /Tapenade maison/.test(await texte()));
+  // Le tableau vide de sens fourni par la source n'est plus affiche : il est
+  // remplace par un deroule reconstitue depuis les etapes.
+  const tapenadeTexte = await texte();
   verifier(
-    'le tableau de flux non informatif est masque',
-    !/Déroulé des préparations/.test(await texte()),
-    'la section vide de sens est affichee'
+    'un deroule reconstitue remplace le tableau vide de sens',
+    /Déroulé des préparations/.test(tapenadeTexte) && /Reconstitué automatiquement/.test(tapenadeTexte),
+    tapenadeTexte.slice(0, 400)
+  );
+  verifier(
+    'les marqueurs sans information de la source ne sont pas affiches',
+    !/Selon étapes/.test(tapenadeTexte) && !/Si concerné/.test(tapenadeTexte),
+    'le tableau generique de la source est rendu tel quel'
   );
 
   await page.emulateMedia({ media: 'print' });

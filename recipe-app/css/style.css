@@ -1222,3 +1222,55 @@ textarea.champ-edition {
 .etat-erreur--compact p {
   margin: 0 0 4px;
 }
+
+/* --- Déroulé reconstitué --------------------------------------------------- */
+
+.tableau-flux--genere {
+  min-width: 520px;
+}
+.deroule__etape {
+  width: 56px;
+  text-align: center;
+  font-family: system-ui, sans-serif;
+  font-weight: 700;
+  color: var(--terracotta-sombre);
+  background: var(--surface-creuse);
+}
+.deroule__ingredients {
+  width: 34%;
+}
+.deroule__ligne {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+}
+.deroule__ligne .quantite {
+  font-weight: 600;
+  color: var(--terracotta-sombre);
+  white-space: nowrap;
+}
+.deroule__action {
+  color: var(--texte-doux);
+}
+.deroule__reste {
+  margin: 10px 0 0;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-faible);
+  line-height: 1.5;
+}
+
+@media print {
+  .tableau-flux--genere {
+    min-width: 0;
+  }
+  .deroule__etape {
+    background: none;
+    color: #000;
+  }
+  .deroule__action,
+  .deroule__reste {
+    color: #000;
+  }
+}
