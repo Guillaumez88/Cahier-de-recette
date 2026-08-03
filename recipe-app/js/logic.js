@@ -8,7 +8,16 @@
   'use strict';
 
   function criteresVides() {
-    return { recherche: '', categorie: null, origine: null, difficulte: null, temps: null };
+    return {
+      recherche: '',
+      categorie: null,
+      origine: null,
+      difficulte: null,
+      temps: null,
+      // « jamais » ou « deja » : filtre sur le nombre de fois que le plat a ete fait,
+      // compte a partir du semainier. Voir le troisieme argument de filterRecipes.
+      realisations: null,
+    };
   }
 
   /* --- format ------------------------------------------------------ */
@@ -132,8 +141,17 @@
     };
   }
 
-  function filterRecipes(recettes, criteres) {
+  /**
+   * Filtre le carnet.
+   *
+   * `comptes` est une table facultative { recetteId: nombre de realisations }, que
+   * l'appelant obtient du semainier. Elle est passee en argument plutot que lue ici :
+   * ce module reste sans acces au stockage, ce qui est ce qui le rend testable sous
+   * Node sans emulation.
+   */
+  function filterRecipes(recettes, criteres, comptes) {
     criteres = criteres || {};
+    var tableComptes = comptes || {};
     var requete = normaliser(criteres.recherche || '');
     var mots = requete
       ? requete.split(/\s+/).filter(function (m) {
@@ -145,6 +163,12 @@
       if (criteres.categorie && recette.categorie !== criteres.categorie) return false;
       if (criteres.origine && origineCourte(recette.origine) !== criteres.origine) return false;
       if (criteres.difficulte && difficulteCourte(recette.difficulte) !== criteres.difficulte) return false;
+
+      if (criteres.realisations) {
+        var faits = tableComptes[recette.id] || 0;
+        if (criteres.realisations === 'jamais' && faits > 0) return false;
+        if (criteres.realisations === 'deja' && faits === 0) return false;
+      }
 
       if (criteres.temps) {
         // Une recette sans durée exploitable est exclue dès qu'on filtre sur le temps.

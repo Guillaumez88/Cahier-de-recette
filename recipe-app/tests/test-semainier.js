@@ -401,6 +401,22 @@ const PNG_ROUGE =
   await attendre(800);
   verifier('la fiche affiche la photo', (await pageA.locator('#photo-fiche img').count()) === 1);
 
+  // La reserve de plats ne porte plus de vignette photo : demande explicite. Une
+  // pastille est un nom de plat a saisir, pas une image a regarder.
+  await pageA.goto(BASE, { waitUntil: 'networkidle' });
+  await attendre(900);
+  await pageA.locator('#recherche-reserve').fill('tapenade');
+  await attendre(400);
+  verifier(
+    'la reserve affiche la pastille du plat',
+    (await pageA.locator('[data-reserve="tapenade-maison"]').count()) === 1
+  );
+  verifier(
+    'la reserve n utilise aucune photo',
+    (await pageA.locator('.reserve .vignette__image').count()) === 0,
+    String(await pageA.locator('.reserve .vignette__image').count())
+  );
+
   await pageA.goto(`${BASE}#/livre`, { waitUntil: 'networkidle' });
   await attendre(800);
   const vignettesLivre = await pageA.locator('.carte .vignette__image').count();
@@ -522,7 +538,7 @@ const PNG_ROUGE =
 
   await pageA.request.post(new URL('__stub/panne', BASE).href, { data: { panne: false } });
   await pageA.locator('#rafraichir-semainier').click();
-  verifier('le repas part au retour du reseau', await attendreTexte(pageA, /Menus partagés, à jour/, 10000));
+  verifier('le repas part au retour du reseau', await attendreTexte(pageA, /Menus partagés à la maison, à jour/, 10000));
   etat = await etatStub();
   verifier(
     'le repas pose hors ligne est bien arrive en base',
@@ -555,7 +571,114 @@ const PNG_ROUGE =
   );
   await telephone.close();
 
-  // --- 17. Aucune erreur JavaScript ------------------------------------------
+  // --- 17. Compteur de realisations -------------------------------------------
+  //
+  // On pose des plats sur des jours passes : ce sont eux, et eux seuls, qui comptent
+  // comme faits. Les jours utilises sont anterieurs a la semaine affichee, donc
+  // atteignables uniquement par l'API du module, ce qui est le cas reel d'un
+  // historique accumule au fil des semaines.
+
+  await pageA.goto(`${BASE}#/livre`, { waitUntil: 'networkidle' });
+  await attendre(700);
+  const avantHistorique = await texteDe(pageA);
+  // A ce stade le semainier a des repas prevus mais aucun repas passe : tous les
+  // plats sont donc « jamais faits », et aucun ne peut afficher un decompte.
+  verifier(
+    'sans repas passe, aucun plat n est compte comme fait',
+    !/Fait \d+ fois/.test(avantHistorique),
+    avantHistorique.slice(0, 200)
+  );
+
+  // Trois realisations passees de la tapenade, une de l anchoiade.
+  await pageA.evaluate(async () => {
+    const poser = (jour, moment, id, titre) =>
+      window.CarnetSemainier.poser(jour, moment, { type: 'recette', recetteId: id, titre });
+    await poser('2026-01-05', 'diner', 'tapenade-maison', 'Tapenade maison');
+    await poser('2026-01-12', 'diner', 'tapenade-maison', 'Tapenade maison');
+    await poser('2026-02-02', 'dejeuner', 'tapenade-maison', 'Tapenade maison');
+    await poser('2026-03-09', 'diner', 'anchoiade', 'Anchoïade');
+    await poser('2026-03-10', 'diner', 'restaurant-hors-carnet', 'Restaurant');
+  });
+  // Rechargement explicite : une navigation vers la meme ancre ne re-rend rien.
+  await pageA.reload({ waitUntil: 'networkidle' });
+  await attendre(1000);
+
+  const carteTapenade = pageA.locator('.carte', { hasText: 'Tapenade maison' }).first();
+  verifier(
+    'la carte annonce le nombre de fois que le plat a ete fait',
+    /Fait 3 fois/.test(await carteTapenade.textContent()),
+    await carteTapenade.textContent()
+  );
+  verifier(
+    'la carte donne la date de la derniere fois',
+    /la dernière le 2 février/.test(await carteTapenade.textContent()),
+    await carteTapenade.textContent()
+  );
+  verifier(
+    'un plat fait une seule fois est compte au singulier de sa date',
+    /Fait 1 fois/.test(await pageA.locator('.carte', { hasText: 'Anchoïade' }).first().textContent()),
+    await pageA.locator('.carte', { hasText: 'Anchoïade' }).first().textContent()
+  );
+  verifier(
+    'les plats jamais faits sont signales',
+    (await pageA.locator('.carte__realisations--jamais').count()) === 18,
+    String(await pageA.locator('.carte__realisations--jamais').count())
+  );
+  // Le compteur du livre suit un changement de menus sans rechargement : il est lu
+  // dans le semainier, il ne doit pas rester perime sur les cartes.
+  await pageA.evaluate(() =>
+    window.CarnetSemainier.poser('2026-04-06', 'diner', {
+      type: 'recette',
+      recetteId: 'tapenade-maison',
+      titre: 'Tapenade maison',
+    })
+  );
+  await attendre(700);
+  verifier(
+    'le compteur du livre suit un changement de menus sans rechargement',
+    /Fait 4 fois/.test(await pageA.locator('.carte', { hasText: 'Tapenade maison' }).first().textContent()),
+    await pageA.locator('.carte', { hasText: 'Tapenade maison' }).first().textContent()
+  );
+
+  // Le filtre n apparait qu avec un historique, et separe les deux populations.
+  verifier(
+    'le filtre des realisations est propose',
+    (await pageA.locator('[data-filtre="realisations:jamais"]').count()) === 1
+  );
+  await pageA.locator('[data-filtre="realisations:jamais"]').click();
+  await attendre(500);
+  verifier(
+    'le filtre « jamais fait » ecarte les plats deja faits',
+    (await pageA.locator('.carte').count()) === 18,
+    String(await pageA.locator('.carte').count())
+  );
+  await pageA.locator('[data-filtre="realisations:deja"]').click();
+  await attendre(500);
+  verifier(
+    'le filtre « deja fait » ne garde que les deux plats realises',
+    (await pageA.locator('.carte').count()) === 2,
+    String(await pageA.locator('.carte').count())
+  );
+
+  // Et la fiche porte la meme information.
+  await pageA.goto(`${BASE}#/recette/tapenade-maison`, { waitUntil: 'networkidle' });
+  await attendre(700);
+  // Quatre, et non trois : un creneau d avril a ete ajoute au controle precedent.
+  verifier(
+    'la fiche porte le compteur de realisations',
+    (await pageA.locator('.marque-realisations').count()) === 1 &&
+      /Fait 4 fois/.test(await texteDe(pageA)),
+    (await texteDe(pageA)).slice(0, 300)
+  );
+  await pageA.goto(`${BASE}#/recette/focaccia-maison-moelleuse`, { waitUntil: 'networkidle' });
+  await attendre(700);
+  verifier(
+    'une recette jamais faite le dit sur sa fiche',
+    (await pageA.locator('.marque-realisations--jamais').count()) === 1,
+    (await texteDe(pageA)).slice(0, 300)
+  );
+
+  // --- 18. Aucune erreur JavaScript ------------------------------------------
 
   verifier('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
 

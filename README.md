@@ -34,12 +34,12 @@ Aucune dépendance, aucune étape de construction, aucun framework : douze fichi
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js            83 tests de la logique métier
-        ├── run-sync-tests.js       92 tests de la synchronisation
+        ├── run-tests.js            87 tests de la logique métier
+        ├── run-sync-tests.js       99 tests de la synchronisation
         ├── test-web.js             66 vérifications navigateur, parcours général
         ├── test-partage.js         33 vérifications navigateur, partage et hors ligne
         ├── test-edition.js         59 vérifications navigateur, modification, parts, déroulé
-        ├── test-semainier.js       84 vérifications navigateur, semainier, photos, création
+        ├── test-semainier.js       97 vérifications navigateur, semainier, photos, compteur
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -67,6 +67,7 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 - **Routage par ancre** : `#/` (semainier), `#/livre`, `#/recette/<id>`, `#/recette/<id>/modifier`, `#/recette/nouvelle`, `#/liste-de-courses`. Les URL sont partageables et le bouton de retour du navigateur fonctionne. C'est aussi ce qui permet un hébergement statique sans configuration : aucun chemin profond n'est demandé au serveur.
 - **Semainier des repas** sur la page d'accueil (voir la section suivante) : une ou deux semaines, trois repas par jour, plats du livre ou repas hors carnet, glisser-déposer, et ajout des ingrédients de la semaine à la liste de courses après validation plat par plat.
 - **Photo par recette** : prise depuis le téléphone ou choisie dans les fichiers, réduite dans le navigateur, partagée avec les autres appareils (voir plus bas).
+- **Compteur de réalisations** : combien de fois chaque plat a été fait, calculé sur l'historique du semainier, avec un filtre « jamais fait » dans le livre (voir plus bas).
 - **Ajout d'une recette** depuis le livre, et suppression des recettes ajoutées.
 - **Recherche** insensible à la casse et aux accents, portant sur le titre, la catégorie, l'origine, les ingrédients et le texte des étapes. Plusieurs mots se cumulent.
 - **Filtres** par catégorie, origine, difficulté et tranche de temps total. Un clic sur un filtre actif le désactive.
@@ -86,7 +87,7 @@ La page d'accueil répond à une seule question : qu'est-ce qu'on mange. Elle mo
 - **La semaine commence le lundi** et finit le dimanche. Trois créneaux par jour : matin, midi, soir. Le déjeuner et le dîner ont plus de hauteur que le petit-déjeuner, parce que ce sont les repas qu'on cuisine.
 - **Une ou deux semaines** au choix, jamais de semaine passée : un repas déjà mangé ne sert ni aux courses ni à la cuisine.
 - **Toucher une case** ouvre le choix du repas : un plat du livre (avec sa propre recherche), ou un repas hors carnet. Cinq raccourcis sont proposés (Restaurant, Pizzas, Japonais, Restes, Chacun pour soi) et un champ libre accepte n'importe quoi d'autre.
-- **Glisser-déposer** sur ordinateur : un plat se glisse d'une case à l'autre, et la réserve sous le semainier permet de glisser un plat du livre directement dans une case. Glisser sur une case occupée **échange** les deux plats au lieu d'en effacer un.
+- **Glisser-déposer** sur ordinateur : un plat se glisse d'une case à l'autre, et la réserve sous le semainier permet de glisser un plat du livre directement dans une case. Glisser sur une case occupée **échange** les deux plats au lieu d'en effacer un. Les pastilles de la réserve portent le titre et un pictogramme de catégorie, jamais la photo de la recette : une pastille est un nom de plat à saisir, pas une image à regarder.
 - La réserve glissable est masquée au tactile et sous 700 px : le glisser-déposer HTML5 n'existe pas sur mobile, et l'appui sur une case fait déjà le travail. **Toute action est faisable sans glisser.**
 - Les menus sont lus **une fois au chargement de la page**, puis mis à jour par le bouton « Rafraîchir ». Voir « Pourquoi il n'y a plus de rafraîchissement automatique » plus bas.
 
@@ -113,6 +114,26 @@ Deux pièges de dates sont traités dans `js/semaine.js`, et des tests les fixen
 
 - `toISOString()` convertit en UTC : à Paris en été, un lundi à 23 h donnerait « dimanche ». Les clés de jour sont donc fabriquées avec `getFullYear/getMonth/getDate`, qui sont locaux.
 - `new Date('2026-08-03')` est interprété comme minuit UTC : à l'ouest de Greenwich, `getDate()` rendrait le 2. Les clés sont relues en composant une date locale fixée à midi, midi résistant aux changements d'heure.
+
+## Compteur de réalisations
+
+Combien de fois un plat a été fait, lu dans l'historique du semainier. Aucune donnée nouvelle n'est stockée : les créneaux passés étaient déjà là, ils n'étaient simplement pas affichés.
+
+Où cela apparaît :
+
+- sur chaque carte du livre : « Fait 3 fois, la dernière le 2 février » ou « Jamais fait » ;
+- sur la fiche, à côté du nombre de parts ;
+- comme filtre dans le livre : « Jamais fait (18) » et « Déjà fait ». Le filtre n'apparaît que si le semainier a un historique.
+
+Trois règles, chacune pour une raison :
+
+- **Seuls les créneaux strictement antérieurs à aujourd'hui comptent.** Un repas prévu pour jeudi prochain n'a pas été fait, et le repas du jour ne l'est pas non plus tant que la journée n'est pas finie : le compter ferait apparaître le plat comme réalisé avant qu'on l'ait cuisiné.
+- **Un repas hors carnet ne compte pas.** « Restaurant » n'est pas un plat du livre.
+- **Rien n'est affiché tant que le semainier est vide.** Écrire « 0 fois » partout ferait passer une absence de données pour une information.
+
+À nombre égal de réalisations, le classement met devant le plat le plus récemment fait, et une recette renommée apparaît sous son nom actuel et non sous celui qu'elle portait il y a six mois.
+
+**Limite de coût, à connaître.** Le comptage porte sur **tout l'historique**, choix explicite. Il lit donc la totalité de la collection des créneaux, qui grossit d'environ 1 100 documents par an (21 créneaux par semaine). Firestore facture à la lecture de document, et cette lecture a lieu une fois par chargement de page. À 20 chargements par jour, cela représente environ 22 000 lectures quotidiennes après un an, pour un palier gratuit de 50 000. C'est donc sans conséquence aujourd'hui, tenable un à deux ans, puis il faudra un document d'agrégation par recette plutôt qu'un comptage à la lecture. Le moment de basculer se reconnaîtra à un bandeau « Service momentanément indisponible ».
 
 ## Photo par recette
 
@@ -243,9 +264,9 @@ Confondre les trois était le vrai défaut de la version précédente : elle ann
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 83 tests de la logique métier
-node tests/run-sync-tests.js      # 92 tests de la synchronisation
-node tests/run-browser-tests.js   # 242 vérifications dans un vrai Chromium
+node tests/run-tests.js           # 87 tests de la logique métier
+node tests/run-sync-tests.js      # 99 tests de la synchronisation
+node tests/run-browser-tests.js   # 255 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

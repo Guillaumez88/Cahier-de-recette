@@ -748,6 +748,39 @@ test('le seul numero d etape non entier est bien celui repere', () => {
   assert.deepStrictEqual(anomalies, [['lasagnes-bolognaise-la-meilleure-recette', 'Pour finir']]);
 });
 
+// --- Filtre sur les realisations ---------------------------------------------
+
+test('le filtre des realisations separe le jamais fait du deja fait', () => {
+  const comptes = { 'tapenade-maison': 3, anchoiade: 1 };
+  const jamais = L.filterRecipes(recettes, { realisations: 'jamais' }, comptes).map((r) => r.id);
+  assert.ok(!jamais.includes('tapenade-maison'));
+  assert.ok(!jamais.includes('anchoiade'));
+  assert.strictEqual(jamais.length, recettes.length - 2);
+
+  const deja = L.filterRecipes(recettes, { realisations: 'deja' }, comptes).map((r) => r.id);
+  assert.deepStrictEqual(deja.sort(), ['anchoiade', 'tapenade-maison']);
+});
+
+test('sans table de comptes, tout est considere jamais fait', () => {
+  // C'est le cas d'un carnet dont le semainier n'a pas encore d'historique : mieux
+  // vaut ce comportement previsible qu'une erreur sur une table absente.
+  assert.strictEqual(L.filterRecipes(recettes, { realisations: 'jamais' }).length, recettes.length);
+  assert.strictEqual(L.filterRecipes(recettes, { realisations: 'deja' }).length, 0);
+});
+
+test('le filtre des realisations se combine aux autres', () => {
+  const comptes = { 'tapenade-maison': 2, 'tiramisu-classique': 1 };
+  const resultat = L.filterRecipes(recettes, { realisations: 'deja', categorie: 'Dessert' }, comptes);
+  assert.deepStrictEqual(
+    resultat.map((r) => r.id),
+    ['tiramisu-classique']
+  );
+});
+
+test('criteresVides comprend le critere des realisations', () => {
+  assert.strictEqual(L.criteresVides().realisations, null);
+});
+
 // --- semaine.js : calendrier du semainier ------------------------------------
 
 test('cleJour utilise la date locale et non UTC', () => {

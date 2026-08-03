@@ -307,6 +307,87 @@
     return plats;
   }
 
+  // --- Compteur de realisations -----------------------------------------------
+  //
+  // « Combien de fois ce plat a-t-il ete fait ? », lu dans l'historique du semainier.
+  // Aucune donnee nouvelle n'est stockee : les creneaux passes sont deja la, ils
+  // n'etaient simplement pas affiches.
+  //
+  // Seuls les creneaux strictement anterieurs a aujourd'hui comptent. Un repas prevu
+  // pour jeudi prochain n'a pas ete fait, et le repas du jour ne l'est pas non plus
+  // tant que la journee n'est pas finie : compter aujourd'hui ferait apparaitre le
+  // plat comme realise avant qu'on l'ait cuisine.
+  //
+  // Limite de cout, a connaitre : le comptage porte sur tout l'historique, donc sur
+  // la totalite de la collection, qui grossit d'environ 1 100 documents par an
+  // (21 creneaux par semaine). Firestore facture a la lecture de document, et cette
+  // lecture a lieu une fois par chargement de page. C'est sans consequence
+  // aujourd'hui, cela le restera un a deux ans, puis il faudra un document
+  // d'agregation par recette plutot qu'un comptage a la lecture.
+
+  function cleDuJour(aujourdhui) {
+    return Semaine.cleJour(aujourdhui instanceof Date ? aujourdhui : new Date());
+  }
+
+  /** Creneaux passes portant une recette du carnet, les seuls qui comptent. */
+  function realisations(aujourdhui) {
+    var limite = cleDuJour(aujourdhui);
+    return tous().filter(function (c) {
+      return c.type === TYPE_RECETTE && c.recetteId && c.jour < limite;
+    });
+  }
+
+  /** Table { recetteId: nombre de fois fait }. */
+  function comptes(aujourdhui) {
+    var table = {};
+    realisations(aujourdhui).forEach(function (c) {
+      table[c.recetteId] = (table[c.recetteId] || 0) + 1;
+    });
+    return table;
+  }
+
+  function nbFois(recetteId, aujourdhui) {
+    return comptes(aujourdhui)[recetteId] || 0;
+  }
+
+  /** Jour de la derniere realisation d'une recette, ou null. */
+  function derniereFois(recetteId, aujourdhui) {
+    var dernier = null;
+    realisations(aujourdhui).forEach(function (c) {
+      if (c.recetteId !== recetteId) return;
+      if (dernier === null || c.jour > dernier) dernier = c.jour;
+    });
+    return dernier;
+  }
+
+  /**
+   * Classement des plats les plus faits, du plus au moins frequent.
+   * A nombre egal, le plus recemment fait passe devant : c'est celui dont on se
+   * souvient, et l'ordre doit rester stable d'un affichage a l'autre.
+   */
+  function classement(aujourdhui) {
+    var index = {};
+    var liste = [];
+    realisations(aujourdhui).forEach(function (c) {
+      if (!index[c.recetteId]) {
+        index[c.recetteId] = { recetteId: c.recetteId, titre: c.titre, nb: 0, dernier: null };
+        liste.push(index[c.recetteId]);
+      }
+      var entree = index[c.recetteId];
+      entree.nb += 1;
+      if (entree.dernier === null || c.jour > entree.dernier) entree.dernier = c.jour;
+      // Le titre le plus recent gagne : une recette renommee doit apparaitre sous
+      // son nom actuel, pas sous celui qu'elle portait il y a six mois.
+      if (c.jour === entree.dernier) entree.titre = c.titre;
+    });
+
+    return liste.sort(function (a, b) {
+      if (b.nb !== a.nb) return b.nb - a.nb;
+      if (a.dernier !== b.dernier) return String(b.dernier).localeCompare(String(a.dernier));
+      return String(a.titre).localeCompare(String(b.titre), 'fr');
+    });
+  }
+
   // --- Modifications ----------------------------------------------------------
 
   function horodatage() {
@@ -439,6 +520,12 @@
     creneau: creneau,
     parCle: parCle,
     platsDeLaSemaine: platsDeLaSemaine,
+
+    realisations: realisations,
+    comptes: comptes,
+    nbFois: nbFois,
+    derniereFois: derniereFois,
+    classement: classement,
 
     poser: poser,
     vider: vider,

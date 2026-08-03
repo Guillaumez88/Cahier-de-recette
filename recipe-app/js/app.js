@@ -104,6 +104,27 @@
     ]);
   }
 
+  /**
+   * Ce que dit le compteur de realisations pour une recette.
+   * Rend null quand le semainier n'a encore rien a dire, plutot que « 0 fois » :
+   * un carnet qui vient d'etre installe n'a pas d'historique, et afficher zero
+   * partout ferait passer une absence de donnee pour une information.
+   */
+  function libelleRealisations(recetteId) {
+    if (Sm.tous().length === 0) return null;
+    var nb = Sm.nbFois(recetteId);
+    if (nb === 0) return { texte: 'Jamais fait', jamais: true };
+
+    var dernier = Sm.derniereFois(recetteId);
+    var date = dernier ? Sem.depuisCle(dernier) : null;
+    return {
+      texte:
+        'Fait ' + nb + (nb > 1 ? ' fois' : ' fois') +
+        (date ? ', la dernière le ' + date.getDate() + ' ' + Sem.MOIS[date.getMonth()] : ''),
+      jamais: false,
+    };
+  }
+
   var SUFFIXE_CATEGORIE = { Entrée: 'olive', Plat: '', Dessert: 'ocre' };
 
   function classeCategorie(base, categorie) {
@@ -551,7 +572,7 @@
 
   /** Bandeau d'etat du semainier. */
   function barreSyncSemainier() {
-    return barreEtat(Sm, 'Menus partagés', rendreAccueil, 'rafraichir-semainier');
+    return barreEtat(Sm, 'Menus partagés à la maison', rendreAccueil, 'rafraichir-semainier');
   }
 
   /**
@@ -614,7 +635,9 @@
                 'data-reserve': recette.id,
                 title: recette.titre,
               }, [
-                vignetteOuMarque(recette, 'vignette--pastille', 14),
+                el('span', { class: classeCategorie('marque-plat', recette.categorie) }, [
+                  icone(Ic.pourCategorie(recette.categorie), { taille: 14 }),
+                ]),
                 el('span', { texte: recette.titre }),
               ]);
               pastille.addEventListener('dragstart', function (evenement) {
@@ -1072,8 +1095,12 @@
 
   function vueLivre() {
     var recettes = Rc.toutes();
-    var resultats = filterRecipes(recettes, etat.criteres);
+    var comptes = Sm.comptes();
+    var resultats = filterRecipes(recettes, etat.criteres, comptes);
     var options = optionsDisponibles(recettes);
+    var nbJamais = recettes.filter(function (r) {
+      return !comptes[r.id];
+    }).length;
     var fragment = document.createDocumentFragment();
 
     fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour à l’accueil' }));
@@ -1127,6 +1154,18 @@
       },
     ];
 
+    // Le filtre sur les realisations n'a de sens que si le semainier a un historique.
+    if (Sm.tous().length > 0) {
+      rangees.push({
+        cle: 'realisations',
+        titre: 'Déjà fait',
+        valeurs: [
+          { valeur: 'jamais', libelle: 'Jamais fait (' + nbJamais + ')', classe: 'pilule' },
+          { valeur: 'deja', libelle: 'Déjà fait', classe: 'pilule' },
+        ],
+      });
+    }
+
     var champ = el('input', {
       type: 'search',
       class: 'champ-recherche',
@@ -1147,6 +1186,9 @@
             return el('button', {
               type: 'button',
               class: option.classe,
+              // Repere stable pour les tests et pour un lien profond eventuel : le
+              // libelle porte un decompte, il change avec les donnees.
+              'data-filtre': rangee.cle + ':' + option.valeur,
               'aria-pressed': actif ? 'true' : 'false',
               texte: option.libelle,
               onclick: function () {
@@ -1165,7 +1207,8 @@
         etat.criteres.categorie ||
         etat.criteres.origine ||
         etat.criteres.difficulte ||
-        etat.criteres.temps
+        etat.criteres.temps ||
+        etat.criteres.realisations
     );
 
     fragment.appendChild(
@@ -1222,6 +1265,14 @@
                   class: 'carte__meta-faible',
                   texte: nbIngredients(recette) + ' ingrédients · ' + recette.instructions.length + ' étapes',
                 }),
+                (function () {
+                  var fait = libelleRealisations(recette.id);
+                  if (!fait) return null;
+                  return el('span', {
+                    class: 'carte__realisations' + (fait.jamais ? ' carte__realisations--jamais' : ''),
+                    texte: fait.texte,
+                  });
+                })(),
               ]),
             ]);
             return carte;
@@ -1452,9 +1503,17 @@
       chargerGrandePhoto();
     }
 
+    var faitFiche = libelleRealisations(recette.id);
+
     fragment.appendChild(
       el('p', { class: 'fiche__portions' }, [
         el('span', { texte: recette.portions }),
+        faitFiche
+          ? el('span', {
+              class: 'marque-realisations' + (faitFiche.jamais ? ' marque-realisations--jamais' : ''),
+              texte: faitFiche.texte,
+            })
+          : null,
         // Signale une fiche qui ne correspond plus a la source citee plus bas.
         Rc.estModifiee(id)
           ? el('span', { class: 'marque-modifiee', texte: 'fiche modifiée' })
@@ -1724,7 +1783,7 @@
 
   /** Bandeau d'etat de la liste de courses. */
   function barreSync() {
-    return barreEtat(S, 'Liste partagée', function () {
+    return barreEtat(S, 'Liste partagée à la maison', function () {
       monter(vueListeDeCourses());
     }, 'rafraichir');
   }
@@ -2708,7 +2767,13 @@
   }
 
   function surChangementSemainier() {
-    if (routeCourante() === '/' && !saisieEnCours() && !voile) monter(vueAccueil());
+    if (saisieEnCours() || voile) return;
+    var route = routeCourante();
+    if (route === '/') monter(vueAccueil());
+    // Le livre affiche le compteur de realisations, qui est lu dans le semainier :
+    // il doit suivre, sinon un rafraichissement des menus laisse des compteurs
+    // perimes sur les cartes.
+    else if (route === '/livre') monter(vueLivre());
   }
 
   function surChangementPhotos() {

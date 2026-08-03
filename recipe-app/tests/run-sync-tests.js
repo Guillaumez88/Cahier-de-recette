@@ -1104,6 +1104,87 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     assert.deepStrictEqual(Semainier.tous(), []);
   });
 
+  // --- Compteur de realisations ------------------------------------------------
+  //
+  // « Combien de fois ce plat a-t-il ete fait ? », lu dans l'historique du semainier.
+  // Les dates sont fixees dans les tests : un test qui dependrait de la date du jour
+  // passerait ou non selon le moment ou on le joue.
+
+  const AUJOURDHUI = new Date(2026, 7, 5, 12); // mercredi 5 aout 2026
+
+  await test('seuls les creneaux passes comptent comme realisations', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser('2026-08-03', 'diner', { type: 'recette', recetteId: 'tapenade-maison', titre: 'Tapenade' });
+    await Semainier.poser('2026-08-04', 'dejeuner', { type: 'recette', recetteId: 'tapenade-maison', titre: 'Tapenade' });
+    // Aujourd'hui : la journee n'est pas finie, le plat n'a pas encore ete fait.
+    await Semainier.poser('2026-08-05', 'diner', { type: 'recette', recetteId: 'tapenade-maison', titre: 'Tapenade' });
+    // Et la semaine prochaine, encore moins.
+    await Semainier.poser('2026-08-12', 'diner', { type: 'recette', recetteId: 'tapenade-maison', titre: 'Tapenade' });
+
+    assert.strictEqual(Semainier.nbFois('tapenade-maison', AUJOURDHUI), 2, 'le futur ou le jour meme a ete compte');
+    assert.strictEqual(Semainier.derniereFois('tapenade-maison', AUJOURDHUI), '2026-08-04');
+  });
+
+  await test('un repas hors carnet ne compte pas', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser('2026-08-03', 'diner', { type: 'libre', titre: 'Restaurant' });
+    assert.deepStrictEqual(Semainier.comptes(AUJOURDHUI), {});
+    assert.deepStrictEqual(Semainier.classement(AUJOURDHUI), []);
+  });
+
+  await test('une recette jamais faite vaut zero, pas undefined', async () => {
+    const { Semainier } = neuf();
+    assert.strictEqual(Semainier.nbFois('anchoiade', AUJOURDHUI), 0);
+    assert.strictEqual(Semainier.derniereFois('anchoiade', AUJOURDHUI), null);
+  });
+
+  await test('le classement va du plus fait au moins fait', async () => {
+    const { Semainier } = neuf();
+    const poser = (jour, moment, id, titre) =>
+      Semainier.poser(jour, moment, { type: 'recette', recetteId: id, titre });
+    await poser('2026-07-01', 'diner', 'a', 'Plat A');
+    await poser('2026-07-02', 'diner', 'a', 'Plat A');
+    await poser('2026-07-03', 'diner', 'a', 'Plat A');
+    await poser('2026-07-04', 'diner', 'b', 'Plat B');
+    await poser('2026-07-05', 'diner', 'b', 'Plat B');
+    await poser('2026-07-06', 'diner', 'c', 'Plat C');
+
+    const rang = Semainier.classement(AUJOURDHUI);
+    assert.deepStrictEqual(
+      rang.map((r) => [r.recetteId, r.nb]),
+      [['a', 3], ['b', 2], ['c', 1]]
+    );
+    assert.strictEqual(rang[0].dernier, '2026-07-03');
+  });
+
+  await test('a nombre egal, le plus recemment fait passe devant', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser('2026-07-01', 'diner', { type: 'recette', recetteId: 'ancien', titre: 'Ancien' });
+    await Semainier.poser('2026-07-20', 'diner', { type: 'recette', recetteId: 'recent', titre: 'Recent' });
+    assert.deepStrictEqual(
+      Semainier.classement(AUJOURDHUI).map((r) => r.recetteId),
+      ['recent', 'ancien']
+    );
+  });
+
+  await test('le classement retient le titre le plus recent d une recette renommee', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser('2026-07-01', 'diner', { type: 'recette', recetteId: 'x', titre: 'Ancien nom' });
+    await Semainier.poser('2026-07-15', 'diner', { type: 'recette', recetteId: 'x', titre: 'Nouveau nom' });
+    const rang = Semainier.classement(AUJOURDHUI);
+    assert.strictEqual(rang[0].titre, 'Nouveau nom');
+    assert.strictEqual(rang[0].nb, 2);
+  });
+
+  await test('le comptage porte sur tout l historique, sans borne de date', async () => {
+    const { Semainier } = neuf();
+    await Semainier.poser('2024-01-15', 'diner', { type: 'recette', recetteId: 'vieux', titre: 'Vieux plat' });
+    await Semainier.poser('2026-07-15', 'diner', { type: 'recette', recetteId: 'vieux', titre: 'Vieux plat' });
+    // Choix explicite : « depuis toujours ». Un plat fait il y a deux ans compte.
+    assert.strictEqual(Semainier.nbFois('vieux', AUJOURDHUI), 2);
+    assert.strictEqual(Semainier.derniereFois('vieux', AUJOURDHUI), '2026-07-15');
+  });
+
   // --- Photos ----------------------------------------------------------------
 
   const VIGNETTE = 'data:image/jpeg;base64,' + 'A'.repeat(400);
