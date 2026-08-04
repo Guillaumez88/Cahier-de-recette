@@ -248,9 +248,11 @@ La configuration Firebase est déjà dans `recipe-app/js/firebase-config.js`. El
 
 Le projet `cahier-de-cuisine-88` est configuré : base Firestore créée, connexion anonyme activée, domaine `guillaumez88.github.io` autorisé, et la liste de courses fonctionne (vérifiée en conditions réelles, voir ci-dessous).
 
+**Le passage à plusieurs plats par repas ne demande pas de republier les règles.** La clé d'un plat passe de 18 à 35 caractères (`2026-08-03::dejeuner::k3f9za`), la borne de la règle est de 100. Conclusion tirée de la lecture de `firestore.rules` ; le contrôle qui la prouve contre le vrai projet fait partie de `tests/verifier-firebase.js --reel`.
+
 **Le semainier et les photos demandent une republication des règles.** `firestore.rules` couvre désormais quatre collections : `listes/{id}/articles`, `recettes`, `semainiers/{id}/creneaux` et `photos`. Les deux dernières sont nouvelles : tant que les règles publiées ne les contiennent pas, Firestore refuse l'accès, le semainier reste bloqué sur « Hors ligne » et aucune photo ne s'enregistre. Coller `firestore.rules` dans la console Firebase (*Firestore Database* → *Règles* → *Publier*), puis relancer `node tests/verifier-firebase.js --reel`.
 
-Ce contrôle ne vérifie pas seulement que l'écriture passe : il vérifie aussi que les règles **refusent** ce qu'elles doivent refuser, un créneau au moment inconnu et une photo hors borne de taille. Si ces deux contrôles-là échouent, les règles publiées ne sont pas celles du dépôt même si le reste fonctionne.
+Ce contrôle ne vérifie pas seulement que l'écriture passe : il vérifie aussi qu'un repas accepte bien deux plats en deux documents distincts, et que les règles **refusent** ce qu'elles doivent refuser, un créneau au moment inconnu et une photo hors borne de taille. Si ces deux contrôles-là échouent, les règles publiées ne sont pas celles du dépôt même si le reste fonctionne.
 
 Si l'application affiche un jour un bandeau `PERMISSION_DENIED`, c'est que les règles publiées ont divergé de `firestore.rules` : les republier depuis le fichier du dépôt, puis relancer ce contrôle.
 
@@ -270,9 +272,9 @@ node tests/verifier-firebase.js --reel
 
 À la différence des autres suites, celle-ci n'utilise **aucune émulation** : elle charge `sync.js` et `storage.js` avec la configuration réelle et écrit dans la vraie base. Le drapeau `--reel` est obligatoire pour qu'elle ne puisse pas partir par accident ni en CI. Les articles créés portent la recette `__verification__` et sont supprimés à la fin, même en cas d'échec ; le script compte les articles réels avant et après pour prouver qu'il n'y a pas touché.
 
-Onze contrôles : session anonyme, écriture d'un document par article, conservation des accents et des quantités à l'aller-retour, cochage n'écrivant que le champ concerné, relecture depuis un cache local vide (le cas du second appareil), article libre, retrait des cochés, suppression, intégrité des articles préexistants, puis accès à la collection des recettes et cycle complet d'une recette modifiée.
+Les contrôles portent sur : la session anonyme, l'écriture d'un document par article, la conservation des accents et des quantités à l'aller-retour, le cochage n'écrivant que le champ concerné, la relecture depuis un cache local vide (le cas du second appareil), l'article libre, le retrait des cochés, la suppression, l'intégrité des articles préexistants, l'accès à la collection des recettes et le cycle complet d'une recette modifiée, puis le semainier : un plat écrit, relu et vidé, deux plats dans un même repas en deux documents distincts, et le refus d'un moment inconnu.
 
-Au 3 août 2026, les onze passent. En cas d'échec sur la collection des recettes, le message nomme précisément l'action à faire.
+Au 3 août 2026, les onze premiers passaient. Les contrôles du semainier à trois morceaux de clé ont été ajoutés le 4 août et n'ont pas encore été joués contre le vrai projet : ils demandent les identifiants, donc le propriétaire. En cas d'échec sur la collection des recettes, le message nomme précisément l'action à faire.
 
 C'est le contrôle à lancer après toute modification de la configuration Firebase ou des règles : si le bandeau du site reste sur « Hors ligne », il nomme la cause exacte (`SERVICE_DISABLED`, `CONFIGURATION_NOT_FOUND` ou `PERMISSION_DENIED`).
 
@@ -440,9 +442,11 @@ Ces écarts viennent des sources. Ils sont signalés plutôt que masqués, et le
 
 Un quatrième écart, mineur : pour `lasagnes-bolognaise`, le tableau de flux détaille 15 lignes d'ingrédients contre 14 dans la liste `ingredients`, parce qu'il isole « sel, poivre » pour la béchamel.
 
-## Refonte du design en cours
+## Documents de conception
 
-`docs/BRIEF-UX-2026-08-03.md` réunit tout ce qu'il faut pour reprendre le design de l'application : contexte d'usage, contraintes techniques non négociables, inventaire des écrans et de leurs états, modèle de données mesuré, identité visuelle actuelle, problèmes constatés avec leurs preuves, et critères d'acceptation. Les captures de l'état au 3 août 2026 sont dans `docs/captures-2026-08-03/`.
+- `docs/BRIEF-UX-2026-08-03.md` : le brief remis au design. Contexte d'usage, contraintes techniques non négociables, inventaire des écrans et de leurs états, modèle de données mesuré, identité visuelle d'alors, problèmes constatés avec leurs preuves, critères d'acceptation. Les captures de l'état au 3 août 2026 sont dans `docs/captures-2026-08-03/`.
+- `docs/refonte-2026-08-03/` : la proposition retenue (`HANDOFF-DESIGN.md`, `design-final.html`, six plans). Les cinq écrans qu'elle décrit sont implémentés. Deux points ont été volontairement écartés depuis, à la demande : la pastille de partage compacte, remplacée par un bouton de rafraîchissement dans l'en-tête, et le vocabulaire « Matin / Midi / Soir » de la grille, remplacé par « Petit-déjeuner / Déjeuner / Dîner ».
+- `docs/DECISIONS-2026-08-04.md` : ce qui a été tranché lors du passage à plusieurs plats par repas, contre quoi, et pourquoi. À lire avant de revenir sur la forme des clés de créneau, sur le comportement du glisser-déposer ou sur le rappel d'ingrédients de l'étape en cours.
 
 ## Historique
 

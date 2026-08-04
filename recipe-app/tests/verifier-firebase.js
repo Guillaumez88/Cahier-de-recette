@@ -74,7 +74,6 @@ async function test(nom, fn) {
 // une semaine affichée à l'écran : ce contrôle écrit dans la vraie base, il ne doit
 // pas faire apparaître un plat fantôme dans le semainier de la maison.
 const JOUR_TEST = '2099-12-28';
-const CRENEAU_TEST = `${JOUR_TEST}::diner`;
 
 /** Supprime tout ce que ce contrôle a pu laisser derrière lui. */
 async function nettoyer() {
@@ -89,8 +88,14 @@ async function nettoyer() {
   } catch (erreur) {
     /* collection refusee ou deja propre : sans consequence */
   }
+  // Les cles de plat portent un suffixe tire au hasard : on ne peut plus deviner la
+  // cle d'un residu, il faut relire la collection et supprimer tout ce qui porte le
+  // jour de verification.
   try {
-    await Sync.supprimerCreneau(CRENEAU_TEST);
+    const creneaux = await Sync.lireCreneaux();
+    for (const c of creneaux.filter((c) => c.jour === JOUR_TEST)) {
+      await Sync.supprimerCreneau(c.cle);
+    }
   } catch (erreur) {
     /* collection refusee ou deja propre */
   }
@@ -259,8 +264,11 @@ async function nettoyer() {
         'couvrant semainiers/{id}/creneaux doivent être publiées.'
     );
 
+    const pose = Semainier.creneau(JOUR_TEST, 'diner');
+    assert.ok(pose, 'le plat posé est absent du cache local');
+
     const distants = await Sync.lireCreneaux();
-    const mien = distants.find((c) => c.cle === CRENEAU_TEST);
+    const mien = distants.find((c) => c.cle === pose.cle);
     assert.ok(mien, 'créneau introuvable côté serveur');
     assert.strictEqual(mien.titre, 'Vérification technique');
     assert.strictEqual(mien.jour, JOUR_TEST);
@@ -269,7 +277,35 @@ async function nettoyer() {
 
     await Semainier.vider(JOUR_TEST, 'diner');
     const apres = await Sync.lireCreneaux();
-    assert.ok(!apres.find((c) => c.cle === CRENEAU_TEST), 'le créneau de vérification n a pas été supprimé');
+    assert.ok(!apres.find((c) => c.cle === pose.cle), 'le créneau de vérification n a pas été supprimé');
+  });
+
+  await test('les règles acceptent une clé de plat à trois morceaux', async () => {
+    // C'est le seul contrôle qui prouve que le passage a plusieurs plats par repas
+    // ne demande pas de republier les regles : la borne de `cle` est de 100
+    // caracteres, une cle a trois morceaux en fait 35. Lu dans firestore.rules, mais
+    // seul le serveur fait foi.
+    await Semainier.ajouter(JOUR_TEST, 'diner', { type: 'libre', titre: 'Vérification plat' });
+    await Semainier.ajouter(JOUR_TEST, 'diner', { type: 'libre', titre: 'Vérification dessert' });
+    assert.strictEqual(
+      Semainier.etatSync().enLigne,
+      true,
+      `écriture refusée : ${Semainier.etatSync().erreur}`
+    );
+
+    const distants = await Sync.lireCreneaux();
+    const miens = distants.filter((c) => c.jour === JOUR_TEST && c.moment === 'diner');
+    assert.strictEqual(miens.length, 2, `${miens.length} plat(s) côté serveur au lieu de 2`);
+    // Deux documents distincts, et non un qui aurait écrasé l'autre : c'est tout
+    // l'objet du suffixe tiré au hasard.
+    assert.strictEqual(new Set(miens.map((c) => c.cle)).size, 2, 'les deux plats partagent la même clé');
+    miens.forEach((c) => {
+      assert.strictEqual(c.cle.split('::').length, 3, `clé inattendue : ${c.cle}`);
+    });
+
+    await Semainier.vider(JOUR_TEST, 'diner');
+    const apres = await Sync.lireCreneaux();
+    assert.strictEqual(apres.filter((c) => c.jour === JOUR_TEST).length, 0, 'des plats de vérification subsistent');
   });
 
   await test('les règles refusent un créneau au moment inconnu', async () => {
