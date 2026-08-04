@@ -174,11 +174,22 @@ async function attendreTexte(page, motif, limite = 8000) {
     (await texteDe(pageA)).slice(0, 300)
   );
 
-  // Et l age de la donnee affichee est signale, ce qui remplace le sondage.
+  // Et l age de la donnee affichee est signale, ce qui remplace le sondage. La phrase
+  // d'explication a ete retiree a la demande : l'age et le bouton d'en-tete la portent.
   verifier(
-    'le bandeau invite a rafraichir quand la donnee vieillit',
-    /Rafraîchir pour voir les modifications faites depuis les autres appareils/.test(await texteDe(pageA)),
+    'la phrase d invite au rafraichissement a disparu',
+    !/Rafraîchir pour voir les modifications/.test(await texteDe(pageA)),
     (await texteDe(pageA)).slice(0, 400)
+  );
+  verifier(
+    'le bouton d en-tete signale que la donnee a vieilli',
+    (await pageA.locator('#rafraichir.bouton-rafraichir--vieux').count()) === 1,
+    await pageA.locator('#rafraichir').getAttribute('class')
+  );
+  verifier(
+    'le bouton d en-tete porte l age de la donnee',
+    /il y a|à l’instant/.test(await pageA.locator('.bouton-rafraichir__age').textContent()),
+    await pageA.locator('.bouton-rafraichir__age').textContent()
   );
   verifier(
     'le bandeau passe en etat vieillissant',

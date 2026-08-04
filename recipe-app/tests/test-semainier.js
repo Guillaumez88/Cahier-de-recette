@@ -609,7 +609,9 @@ const PNG_ROUGE =
   );
 
   await pageA.request.post(new URL('__stub/panne', BASE).href, { data: { panne: false } });
-  await pageA.locator('#rafraichir-semainier').click();
+  // Le rafraichissement est desormais unique, dans l'en-tete : il relit la liste et
+  // les menus d'un seul geste.
+  await pageA.locator('#rafraichir').click();
   verifier('le repas part au retour du reseau', await attendreTexte(pageA, /Menus partagés à la maison, à jour/, 10000));
   etat = await etatStub();
   verifier(

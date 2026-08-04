@@ -148,21 +148,137 @@
     }, 0);
   }
 
-  function majBadge() {
-    var badge = document.getElementById('badge-courses');
-    if (!badge) return;
-    var restants = getShoppingList().filter(function (a) {
+  function nbArticlesRestants() {
+    return getShoppingList().filter(function (a) {
       return !a.coche;
     }).length;
-    badge.textContent = String(restants);
-    badge.hidden = restants === 0;
+  }
+
+  // Les trois destinations de l'application. Servent a la fois a l'en-tete, sur
+  // grand ecran, et a la barre d'onglets, sur mobile.
+  var DESTINATIONS = [
+    { href: '#/', route: '/', icone: 'calendrier', libelle: 'Semaine' },
+    { href: '#/livre', route: '/livre', icone: 'livre', libelle: 'Le livre' },
+    { href: '#/liste-de-courses', route: '/liste-de-courses', icone: 'panier', libelle: 'Courses' },
+  ];
+
+  /**
+   * Bouton de rafraichissement de l'en-tete, discret et sans phrase d'explication.
+   *
+   * Il agit sur les deux jeux de donnees partagees a la fois, liste et menus : depuis
+   * la suppression du sondage, l'utilisateur ne devrait pas avoir a se demander
+   * lequel des deux il rafraichit.
+   */
+  function boutonRafraichir() {
+    var e = S.etatSync();
+    var age = S.ageDonnees();
+    var vieux = age !== null && age > window.CarnetConfig.seuilDonneesAgees;
+
+    var bouton = el('button', {
+      type: 'button',
+      class: 'bouton-rafraichir' + (vieux ? ' bouton-rafraichir--vieux' : ''),
+      id: 'rafraichir',
+      disabled: e.enCours ? true : null,
+      title: age === null ? 'Rafraîchir' : 'À jour ' + depuisQuand(age),
+      'aria-label': age === null ? 'Rafraîchir' : 'Rafraîchir, à jour ' + depuisQuand(age),
+      onclick: function () {
+        rafraichirTout();
+      },
+    }, [
+      icone('fleche', { taille: 18 }),
+      el('span', { class: 'bouton-rafraichir__age', texte: age === null ? '' : depuisQuand(age) }),
+    ]);
+
+    return bouton;
+  }
+
+  /** Relit la liste et les menus, puis re-rend l'ecran courant. */
+  function rafraichirTout() {
+    var apres = function () {
+      majChrome();
+      var route = routeCourante();
+      if (route === '/') monter(vueAccueil());
+      else if (route === '/liste-de-courses') monter(vueListeDeCourses());
+      else if (route === '/livre') monter(vueLivre());
+    };
+    return Promise.all([S.rafraichir(), Sm.rafraichir()]).then(apres, apres);
+  }
+
+  /**
+   * Rafraichit le seul libelle d'age du bouton d'en-tete, sans reconstruire l'en-tete.
+   *
+   * Reconstruire suffirait, mais deplacerait le focus si l'utilisateur est en train de
+   * naviguer au clavier dans l'en-tete. Aucune lecture reseau ici : le minuteur ne fait
+   * que faire vieillir un texte deja affiche.
+   */
+  function majAgeEntete() {
+    var bouton = document.getElementById('rafraichir');
+    if (!bouton) return;
+    var e = S.etatSync();
+    var age = S.ageDonnees();
+    if (e.enCours || age === null) return;
+    var libelle = depuisQuand(age);
+    bouton.querySelector('.bouton-rafraichir__age').textContent = libelle;
+    bouton.title = 'À jour ' + libelle;
+    bouton.setAttribute('aria-label', 'Rafraîchir, à jour ' + libelle);
+    bouton.classList.toggle('bouton-rafraichir--vieux', age > window.CarnetConfig.seuilDonneesAgees);
+  }
+
+  /** Reconstruit l'en-tete et la barre d'onglets : badge, etat, destination active. */
+  function majChrome() {
+    var restants = nbArticlesRestants();
+    var route = routeCourante();
+
+    var nav = document.getElementById('nav-entete');
+    if (nav) {
+      nav.textContent = '';
+      DESTINATIONS.filter(function (d) {
+        // La semaine est atteignable par la marque, a gauche : pas besoin d'un
+        // second lien vers elle sur grand ecran.
+        return d.route !== '/';
+      }).forEach(function (d) {
+        nav.appendChild(
+          el('a', {
+            class: 'bouton-entete' + (route === d.route ? ' bouton-entete--actif' : ''),
+            href: d.href,
+          }, [
+            icone(d.icone, { taille: 18 }),
+            el('span', { texte: d.libelle === 'Courses' ? 'Liste de courses' : d.libelle }),
+            d.route === '/liste-de-courses' && restants > 0
+              ? el('span', { class: 'badge', id: 'badge-courses', texte: String(restants) })
+              : null,
+          ])
+        );
+      });
+      nav.appendChild(boutonRafraichir());
+    }
+
+    var onglets = document.getElementById('onglets-mobile');
+    if (onglets) {
+      onglets.textContent = '';
+      DESTINATIONS.forEach(function (d) {
+        onglets.appendChild(
+          el('a', {
+            class: 'onglet' + (route === d.route ? ' onglet--actif' : ''),
+            href: d.href,
+            'aria-current': route === d.route ? 'page' : null,
+          }, [
+            icone(d.icone, { taille: 22 }),
+            el('span', { class: 'onglet__libelle', texte: d.libelle }),
+            d.route === '/liste-de-courses' && restants > 0
+              ? el('span', { class: 'badge badge--onglet', texte: String(restants) })
+              : null,
+          ])
+        );
+      });
+    }
   }
 
   function monter(noeud) {
     var vue = document.getElementById('vue');
     vue.textContent = '';
     vue.appendChild(noeud);
-    majBadge();
+    majChrome();
   }
 
   // Le badge et l'ecran de liste sont rafraichis par surChangementListe(),
@@ -257,7 +373,9 @@
   // Cadence de rafraichissement du seul libelle d'age, sans acces reseau.
   var INTERVALLE_AGE = window.CarnetConfig.intervalleAge || 15000;
 
-  var INVITE_AGE = 'Rafraîchir pour voir les modifications faites depuis les autres appareils.';
+  // Plus d'invite a rafraichir : l'action a sa place dans l'en-tete sur grand ecran,
+  // et dans le geste de tirer la page sur mobile. Une phrase de plus a lire a chaque
+  // affichage pour redire ce qu'un bouton visible dit deja serait du bruit.
 
   //
   // Un seul constructeur pour la liste de courses et pour le semainier : les deux
@@ -325,7 +443,6 @@
 
     var libelle;
     var classe = 'sync';
-    var invite = null;
 
     if (e.enCours) {
       libelle = 'Mise à jour…';
@@ -335,32 +452,18 @@
         libelle += ', ' + e.enAttente + ' modification' + (e.enAttente > 1 ? 's' : '') + ' en attente';
       }
       classe += ' ' + probleme.classe;
-      invite = probleme.explication;
     } else if (e.enLigne === true) {
       libelle = libelleOk + ', à jour ' + depuisQuand(age === null ? 0 : age);
-      if (age !== null && age > window.CarnetConfig.seuilDonneesAgees) {
-        classe += ' sync--age';
-        // L'etat « vieillissant » doit dire quoi faire, sinon il n'est qu'une couleur.
-        invite = INVITE_AGE;
-      } else {
-        classe += ' sync--ok';
-      }
+      classe += age !== null && age > window.CarnetConfig.seuilDonneesAgees ? ' sync--age' : ' sync--ok';
     } else {
       libelle = 'Connexion…';
     }
 
+    // Seules les erreurs gardent une explication : elles appellent une action
+    // differente selon la cause, et la cause n'est pas devinable.
     var bandeau = el('div', { class: classe, 'data-bandeau': identifiantBouton }, [
       el('span', { class: 'sync__etat', texte: libelle }),
-      el('button', {
-        type: 'button',
-        class: 'bouton bouton--sobre',
-        id: identifiantBouton,
-        disabled: e.enCours ? true : null,
-        onclick: function () {
-          sujet.rafraichir().then(apresRafraichissement);
-        },
-      }, [icone('fleche', { taille: 16 }), el('span', { texte: 'Rafraîchir' })]),
-      invite ? el('p', { class: 'sync__erreur', texte: invite }) : null,
+      probleme ? el('p', { class: 'sync__erreur', texte: probleme.explication }) : null,
       probleme ? el('p', { class: 'url-source', texte: e.erreur }) : null,
     ]);
 
@@ -381,13 +484,6 @@
       bandeau.querySelector('.sync__etat').textContent = libelleOk + ', à jour ' + depuisQuand(ageCourant);
       bandeau.classList.toggle('sync--age', vieillissant);
       bandeau.classList.toggle('sync--ok', !vieillissant);
-
-      var explication = bandeau.querySelector('.sync__erreur');
-      if (vieillissant && !explication) {
-        bandeau.appendChild(el('p', { class: 'sync__erreur', texte: INVITE_AGE }));
-      } else if (!vieillissant && explication) {
-        bandeau.removeChild(explication);
-      }
     }, INTERVALLE_AGE);
 
     return bandeau;
@@ -399,12 +495,6 @@
   //   { type: 'creneau', jour, moment }  un plat deja pose, qu'on deplace
   //   { type: 'recette', recetteId, titre }  une recette venue de la reserve
   var glisse = null;
-
-  function nbArticlesRestants() {
-    return getShoppingList().filter(function (a) {
-      return !a.coche;
-    }).length;
-  }
 
   /**
    * Ce que l'accueil annonce en une phrase. Compte les repas prevus sur les semaines
@@ -582,7 +672,7 @@
 
   /** Bandeau d'etat du semainier. */
   function barreSyncSemainier() {
-    return barreEtat(Sm, 'Menus partagés à la maison', rendreAccueil, 'rafraichir-semainier');
+    return barreEtat(Sm, 'Menus partagés à la maison', rendreAccueil, 'etat-semainier');
   }
 
   /**
@@ -763,7 +853,7 @@
   }
 
   function vueAccueil() {
-    document.title = 'Mon carnet de recettes';
+    document.title = 'Miam miam !';
 
     var aujourdhui = new Date();
     var toutes = Sem.semaines(aujourdhui, Math.max(1, window.CarnetConfig.nbSemaines || 2));
@@ -1694,7 +1784,7 @@
       ]);
     }
 
-    document.title = recette.titre + ' — Mon carnet de recettes';
+    document.title = recette.titre + ' — Miam miam !';
 
     if (Cu.mode(id) === Cu.MODE_CUISINER) return vueCuisiner(recette);
 
@@ -1809,14 +1899,6 @@
           id: 'modifier-recette',
           href: '#/recette/' + id + '/modifier',
           texte: 'Modifier la recette',
-        }),
-        el('button', {
-          type: 'button',
-          class: 'bouton bouton--secondaire',
-          texte: 'Imprimer la fiche',
-          onclick: function () {
-            window.print();
-          },
         }),
       ])
     );
@@ -2056,7 +2138,7 @@
   function barreSync() {
     return barreEtat(S, 'Liste partagée à la maison', function () {
       monter(vueListeDeCourses());
-    }, 'rafraichir');
+    }, 'etat-liste');
   }
 
   /** Formulaire d'ajout d'un article hors recette. */
@@ -2175,7 +2257,7 @@
   }
 
   function vueListeDeCourses() {
-    document.title = 'Liste de courses — Mon carnet de recettes';
+    document.title = 'Liste de courses — Miam miam !';
 
     var articles = getShoppingList();
     var fragment = document.createDocumentFragment();
@@ -2236,14 +2318,6 @@
     fragment.appendChild(
       el('div', { class: 'barre-resultats barre-resultats--actions' }, [
         el('div', { class: 'actions-liste' }, [
-          el('button', {
-            type: 'button',
-            class: 'lien-action',
-            texte: 'Imprimer la liste',
-            onclick: function () {
-              window.print();
-            },
-          }),
           coches > 0
             ? el('button', {
                 type: 'button',
@@ -2741,8 +2815,8 @@
     }
 
     document.title = creation
-      ? 'Nouvelle recette — Mon carnet de recettes'
-      : 'Modifier ' + recette.titre + ' — Mon carnet de recettes';
+      ? 'Nouvelle recette — Miam miam !'
+      : 'Modifier ' + recette.titre + ' — Miam miam !';
 
     var fragment = document.createDocumentFragment();
 
@@ -3145,7 +3219,7 @@
       return;
     }
     if (ancre === '/livre') {
-      document.title = 'Le livre de cuisine — Mon carnet de recettes';
+      document.title = 'Le livre de cuisine — Miam miam !';
       monter(vueLivre());
       window.scrollTo(0, 0);
       return;
@@ -3196,7 +3270,7 @@
   }
 
   function surChangementListe() {
-    majBadge();
+    majChrome();
     if (surEcranListe() && !saisieEnCours()) monter(vueListeDeCourses());
     // L'accueil annonce le nombre d'articles restants : il doit suivre. On ne
     // re-rend pas pendant une saisie, ni quand une boite est ouverte : le re-rendu
@@ -3251,8 +3325,97 @@
     });
   }
 
+  /**
+   * Tirer la page vers le bas pour rafraichir, sur mobile.
+   *
+   * Remplace le bouton, qui n'a plus sa place sur un ecran etroit : le geste est la
+   * convention des applications, et il ne coute aucun pixel. Trois garde-fous, chacun
+   * pour un faux declenchement constate sur ce genre d'implementation :
+   *   - le geste ne part que si la page est deja tout en haut, sinon on empeche un
+   *     defilement normal vers le haut ;
+   *   - un seul doigt, pour ne pas confondre avec un pincement de zoom ;
+   *   - un mouvement plus vertical qu'horizontal, pour ne pas capturer un balayage.
+   *
+   * Aucun `preventDefault` sur le toucher : le defilement natif reste maitre, on ne
+   * fait que lire le geste et afficher un indicateur.
+   */
+  function brancherTirerPourRafraichir() {
+    var SEUIL = 70; // pixels de traction avant declenchement
+    var depart = null;
+    var indicateur = null;
+
+    function poserIndicateur() {
+      if (indicateur) return indicateur;
+      indicateur = el('div', { class: 'tirage', id: 'tirage', 'aria-hidden': 'true' }, [
+        icone('fleche', { taille: 18 }),
+        el('span', { class: 'tirage__texte', texte: 'Tirer pour mettre à jour' }),
+      ]);
+      document.body.appendChild(indicateur);
+      return indicateur;
+    }
+
+    function effacer() {
+      depart = null;
+      if (indicateur) indicateur.classList.remove('tirage--visible', 'tirage--prete');
+    }
+
+    document.addEventListener(
+      'touchstart',
+      function (evenement) {
+        if (evenement.touches.length !== 1) return;
+        if (window.scrollY > 0) return;
+        if (voile) return; // une boite est ouverte : le geste lui appartient
+        depart = { y: evenement.touches[0].clientY, x: evenement.touches[0].clientX };
+      },
+      { passive: true }
+    );
+
+    document.addEventListener(
+      'touchmove',
+      function (evenement) {
+        if (!depart || evenement.touches.length !== 1) return;
+        var dy = evenement.touches[0].clientY - depart.y;
+        var dx = Math.abs(evenement.touches[0].clientX - depart.x);
+        if (dy <= 0 || dx > Math.abs(dy)) {
+          effacer();
+          return;
+        }
+        var noeud = poserIndicateur();
+        noeud.classList.add('tirage--visible');
+        noeud.classList.toggle('tirage--prete', dy >= SEUIL);
+        noeud.querySelector('.tirage__texte').textContent =
+          dy >= SEUIL ? 'Relâcher pour mettre à jour' : 'Tirer pour mettre à jour';
+      },
+      { passive: true }
+    );
+
+    document.addEventListener(
+      'touchend',
+      function (evenement) {
+        if (!depart) return;
+        var fin = evenement.changedTouches && evenement.changedTouches[0];
+        var dy = fin ? fin.clientY - depart.y : 0;
+        var declenche = dy >= SEUIL;
+        effacer();
+        if (!declenche) return;
+
+        var noeud = poserIndicateur();
+        noeud.classList.add('tirage--visible');
+        noeud.querySelector('.tirage__texte').textContent = 'Mise à jour…';
+        rafraichirTout().then(function () {
+          noeud.classList.remove('tirage--visible');
+        });
+      },
+      { passive: true }
+    );
+  }
+
   function demarrer() {
     brancherImpression();
+    brancherTirerPourRafraichir();
+    // Le bouton d'en-tete porte l'age de la donnee : il doit vieillir tout seul,
+    // sinon il affiche « à l'instant » une heure durant. Aucun reseau, juste du texte.
+    setInterval(majAgeEntete, INTERVALLE_AGE);
     fetch('data/recipes.json')
       .then(function (reponse) {
         if (!reponse.ok) throw new Error('réponse ' + reponse.status + ' du serveur');

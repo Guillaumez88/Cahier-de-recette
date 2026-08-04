@@ -56,7 +56,7 @@ function verifier(nom, condition, detail = '') {
 
   // L'accueil est desormais le semainier : le livre a son propre ecran.
   let accueil = await texte();
-  verifier("le carnet s'affiche", /Mon carnet de recettes/.test(accueil));
+  verifier("le carnet s'affiche", /Miam miam !/.test(accueil));
   verifier('l accueil annonce les repas de la semaine', /Les repas de la semaine/.test(accueil));
   verifier('l accueil donne acces au livre', (await page.locator('a[href="#/livre"]').count()) >= 1);
   verifier(

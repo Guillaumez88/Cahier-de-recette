@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Mon carnet de recettes</title>
+    <title>Miam miam !</title>
     <meta
       name="description"
       content="Carnet personnel de recettes : recherche, filtres, fiches détaillées et liste de courses."
@@ -18,15 +18,11 @@
       <div class="conteneur entete__interieur">
         <a class="marque" href="#/">
           <span class="marque__trait" aria-hidden="true"></span>
-          <span>Mon carnet de recettes</span>
+          <span>Miam miam !</span>
         </a>
-        <nav class="entete__nav" aria-label="Navigation principale">
-          <a class="bouton-entete" href="#/livre">Le livre</a>
-          <a class="bouton-entete" href="#/liste-de-courses">
-            Liste de courses
-            <span class="badge" id="badge-courses" hidden>0</span>
-          </a>
-        </nav>
+        <!-- Navigation et rafraichissement sont construits par app.js : ils portent
+             des pictogrammes SVG et un etat qui changent avec les donnees. -->
+        <nav class="entete__nav" id="nav-entete" aria-label="Navigation principale"></nav>
       </div>
     </header>
 
@@ -36,6 +32,11 @@
         <p class="etat-chargement">Chargement des recettes…</p>
       </div>
     </main>
+
+    <!-- Barre d'onglets, sur mobile uniquement. Trois destinations, le pouce en bas
+         de l'ecran : c'est la convention des applications, et l'en-tete n'a plus a
+         porter de liens sur un ecran etroit. -->
+    <nav class="onglets-mobile" id="onglets-mobile" aria-label="Navigation"></nav>
 
     <footer class="pied">
       <div class="conteneur">
