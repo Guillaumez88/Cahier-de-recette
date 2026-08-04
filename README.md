@@ -84,8 +84,10 @@ La page d'accueil répond à une seule question : qu'est-ce qu'on mange. Elle mo
 
 ### Comment on l'utilise
 
+- **Le bloc « Aujourd'hui » est la première chose de la page**, avec les trois repas du jour et un bouton de 44 px par ligne pour les changer. Sur téléphone, cette information était auparavant sous un titre, un résumé, deux cartes d'accès, trois onglets, une phrase d'aide et un bandeau d'état : il fallait faire défiler pour savoir ce qu'on mange le soir. Un test vérifie que ce bloc tient dans la hauteur d'un écran de 390 × 850 px.
 - **La semaine commence le lundi** et finit le dimanche. Trois créneaux par jour : matin, midi, soir. Le déjeuner et le dîner ont plus de hauteur que le petit-déjeuner, parce que ce sont les repas qu'on cuisine.
-- **Une ou deux semaines** au choix, jamais de semaine passée : un repas déjà mangé ne sert ni aux courses ni à la cuisine.
+- **Une semaine vide est repliée en un bandeau** d'une ligne, dépliable d'un clic. La semaine suivante est presque toujours entièrement vide et occupait la moitié de la hauteur de page pour vingt-et-une cases à remplir. La semaine en cours est toujours dépliée, et une semaine qui porte des plats ne se replie pas.
+- **Jamais de semaine passée** : un repas déjà mangé ne sert ni aux courses ni à la cuisine.
 - **Toucher une case** ouvre le choix du repas : un plat du livre (avec sa propre recherche), ou un repas hors carnet. Cinq raccourcis sont proposés (Restaurant, Pizzas, Japonais, Restes, Chacun pour soi) et un champ libre accepte n'importe quoi d'autre.
 - **Glisser-déposer** sur ordinateur : un plat se glisse d'une case à l'autre, et la réserve sous le semainier permet de glisser un plat du livre directement dans une case. Glisser sur une case occupée **échange** les deux plats au lieu d'en effacer un. Les pastilles de la réserve portent le titre et un pictogramme de catégorie, jamais la photo de la recette : une pastille est un nom de plat à saisir, pas une image à regarder.
 - La réserve glissable est masquée au tactile et sous 700 px : le glisser-déposer HTML5 n'existe pas sur mobile, et l'appui sur une case fait déjà le travail. **Toute action est faisable sans glisser.**
