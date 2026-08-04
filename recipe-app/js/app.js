@@ -42,7 +42,14 @@
 
   // `semainesDepliees` : les semaines vides sont repliees, sauf celles qu'on a
   // explicitement demande a voir.
-  var etat = { recettes: [], criteres: criteresVides(), semainesDepliees: {}, rechercheReserve: '' };
+  var etat = {
+    recettes: [],
+    criteres: criteresVides(),
+    semainesDepliees: {},
+    rechercheReserve: '',
+    // Section ouverte dans l'editeur en accordeon.
+    sectionEditeur: 'parts',
+  };
 
   /** Route affichee, sans le dièse. Utilisee pour ne re-rendre que l'ecran courant. */
   function routeCourante() {
@@ -1311,11 +1318,11 @@
           'div',
           { class: 'grille' },
           resultats.map(function (recette) {
-            // Sans photo, la carte garde son liseret fin : une bande de couleur
-            // large et vide n'apporte rien et mange la place du texte.
+            // Pas de liseret de couleur : la pastille de categorie porte deja cette
+            // information, et l'encoder deux fois n'ajoute rien. Sans photo, la carte
+            // tient en texte seul, ce qui est le cas de dix-neuf recettes sur vingt.
             var carte = el('a', { class: 'carte', href: '#/recette/' + recette.id }, [
-              vignetteRecette(recette, 'vignette--carte') ||
-                el('span', { class: classeCategorie('carte__liseret', recette.categorie), 'aria-hidden': 'true' }),
+              vignetteRecette(recette, 'vignette--carte'),
               el('span', { class: 'carte__corps' }, [
                 el('span', { class: 'carte__haut' }, [
                   el('span', { class: classeCategorie('etiquette', recette.categorie), texte: recette.categorie }),
@@ -2728,6 +2735,9 @@
     // brouillon porte un identifiant vide, ce qui le distingue de toute recette.
     if (!brouillon || brouillon.id !== (creation ? '' : id)) {
       brouillon = creation ? Rc.recetteVide() : JSON.parse(JSON.stringify(recette));
+      // Section ouverte au depart : en creation il faut d'abord un titre, en
+      // modification on vient le plus souvent changer le nombre de parts.
+      etat.sectionEditeur = creation ? 'fiche' : 'parts';
     }
 
     document.title = creation
@@ -2736,21 +2746,10 @@
 
     var fragment = document.createDocumentFragment();
 
-    fragment.appendChild(
-      creation
-        ? el('a', { class: 'retour', href: '#/livre', texte: '‹ Retour au livre' })
-        : el('a', { class: 'retour', href: '#/recette/' + id, texte: '‹ Revenir à la fiche' })
-    );
-    fragment.appendChild(
-      el('h1', { class: 'fiche__titre', texte: creation ? 'Nouvelle recette' : 'Modifier la recette' })
-    );
-
-    var bandeau = bandeauErreurRecettes();
-    if (bandeau) fragment.appendChild(bandeau);
-
-    fragment.appendChild(
-      el('div', { class: 'actions-fiche' }, [
-        el('button', {
+    // Barre du haut : annuler a gauche, enregistrer a droite, toujours atteignables.
+    // On y va pour corriger une chose et repartir, pas pour parcourir un formulaire
+    // du debut a la fin, donc les deux issues doivent rester sous la main.
+    var boutonEnregistrer = el('button', {
           type: 'button',
           class: 'bouton',
           id: 'enregistrer',
@@ -2808,18 +2807,34 @@
                 monter(vueEditeur(id));
               });
           },
-        }),
-        el('button', {
+        });
+
+    var boutonAnnuler = el('button', {
           type: 'button',
-          class: 'bouton bouton--secondaire',
+          class: 'lien-action',
           id: 'annuler',
-          texte: 'Annuler',
+          texte: '‹ Annuler',
           onclick: function () {
             brouillon = null;
             erreurEditeur = null;
             window.location.hash = creation ? '#/livre' : '#/recette/' + id;
           },
-        }),
+        });
+
+    fragment.appendChild(
+      el('div', { class: 'barre-editeur' }, [
+        boutonAnnuler,
+        el('h1', { class: 'barre-editeur__titre', texte: creation ? 'Nouvelle recette' : 'Modifier la recette' }),
+        boutonEnregistrer,
+      ])
+    );
+
+    var bandeau = bandeauErreurRecettes();
+    if (bandeau) fragment.appendChild(bandeau);
+
+    // Actions rares et lourdes de conséquence : à part, en bas de page, et jamais
+    // dans la barre du haut à côté d'« Enregistrer ».
+    var actionsRares = el('div', { class: 'actions-rares' }, [
         // Une recette du carnet d'origine se retablit, une recette ajoutee se
         // supprime : ce ne sont pas les memes gestes et ils ne portent pas le meme
         // risque, donc pas le meme bouton.
@@ -2881,8 +2896,7 @@
               },
             })
           : null,
-      ])
-    );
+      ]);
 
     if (erreurEditeur) {
       fragment.appendChild(
@@ -2892,24 +2906,151 @@
       );
     }
 
+    // --- Accordeon ------------------------------------------------------------
+    //
+    // Une seule section ouverte a la fois, les autres reduites a un resume d'une
+    // ligne. On vient corriger une quantite, changer le nombre de parts ou ajouter
+    // une photo : derouler six sections a chaque fois pour en modifier une n'aide
+    // personne. Les pilules du haut sautent directement a la bonne.
+
+    var nbLignesIngredients = brouillon.ingredients.reduce(function (n, g) {
+      return n + g.items.length;
+    }, 0);
+    var nbGroupesNommes = brouillon.ingredients.filter(function (g) {
+      return g.groupe && String(g.groupe).trim() !== '';
+    }).length;
+
+    var sections = [
+      {
+        cle: 'photo',
+        titre: 'Photo',
+        resume: creation ? 'après le premier enregistrement' : Ph.aUnePhoto(id) ? 'une photo' : 'aucune photo',
+        contenu: function () {
+          return creation
+            ? el('p', {
+                class: 'section__soustitre',
+                texte:
+                  'La photo pourra être ajoutée après le premier enregistrement : elle est rangée sous l’identifiant de la recette, qui n’existe pas encore.',
+              })
+            : blocPhoto(id);
+        },
+      },
+      {
+        cle: 'parts',
+        titre: 'Nombre de parts',
+        resume: brouillon.portions,
+        contenu: function () {
+          return blocPortions(id);
+        },
+      },
+      {
+        cle: 'fiche',
+        titre: 'Fiche',
+        resume: [brouillon.titre || 'sans titre', brouillon.categorie, difficulteCourte(brouillon.difficulte)]
+          .filter(Boolean)
+          .join(', '),
+        contenu: function () {
+          return blocFiche();
+        },
+      },
+      {
+        cle: 'temps',
+        titre: 'Temps',
+        resume: brouillon.temps.total ? brouillon.temps.total + ' au total' : 'non indiqué',
+        contenu: function () {
+          return blocTemps();
+        },
+      },
+      {
+        cle: 'ingredients',
+        titre: 'Ingrédients',
+        sousTitre: 'Le rayon indiqué à droite est déduit du nom.',
+        resume:
+          nbLignesIngredients +
+          (nbLignesIngredients > 1 ? ' lignes' : ' ligne') +
+          (nbGroupesNommes > 0 ? ', ' + nbGroupesNommes + (nbGroupesNommes > 1 ? ' groupes' : ' groupe') : ''),
+        contenu: function () {
+          return blocIngredients(id);
+        },
+      },
+      {
+        cle: 'instructions',
+        titre: 'Préparation',
+        resume:
+          brouillon.instructions.length + (brouillon.instructions.length > 1 ? ' étapes' : ' étape'),
+        contenu: function () {
+          return blocInstructions(id);
+        },
+      },
+    ];
+
+    function ouvrirSection(cle) {
+      etat.sectionEditeur = cle;
+      monter(vueEditeur(id));
+      var ouverte = document.querySelector('.section-pliee--ouverte');
+      if (ouverte) ouverte.scrollIntoView({ block: 'nearest' });
+    }
+
     fragment.appendChild(
-      section(
-        'Photo',
-        null,
-        creation
-          ? el('p', {
-              class: 'section__soustitre',
-              texte:
-                'La photo pourra être ajoutée après le premier enregistrement : elle est rangée sous l’identifiant de la recette, qui n’existe pas encore.',
-            })
-          : blocPhoto(id)
+      el(
+        'div',
+        { class: 'raccourcis-editeur', role: 'group', 'aria-label': 'Sections de la recette' },
+        sections.map(function (bloc) {
+          var actif = etat.sectionEditeur === bloc.cle;
+          return el('button', {
+            type: 'button',
+            class: 'pilule',
+            'aria-pressed': actif ? 'true' : 'false',
+            'data-section': bloc.cle,
+            texte: bloc.titre,
+            onclick: function () {
+              ouvrirSection(bloc.cle);
+            },
+          });
+        })
       )
     );
 
-    fragment.appendChild(section('Nombre de parts', null, blocPortions(id)));
+    sections.forEach(function (bloc) {
+      var ouverte = etat.sectionEditeur === bloc.cle;
 
-    fragment.appendChild(
-      section('Fiche', null, [
+      if (!ouverte) {
+        fragment.appendChild(
+          el('button', {
+            type: 'button',
+            class: 'section-pliee',
+            'data-section-pliee': bloc.cle,
+            onclick: function () {
+              ouvrirSection(bloc.cle);
+            },
+          }, [
+            el('span', { class: 'section-pliee__titre', texte: bloc.titre }),
+            el('span', { class: 'section-pliee__resume', texte: bloc.resume }),
+            icone('fleche', { taille: 16 }),
+          ])
+        );
+        return;
+      }
+
+      fragment.appendChild(
+        el('section', { class: 'section section-pliee--ouverte', 'data-section-ouverte': bloc.cle }, [
+          el('h2', { class: 'section__titre', texte: bloc.titre }),
+          bloc.sousTitre ? el('p', { class: 'section__soustitre', texte: bloc.sousTitre }) : null,
+          bloc.contenu(),
+        ])
+      );
+    });
+
+    // Bloc vide pour une recette d'origine non modifiee : ni retablissement ni
+    // suppression a proposer. Un filet horizontal sans rien dessous serait du bruit.
+    if (actionsRares.childNodes.length > 0) fragment.appendChild(actionsRares);
+
+    return fragment;
+  }
+
+  /** Champs d'identite de la recette. */
+  function blocFiche() {
+    return el('div', {}, [
         ligneChamp(
           'Titre',
           champ(brouillon.titre, function (valeur) {
@@ -2944,35 +3085,28 @@
             brouillon.difficulte = valeur;
           }, { libelle: 'Difficulté' })
         ),
-      ])
-    );
+      ]);
+  }
 
-    fragment.appendChild(
-      section(
-        'Temps',
-        null,
-        [
-          ['preparation', 'Préparation'],
-          ['cuisson', 'Cuisson'],
-          ['repos', 'Repos'],
-          ['total', 'Total'],
-        ].map(function (paire) {
-          return ligneChamp(
-            paire[1],
-            champ(brouillon.temps[paire[0]], function (valeur) {
-              brouillon.temps[paire[0]] = valeur;
-            }, { libelle: paire[1] })
-          );
-        })
-      )
+  /** Les quatre durees de la recette. */
+  function blocTemps() {
+    return el(
+      'div',
+      {},
+      [
+        ['preparation', 'Préparation'],
+        ['cuisson', 'Cuisson'],
+        ['repos', 'Repos'],
+        ['total', 'Total'],
+      ].map(function (paire) {
+        return ligneChamp(
+          paire[1],
+          champ(brouillon.temps[paire[0]], function (valeur) {
+            brouillon.temps[paire[0]] = valeur;
+          }, { libelle: paire[1] })
+        );
+      })
     );
-
-    fragment.appendChild(
-      section('Ingrédients', 'Le rayon indiqué à droite est déduit du nom.', blocIngredients(id))
-    );
-    fragment.appendChild(section('Préparation', null, blocInstructions(id)));
-
-    return fragment;
   }
 
   /* --- routage par ancre --------------------------------------------------- */

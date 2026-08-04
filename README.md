@@ -39,8 +39,8 @@ Aucune dépendance, aucune étape de construction, aucun framework : douze fichi
         ├── run-sync-tests.js       99 tests de la synchronisation
         ├── test-web.js             82 vérifications navigateur, parcours général
         ├── test-partage.js         38 vérifications navigateur, partage et hors ligne
-        ├── test-edition.js         59 vérifications navigateur, modification, parts, déroulé
-        ├── test-semainier.js      106 vérifications navigateur, semainier, photos, compteur
+        ├── test-edition.js         69 vérifications navigateur, modification, parts, accordéon
+        ├── test-semainier.js      109 vérifications navigateur, semainier, photos, compteur
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -117,6 +117,18 @@ Deux pièges de dates sont traités dans `js/semaine.js`, et des tests les fixen
 
 - `toISOString()` convertit en UTC : à Paris en été, un lundi à 23 h donnerait « dimanche ». Les clés de jour sont donc fabriquées avec `getFullYear/getMonth/getDate`, qui sont locaux.
 - `new Date('2026-08-03')` est interprété comme minuit UTC : à l'ouest de Greenwich, `getDate()` rendrait le 2. Les clés sont relues en composant une date locale fixée à midi, midi résistant aux changements d'heure.
+
+## L'éditeur : une chose à la fois
+
+On ouvre l'éditeur pour corriger une quantité, changer le nombre de parts ou ajouter une photo, pas pour parcourir un formulaire du début à la fin. Il est donc en accordéon :
+
+- **une barre collante** en haut, « Annuler » à gauche et « Enregistrer » à droite, atteignables même au bas d'une longue section ;
+- **des pastilles de raccourci** (Photo, Nombre de parts, Fiche, Temps, Ingrédients, Préparation) qui sautent directement à une section ;
+- **une seule section ouverte à la fois**, les autres réduites à un résumé d'une ligne qui dit ce qu'elles contiennent : « Ingrédients, 12 lignes », « Préparation, 7 étapes », « Temps, 40 min au total ».
+
+La section ouverte au départ est « Fiche » en création, parce qu'un titre est obligatoire, et « Nombre de parts » en modification, parce que c'est le changement le plus fréquent. **Une nouvelle entrée dans l'éditeur avec un brouillon en cours conserve la section ouverte** : déplacer l'utilisateur sous ses doigts serait pire que le contraire.
+
+Les actions lourdes de conséquence, « Rétablir l'originale » et « Supprimer cette recette », sont à part en bas de page, jamais dans la barre du haut à côté d'« Enregistrer ». Le bloc disparaît quand il n'a rien à proposer, plutôt que de laisser un filet horizontal sans rien dessous.
 
 ## La fiche : consulter ou cuisiner
 
@@ -293,7 +305,7 @@ Confondre les trois était le vrai défaut de la version précédente : elle ann
 cd recipe-app
 node tests/run-tests.js           # 101 tests de la logique métier
 node tests/run-sync-tests.js      # 99 tests de la synchronisation
-node tests/run-browser-tests.js   # 285 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 298 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

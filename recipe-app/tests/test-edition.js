@@ -57,6 +57,17 @@ async function attendreTexte(page, motif, limite = 8000) {
   const texteDe = (page) => page.evaluate(() => document.body.textContent);
   await pageA.request.get(new URL('__stub/etat?reinitialiser=1', BASE).href);
 
+  /**
+   * Ouvre une section de l'editeur en accordeon.
+   * Depuis la refonte, une seule section est ouverte a la fois : atteindre un champ
+   * demande d'abord d'ouvrir la sienne, exactement comme a la main.
+   */
+  const ouvrirSection = async (page, cle) => {
+    if ((await page.locator(`[data-section-ouverte="${cle}"]`).count()) === 1) return;
+    await page.locator(`[data-section="${cle}"]`).click();
+    await attendre(400);
+  };
+
   /** Valeurs actuelles des champs du formulaire d'ingredients. */
   const ingredients = (page) =>
     page.evaluate(() =>
@@ -85,6 +96,7 @@ async function attendreTexte(page, motif, limite = 8000) {
   verifier("l editeur s ouvre", /Modifier la recette/.test(await texteDe(pageA)), pageA.url());
   verifier("l URL de l editeur est adressable", pageA.url().includes('/modifier'), pageA.url());
 
+  await ouvrirSection(pageA, 'ingredients');
   const avantIngredients = await ingredients(pageA);
   verifier('les 14 ingredients sont editables', avantIngredients.length === 14, `${avantIngredients.length} lignes`);
   verifier(
@@ -93,7 +105,9 @@ async function attendreTexte(page, motif, limite = 8000) {
     JSON.stringify(avantIngredients.slice(0, 2))
   );
 
+  await ouvrirSection(pageA, 'instructions');
   const avantEtapes = await etapes(pageA);
+  await ouvrirSection(pageA, 'parts');
   const nbParts = await pageA.locator('#nombre-parts').inputValue();
   verifier('le nombre de parts est repris', nbParts === '6', `« ${nbParts} »`);
 
@@ -103,6 +117,16 @@ async function attendreTexte(page, motif, limite = 8000) {
   await pageA.locator('#nombre-parts').press('Enter');
   await attendre(800);
 
+  // Le rapport de recalcul reste dans la section des parts : on le lit avant de
+  // partir voir les ingredients.
+  const rapport = await pageA.locator('#rapport-echelonnage').textContent();
+  verifier('un rapport de recalcul est affiche', /facteur 2/.test(rapport), rapport);
+  verifier('le rapport annonce les quantites ajustees dans les instructions', /ajustée/.test(rapport), rapport);
+  verifier('le rapport signale ce qui a ete laisse inchange', /Sel, poivre/.test(rapport), rapport);
+  verifier('le nombre de parts affiche est 12', (await pageA.locator('#nombre-parts').inputValue()) === '12');
+  verifier('le libelle des parts est conserve', /personnes/.test(await texteDe(pageA)));
+
+  await ouvrirSection(pageA, 'ingredients');
   const apresIngredients = await ingredients(pageA);
   const parNom = (liste, nom) => (liste.find((i) => i.nom === nom) || {}).quantite;
 
@@ -114,19 +138,8 @@ async function attendreTexte(page, motif, limite = 8000) {
     parNom(apresIngredients, 'Sel, poivre') === 'Selon le goût',
     parNom(apresIngredients, 'Sel, poivre')
   );
-  verifier('le nombre de parts affiche est 12', (await pageA.locator('#nombre-parts').inputValue()) === '12');
-  verifier('le libelle des parts est conserve', /personnes/.test(await texteDe(pageA)));
-
-  const rapport = await pageA.locator('#rapport-echelonnage').textContent();
-  verifier('un rapport de recalcul est affiche', /facteur 2/.test(rapport), rapport);
-  verifier('le rapport annonce les quantites ajustees dans les instructions', /ajustée/.test(rapport), rapport);
-  verifier(
-    'le rapport signale ce qui a ete laisse inchange',
-    /Sel, poivre/.test(rapport),
-    rapport
-  );
-
   // Le controle decisif : aucune duree ni temperature ne doit avoir bouge.
+  await ouvrirSection(pageA, 'instructions');
   const apresEtapes = await etapes(pageA);
   const motifTemps = /(\d+(?:[.,]\d+)?)\s*(minutes?|mn|min|heures?|h\b|°\s*C|cm|mm)/gi;
   let tempsIdentiques = true;
@@ -173,6 +186,7 @@ async function attendreTexte(page, motif, limite = 8000) {
 
   // --- 3. Modifier un champ et enregistrer ------------------------------------
 
+  await ouvrirSection(pageA, 'fiche');
   await pageA.locator('.ligne-edition .champ-edition').first().fill('Lasagnes pour douze');
   await pageA.locator('#enregistrer').click();
   await attendre(1200);
@@ -238,6 +252,7 @@ async function attendreTexte(page, motif, limite = 8000) {
 
   await pageA.locator('#modifier-recette').click();
   await attendre(800);
+  await ouvrirSection(pageA, 'fiche');
   await pageA.locator('.ligne-edition .champ-edition').first().fill('Titre jamais enregistré');
   await pageA.locator('#annuler').click();
   await attendre(800);
@@ -251,6 +266,7 @@ async function attendreTexte(page, motif, limite = 8000) {
 
   await pageA.locator('#modifier-recette').click();
   await attendre(800);
+  await ouvrirSection(pageA, 'ingredients');
   const avantAjout = (await ingredients(pageA)).length;
   await pageA.getByText('Ajouter un ingrédient', { exact: true }).first().click();
   await attendre(500);
@@ -261,6 +277,7 @@ async function attendreTexte(page, motif, limite = 8000) {
   await attendre(1200);
   await pageA.locator('#modifier-recette').click();
   await attendre(1000);
+  await ouvrirSection(pageA, 'ingredients');
   verifier(
     'une ligne vide n est pas enregistree',
     (await ingredients(pageA)).length === avantAjout,
@@ -277,6 +294,7 @@ async function attendreTexte(page, motif, limite = 8000) {
   await pageA.goto(`${BASE}#/recette/${ID}/modifier`, { waitUntil: 'networkidle' });
   await attendre(1000);
 
+  await ouvrirSection(pageA, 'fiche');
   await pageA.locator('.ligne-edition .champ-edition').first().fill('Titre qui ne passera pas');
   await pageA.locator('#enregistrer').click();
   await attendre(1200);
@@ -351,6 +369,95 @@ async function attendreTexte(page, motif, limite = 8000) {
   verifier(
     'les trois fromages sont nommes dans ce signalement',
     /Beaufort/.test(fondue) && /Comté/.test(fondue) && /Tomme de Savoie/.test(fondue)
+  );
+
+  // --- 11 bis. L editeur en accordeon -----------------------------------------
+  //
+  // Une seule section ouverte a la fois, les autres reduites a un resume d'une
+  // ligne : on vient corriger une chose, pas parcourir un formulaire.
+
+  // Rechargement explicite : un brouillon en cours conserve deliberement la section
+  // ouverte, pour ne pas deplacer l'utilisateur sous ses doigts. Le defaut ne
+  // s'observe donc que sur une entree neuve.
+  await pageA.goto(`${BASE}#/recette/${ID}/modifier`, { waitUntil: 'networkidle' });
+  await pageA.reload({ waitUntil: 'networkidle' });
+  await attendre(1000);
+
+  verifier(
+    'une seule section est ouverte a la fois',
+    (await pageA.locator('[data-section-ouverte]').count()) === 1,
+    String(await pageA.locator('[data-section-ouverte]').count())
+  );
+  verifier(
+    'les cinq autres sections sont pliees',
+    (await pageA.locator('[data-section-pliee]').count()) === 5,
+    String(await pageA.locator('[data-section-pliee]').count())
+  );
+  verifier(
+    'la section des parts est ouverte par defaut en modification',
+    (await pageA.locator('[data-section-ouverte="parts"]').count()) === 1,
+    'ouverte : ' + (await pageA.locator('[data-section-ouverte]').getAttribute('data-section-ouverte'))
+  );
+  verifier(
+    'une section pliee resume son contenu en une ligne',
+    /\d+ lignes/.test(await pageA.locator('[data-section-pliee="ingredients"]').textContent()),
+    await pageA.locator('[data-section-pliee="ingredients"]').textContent()
+  );
+  verifier(
+    'le resume des instructions compte les etapes',
+    /\d+ étapes/.test(await pageA.locator('[data-section-pliee="instructions"]').textContent()),
+    await pageA.locator('[data-section-pliee="instructions"]').textContent()
+  );
+
+  // Les raccourcis sautent directement a une section.
+  await pageA.locator('[data-section="temps"]').click();
+  await attendre(400);
+  verifier(
+    'un raccourci ouvre sa section et referme la precedente',
+    (await pageA.locator('[data-section-ouverte="temps"]').count()) === 1 &&
+      (await pageA.locator('[data-section-ouverte]').count()) === 1
+  );
+
+  // Cliquer une section pliee l'ouvre aussi.
+  await pageA.locator('[data-section-pliee="instructions"]').click();
+  await attendre(400);
+  verifier(
+    'cliquer une section pliee l ouvre',
+    (await pageA.locator('[data-section-ouverte="instructions"]').count()) === 1
+  );
+
+  // Et une entree dans l'editeur avec un brouillon en cours garde la section
+  // ouverte : deplacer l'utilisateur sous ses doigts serait pire que le contraire.
+  await pageA.locator('[data-section="temps"]').click();
+  await attendre(400);
+  await pageA.goto(`${BASE}#/recette/${ID}/modifier`, { waitUntil: 'networkidle' });
+  await attendre(500);
+  verifier(
+    'la section ouverte survit a une nouvelle entree dans l editeur',
+    (await pageA.locator('[data-section-ouverte="temps"]').count()) === 1,
+    'ouverte : ' + (await pageA.locator('[data-section-ouverte]').getAttribute('data-section-ouverte'))
+  );
+
+  // Les deux issues restent atteignables sans defiler, meme au bas d'une longue
+  // section : c'est la raison d'etre de la barre collante.
+  await pageA.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await attendre(400);
+  const barreVisible = await pageA.evaluate(() => {
+    const barre = document.querySelector('.barre-editeur');
+    if (!barre) return false;
+    const rect = barre.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= window.innerHeight;
+  });
+  verifier('la barre Annuler / Enregistrer reste visible en bas de page', barreVisible);
+
+  // Les actions lourdes de consequence ne sont pas dans cette barre.
+  verifier(
+    'les actions rares sont a part, hors de la barre du haut',
+    await pageA.evaluate(() => {
+      const rare = document.querySelector('.actions-rares');
+      const barre = document.querySelector('.barre-editeur');
+      return Boolean(rare) && Boolean(barre) && !barre.contains(rare);
+    })
   );
 
   // --- 12. Aucune erreur JavaScript ------------------------------------------

@@ -348,25 +348,14 @@ h4,
 .carte {
   display: flex;
   overflow: hidden;
-  background: var(--surface);
-  border: 1px solid var(--bordure);
+  background: var(--surface-creuse);
+  border: 1px solid transparent;
   border-radius: var(--rayon-lg);
   text-decoration: none;
   color: inherit;
 }
 .carte:hover {
-  border-color: var(--bordure-forte);
-}
-
-.carte__liseret {
-  flex: 0 0 6px;
-  background: var(--terracotta);
-}
-.carte__liseret--olive {
-  background: var(--olive);
-}
-.carte__liseret--ocre {
-  background: var(--ocre);
+  border-color: var(--terracotta);
 }
 
 /* Les elements du corps sont des span, imposes par le fait que la carte est un
@@ -2839,5 +2828,124 @@ textarea.champ-edition {
   .pour-aller-plus-loin__titre,
   .ingredients-repli__titre {
     display: none;
+  }
+}
+
+/* --- Éditeur : barre fixe et accordéon -------------------------------------
+   On vient corriger une chose et repartir, pas parcourir un formulaire du début
+   à la fin. Les deux issues restent donc sous la main, et une seule section est
+   ouverte à la fois, les autres réduites à un résumé d'une ligne. */
+
+.barre-editeur {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 -20px 18px;
+  padding: 12px 20px;
+  background: var(--fond);
+  border-bottom: 1px solid var(--bordure);
+}
+
+.barre-editeur__titre {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 20px;
+  text-align: center;
+}
+
+.barre-editeur .lien-action {
+  flex: 0 0 auto;
+}
+.barre-editeur .bouton {
+  flex: 0 0 auto;
+}
+
+.raccourcis-editeur {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.section-pliee {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 14px 18px;
+  font-family: inherit;
+  font-size: 16px;
+  text-align: left;
+  color: var(--texte);
+  background: var(--surface-creuse);
+  border: 0;
+  border-radius: var(--rayon-md);
+  cursor: pointer;
+}
+.section-pliee:hover {
+  background: var(--terracotta-clair);
+}
+
+.section-pliee__titre {
+  font-family: var(--police-titre);
+  font-size: 17px;
+}
+
+.section-pliee__resume {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--texte-doux);
+}
+
+.section-pliee .icone {
+  color: var(--texte-faible);
+}
+.section-pliee:hover .icone {
+  color: var(--terracotta);
+}
+
+.section-pliee--ouverte {
+  margin-bottom: 8px;
+}
+
+/* Actions rares et lourdes de conséquence : à part, en bas, jamais à côté
+   d'« Enregistrer ». */
+.actions-rares {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 30px 0 40px;
+  padding-top: 18px;
+  border-top: 1px solid var(--bordure);
+}
+
+@media (max-width: 640px) {
+  .barre-editeur__titre {
+    font-size: 17px;
+  }
+  .section-pliee {
+    flex-wrap: wrap;
+    gap: 2px 12px;
+  }
+  .section-pliee__resume {
+    flex-basis: 100%;
+  }
+}
+
+@media print {
+  .barre-editeur,
+  .raccourcis-editeur,
+  .section-pliee,
+  .actions-rares {
+    display: none !important;
   }
 }

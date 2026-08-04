@@ -417,6 +417,10 @@ const PNG_ROUGE =
 
   await pageA.goto(`${BASE}#/recette/tapenade-maison/modifier`, { waitUntil: 'networkidle' });
   await attendre(800);
+  // L'editeur est un accordeon : la section Photo doit etre ouverte pour atteindre
+  // son champ de fichier.
+  await pageA.locator('[data-section="photo"]').click();
+  await attendre(400);
   verifier('l editeur propose d ajouter une photo', (await pageA.locator('#photo-fichier').count()) === 1);
   verifier('aucune photo au depart', /Aucune photo/.test(await texteDe(pageA)));
 
@@ -468,12 +472,16 @@ const PNG_ROUGE =
   await attendre(800);
   const vignettesLivre = await pageA.locator('.carte .vignette__image').count();
   verifier('la carte du livre porte la vignette', vignettesLivre === 1, `${vignettesLivre} vignettes`);
-  // Sans photo, la carte garde son liseret fin plutot qu'une bande de couleur large :
-  // vingt aplats vides sature l'ecran et volent la place du titre.
+  // Sans photo, la carte tient en texte seul : c'est le cas de dix-neuf recettes sur
+  // vingt, et la pastille de categorie porte deja la couleur.
   verifier(
-    'les recettes sans photo gardent leur liseret fin',
-    (await pageA.locator('.carte .carte__liseret').count()) === 19,
-    String(await pageA.locator('.carte .carte__liseret').count())
+    'chaque carte porte sa pastille de categorie',
+    (await pageA.locator('.carte .etiquette').count()) === 20,
+    String(await pageA.locator('.carte .etiquette').count())
+  );
+  verifier(
+    'aucune carte ne porte de liseret de couleur',
+    (await pageA.locator('.carte .carte__liseret').count()) === 0
   );
 
   // La photo est partagee : le second appareil doit la voir sans l avoir envoyee.
@@ -494,6 +502,8 @@ const PNG_ROUGE =
 
   await pageA.goto(`${BASE}#/recette/tapenade-maison/modifier`, { waitUntil: 'networkidle' });
   await attendre(800);
+  await pageA.locator('[data-section="photo"]').click();
+  await attendre(400);
   await pageA.locator('#retirer-photo').click();
   verifier('le retrait de la photo est confirme', await attendreTexte(pageA, /Photo retirée/, 8000));
   etat = await etatStub();
@@ -507,11 +517,26 @@ const PNG_ROUGE =
   await pageA.locator('#ajouter-recette').click();
   await attendre(700);
   verifier('l ecran de creation s ouvre', pageA.url().includes('#/recette/nouvelle'), pageA.url());
+  // En creation la section Fiche est ouverte d'emblee : sans titre, la recette
+  // serait introuvable, c'est donc par la qu'on commence.
+  verifier('la section Fiche est ouverte en creation', (await pageA.locator('[data-section-ouverte="fiche"]').count()) === 1);
   verifier('le formulaire est vide', (await pageA.locator('#champ-titre').inputValue()) === '');
+  // Le resume de la section pliee le dit, et la section ouverte l'explique.
+  verifier(
+    'la section Photo annonce qu elle attend le premier enregistrement',
+    /après le premier enregistrement/.test(
+      await pageA.locator('[data-section-pliee="photo"]').textContent()
+    ),
+    await pageA.locator('[data-section-pliee="photo"]').textContent()
+  );
+  await pageA.locator('[data-section="photo"]').click();
+  await attendre(400);
   verifier(
     'la photo est annoncee comme possible apres enregistrement',
     /La photo pourra être ajoutée après le premier enregistrement/.test(await texteDe(pageA))
   );
+  await pageA.locator('[data-section="fiche"]').click();
+  await attendre(400);
 
   // Un titre vide est refuse : sans titre, la fiche serait introuvable.
   await pageA.locator('#enregistrer').click();
