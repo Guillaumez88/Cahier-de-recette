@@ -748,6 +748,98 @@ test('le seul numero d etape non entier est bien celui repere', () => {
   assert.deepStrictEqual(anomalies, [['lasagnes-bolognaise-la-meilleure-recette', 'Pour finir']]);
 });
 
+// --- cuisson.js : ou l'on en est dans une recette -----------------------------
+
+const Cu = (function () {
+  global.localStorage = global.localStorage || {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+  };
+  return require(path.join(racine, 'js/cuisson.js'));
+})();
+
+function cuissonNeuve() {
+  const memoire = {};
+  global.localStorage = {
+    getItem: (c) => (c in memoire ? memoire[c] : null),
+    setItem: (c, v) => {
+      memoire[c] = String(v);
+    },
+    removeItem: (c) => {
+      delete memoire[c];
+    },
+  };
+  const chemin = require.resolve(path.join(racine, 'js/cuisson.js'));
+  delete require.cache[chemin];
+  return require(chemin);
+}
+
+test('le mode par defaut est la consultation', () => {
+  const C = cuissonNeuve();
+  assert.strictEqual(C.mode('tapenade-maison'), 'consulter');
+  assert.strictEqual(C.etape('tapenade-maison', 5), 0);
+});
+
+test('le mode et l etape sont retenus par recette', () => {
+  const C = cuissonNeuve();
+  C.definirMode('tapenade', 'cuisiner');
+  C.definirEtape('tapenade', 2);
+  assert.strictEqual(C.mode('tapenade'), 'cuisiner');
+  assert.strictEqual(C.etape('tapenade', 5), 2);
+  // Une autre recette n'est pas affectee : on peut cuisiner l'une en consultant
+  // l'autre.
+  assert.strictEqual(C.mode('brookies'), 'consulter');
+  assert.strictEqual(C.etape('brookies', 5), 0);
+});
+
+test('un mode inconnu retombe sur la consultation', () => {
+  const C = cuissonNeuve();
+  C.definirMode('x', 'plein-ecran');
+  assert.strictEqual(C.mode('x'), 'consulter');
+});
+
+test('l etape est bornee au nombre d etapes, a la lecture', () => {
+  const C = cuissonNeuve();
+  C.definirEtape('x', 12);
+  // La recette a ete raccourcie depuis : sans bornage a la lecture, l'ecran
+  // resterait vide sur une etape qui n'existe plus.
+  assert.strictEqual(C.etape('x', 4), 3);
+  assert.strictEqual(C.etape('x', 1), 0);
+  assert.strictEqual(C.etape('x', 0), 0);
+});
+
+test('une etape negative ou absurde vaut zero', () => {
+  const C = cuissonNeuve();
+  C.definirEtape('x', -4);
+  assert.strictEqual(C.etape('x', 6), 0);
+  C.definirEtape('x', 2.7);
+  assert.strictEqual(C.etape('x', 6), 2);
+});
+
+test('oublier une recette efface son mode et son etape', () => {
+  const C = cuissonNeuve();
+  C.definirMode('x', 'cuisiner');
+  C.definirEtape('x', 3);
+  C.oublier('x');
+  assert.strictEqual(C.mode('x'), 'consulter');
+  assert.strictEqual(C.etape('x', 6), 0);
+});
+
+test('un stockage illisible ne fait pas tomber la lecture', () => {
+  const memoire = { 'carnet-de-recettes:cuisson': 'ceci n est pas du json' };
+  global.localStorage = {
+    getItem: (c) => (c in memoire ? memoire[c] : null),
+    setItem: () => {},
+    removeItem: () => {},
+  };
+  const chemin = require.resolve(path.join(racine, 'js/cuisson.js'));
+  delete require.cache[chemin];
+  const C = require(chemin);
+  assert.strictEqual(C.mode('x'), 'consulter');
+  assert.strictEqual(C.etape('x', 4), 0);
+});
+
 // --- Regroupement visuel des lignes proches ----------------------------------
 //
 // Purement calculatoire : aucune donnee stockee n'entre en jeu, seul le module doit

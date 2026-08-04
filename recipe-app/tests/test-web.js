@@ -121,7 +121,38 @@ function verifier(nom, condition, detail = '') {
   const fiche = await texte();
   verifier('le routage par ancre mene a la fiche', page.url().includes('#/recette/lasagnes-bolognaise'), page.url());
   verifier('le titre du document suit la recette', (await page.title()).includes('Lasagnes bolognaise'), await page.title());
-  verifier('les temps sont affiches', /Préparation/.test(fiche) && /1 h 20/.test(fiche));
+  // Les temps existent, mais dans le depli : `textContent` voit le texte replie, ce
+  // qui ne prouve rien sur ce qui est visible. On verifie donc les deux : le contenu
+  // est bien la, et il est bien range sous le depli.
+  verifier('les temps sont dans la fiche', /Préparation/.test(fiche) && /1 h 20/.test(fiche));
+  verifier(
+    'le contexte est replie sous « Pour aller plus loin »',
+    (await page.locator('#pour-aller-plus-loin').count()) === 1 &&
+      (await page.locator('#pour-aller-plus-loin').evaluate((n) => n.open)) === false
+  );
+  verifier(
+    'les temps ne sont pas visibles tant que le depli est ferme',
+    !(await page.locator('.tableau-simple').first().isVisible())
+  );
+  verifier(
+    'les ingredients et la preparation restent visibles sans deplier',
+    (await page.locator('.liste-ingredients').first().isVisible()) &&
+      (await page.locator('.etapes').first().isVisible())
+  );
+  verifier(
+    'ce que la source ne donne pas reste hors du depli',
+    await page.evaluate(() => {
+      const titres = Array.from(document.querySelectorAll('.section__titre'));
+      const cible = titres.find((t) => t.textContent.includes('Ce que la source ne donne pas'));
+      return Boolean(cible) && !cible.closest('#pour-aller-plus-loin');
+    })
+  );
+  await page.locator('#pour-aller-plus-loin summary').click();
+  await page.waitForTimeout(300);
+  verifier(
+    'le depli s ouvre d un clic et montre les temps',
+    await page.locator('.tableau-simple').first().isVisible()
+  );
   verifier('les groupes d ingredients sont rendus', /Pour la béchamel/.test(fiche));
   verifier('l astuce d etape perd son prefixe', /Astuce/.test(fiche) && !/Astuce de la recette :/.test(fiche));
   verifier("l etape libellee « Pour finir » est rendue", /Pour finir/.test(fiche));
@@ -181,6 +212,69 @@ function verifier(nom, condition, detail = '') {
   verifier(
     'les cases des ingredients deja presents sont desactivees',
     (await page.locator('.case-ingredient[disabled]').count()) === 14
+  );
+
+  // --- Mode Cuisiner ---------------------------------------------------------
+  //
+  // Une etape a la fois, en gros caracteres, et l'etape en cours retenue : on repose
+  // l'appareil, on y revient, on doit retrouver ou on en etait.
+
+  await page.locator('[data-mode="cuisiner"]').click();
+  await page.waitForTimeout(400);
+  verifier('le mode Cuisiner affiche une etape a la fois', (await page.locator('#etape-cuisson').count()) === 1);
+  verifier(
+    'la progression annonce l etape courante',
+    /Étape 1 sur 6/.test(await page.locator('#progression-cuisson').textContent()),
+    await page.locator('#progression-cuisson').textContent()
+  );
+  verifier('on ne peut pas reculer depuis la premiere etape', await page.locator('#etape-precedente').isDisabled());
+  const tailleEtape = await page.locator('.etape-cuisson__texte').evaluate((n) =>
+    Math.round(parseFloat(getComputedStyle(n).fontSize))
+  );
+  verifier('le texte de l etape est lisible a distance', tailleEtape >= 19, `${tailleEtape} px`);
+
+  await page.locator('#etape-suivante').click();
+  await page.waitForTimeout(400);
+  verifier(
+    'Suivante avance d une etape',
+    /Étape 2 sur 6/.test(await page.locator('#progression-cuisson').textContent()),
+    await page.locator('#progression-cuisson').textContent()
+  );
+
+  // L etape en cours survit a un rechargement complet : c'est tout l'interet.
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(700);
+  verifier(
+    'le mode et l etape sont retrouves apres rechargement',
+    (await page.locator('#etape-cuisson').count()) === 1 &&
+      /Étape 2 sur 6/.test(await page.locator('#progression-cuisson').textContent()),
+    (await texte()).slice(0, 200)
+  );
+
+  // Les ingredients restent a portee, replies.
+  verifier('les ingredients sont accessibles en cuisinant', (await page.locator('#ingredients-repli').count()) === 1);
+  await page.locator('#ingredients-repli summary').click();
+  await page.waitForTimeout(300);
+  verifier(
+    'le repli des ingredients s ouvre',
+    await page.locator('#ingredients-repli .liste-ingredients').first().isVisible()
+  );
+
+  // Derniere etape : plus de « Suivante », et une sortie proposee.
+  for (let i = 0; i < 6; i += 1) {
+    if (await page.locator('#etape-suivante').isEnabled()) {
+      await page.locator('#etape-suivante').click();
+      await page.waitForTimeout(250);
+    }
+  }
+  verifier('la derniere etape desactive Suivante', await page.locator('#etape-suivante').isDisabled());
+  verifier('la fin propose de recommencer', (await page.locator('#recommencer-cuisson').count()) === 1);
+
+  await page.locator('[data-mode="consulter"]').click();
+  await page.waitForTimeout(400);
+  verifier(
+    'revenir en mode Consulter rend la fiche complete',
+    (await page.locator('.etapes').count()) === 1 && (await page.locator('#etape-cuisson').count()) === 0
   );
 
   // Le lien d'en-tete contient aussi le badge : cibler l'ancre, pas le texte exact.

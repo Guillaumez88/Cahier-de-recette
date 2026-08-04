@@ -28,15 +28,16 @@ Aucune dépendance, aucune étape de construction, aucun framework : douze fichi
     │   ├── storage.js           Liste commune : cache local, fusion, file d'attente
     │   ├── semainier.js         Menus communs : cache local, file d'attente
     │   ├── photos.js            Photos : redimensionnement, deux tailles, cache
+    │   ├── cuisson.js           Où l'on en est dans une recette, en local
     │   └── app.js               Rendu DOM et routage par ancre
     ├── data/recipes.json        Les 20 recettes
     ├── favicon.svg
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js            94 tests de la logique métier
+        ├── run-tests.js           101 tests de la logique métier
         ├── run-sync-tests.js       99 tests de la synchronisation
-        ├── test-web.js             66 vérifications navigateur, parcours général
+        ├── test-web.js             82 vérifications navigateur, parcours général
         ├── test-partage.js         38 vérifications navigateur, partage et hors ligne
         ├── test-edition.js         59 vérifications navigateur, modification, parts, déroulé
         ├── test-semainier.js      106 vérifications navigateur, semainier, photos, compteur
@@ -47,7 +48,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : douze fichi
         └── serveur.js              Serveur statique sans dépendance
 ```
 
-Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `recettes.js`, `storage.js`, `semainier.js`, `photos.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
+Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `recettes.js`, `storage.js`, `semainier.js`, `photos.js`, `cuisson.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
 
 `app.js` ne parle jamais au réseau ni au `localStorage` : il passe par `storage.js`, `semainier.js`, `recettes.js` et `photos.js`, seuls endroits décidant où sont rangées les données.
 
@@ -116,6 +117,22 @@ Deux pièges de dates sont traités dans `js/semaine.js`, et des tests les fixen
 
 - `toISOString()` convertit en UTC : à Paris en été, un lundi à 23 h donnerait « dimanche ». Les clés de jour sont donc fabriquées avec `getFullYear/getMonth/getDate`, qui sont locaux.
 - `new Date('2026-08-03')` est interprété comme minuit UTC : à l'ouest de Greenwich, `getDate()` rendrait le 2. Les clés sont relues en composant une date locale fixée à midi, midi résistant aux changements d'heure.
+
+## La fiche : consulter ou cuisiner
+
+La fiche sert à deux choses qui n'ont ni la même posture ni le même besoin : on la consulte assis, on cuisine debout les mains occupées. Un sélecteur en haut de fiche bascule entre les deux.
+
+**Consulter.** Les ingrédients et la préparation d'abord, immédiatement. Le contexte (temps, origine, déroulé des préparations, astuces, variantes, recettes associées, source) est replié sous « Pour aller plus loin », visible en un clic, jamais supprimé. Onze sections de même poids visuel s'enchaînaient auparavant, alors qu'en cuisinant on ne veut que deux d'entre elles.
+
+**Une exception délibérée au repli : « Ce que la source ne donne pas » reste visible.** C'est une garantie d'honnêteté des données, pas du contexte. La replier reviendrait à masquer ce que la fiche ne sait pas.
+
+**Cuisiner.** Une étape à la fois, en 19 px, lisible à 60 cm d'une tablette posée sur le plan de travail. L'astuce de l'étape est mise en évidence, une barre de progression dit où l'on en est, et deux boutons de 52 px de haut passent d'une étape à l'autre. Les ingrédients restent à portée dans un repli : en cuisine on vérifie une quantité sans vouloir quitter l'étape en cours.
+
+**L'étape en cours est retenue**, ainsi que le mode choisi, par recette et **en local** (`js/cuisson.js`). On repose l'appareil, on y revient, on retrouve où on en était. Volontairement non partagé : deux personnes qui cuisinent le même plat sur deux appareils ne doivent pas se pousser mutuellement d'une étape à l'autre, et cela évite une écriture Firestore à chaque « Suivante ». Ce module existe aussi pour que `app.js` ne touche jamais au `localStorage`, ce qui est l'invariant du projet.
+
+L'étape est bornée **à la lecture** et non à l'écriture : une recette raccourcie par une modification laisserait sinon un index au-delà de la dernière étape, et l'écran resterait vide sans qu'on comprenne pourquoi.
+
+**À l'impression, les replis sont ouverts par JavaScript** (`beforeprint`), puis refermés ensuite, et seulement ceux que le code a ouverts. Une fiche imprimée doit être complète : un dépli refermé y perdrait les temps, le déroulé et la source. Le CSS ne peut pas le faire, le navigateur masquant le contenu d'un `<details>` fermé par un mécanisme que `display` ne touche pas.
 
 ## Compteur de réalisations
 
@@ -274,9 +291,9 @@ Confondre les trois était le vrai défaut de la version précédente : elle ann
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 94 tests de la logique métier
+node tests/run-tests.js           # 101 tests de la logique métier
 node tests/run-sync-tests.js      # 99 tests de la synchronisation
-node tests/run-browser-tests.js   # 269 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 285 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

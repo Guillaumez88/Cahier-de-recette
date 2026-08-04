@@ -2638,3 +2638,206 @@ textarea.champ-edition {
     display: none !important;
   }
 }
+
+/* --- Fiche : Consulter ou Cuisiner ----------------------------------------
+   Deux usages distincts de la même fiche. On consulte assis : le contexte
+   (temps, origine, déroulé, astuces, variantes, source) est là mais replié. On
+   cuisine debout les mains occupées, à 60 cm de l'écran : une étape à la fois,
+   en gros caractères, et rien d'autre à l'écran. */
+
+.fiche__barre,
+.cuisiner__entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.fiche__barre .retour,
+.cuisiner__entete .retour {
+  margin: 0;
+}
+
+.segments {
+  display: inline-flex;
+  padding: 3px;
+  background: var(--surface-creuse);
+  border-radius: var(--rayon-pilule);
+}
+
+.segment {
+  padding: 8px 18px;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--texte-doux);
+  background: transparent;
+  border: 0;
+  border-radius: var(--rayon-pilule);
+  cursor: pointer;
+}
+.segment:hover {
+  color: var(--terracotta);
+}
+.segment--actif {
+  color: var(--blanc);
+  background: var(--terracotta);
+}
+
+/* --- Pour aller plus loin -------------------------------------------------- */
+
+.pour-aller-plus-loin {
+  margin: 26px 0 40px;
+  padding: 0;
+  background: var(--surface-creuse);
+  border-radius: var(--rayon-lg);
+}
+
+.pour-aller-plus-loin__titre {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 20px;
+  font-family: var(--police-titre);
+  font-size: 17px;
+  color: var(--terracotta);
+  cursor: pointer;
+  list-style: none;
+}
+.pour-aller-plus-loin__titre::-webkit-details-marker {
+  display: none;
+}
+.pour-aller-plus-loin[open] .pour-aller-plus-loin__titre .icone {
+  transform: rotate(90deg);
+}
+.pour-aller-plus-loin .section {
+  margin: 0 12px 12px;
+}
+
+/* --- Mode Cuisiner --------------------------------------------------------- */
+
+.progression {
+  margin-bottom: 14px;
+}
+
+.progression__texte {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--texte-doux);
+}
+
+.progression__barres {
+  display: flex;
+  gap: 4px;
+}
+
+.progression__barre {
+  flex: 1 1 0;
+  height: 5px;
+  background: var(--neutre-300);
+  border-radius: var(--rayon-pilule);
+}
+.progression__barre--faite {
+  background: var(--terracotta);
+}
+
+.etape-cuisson {
+  padding: 22px 24px;
+  background: var(--surface-creuse);
+  border-radius: var(--rayon-lg);
+}
+
+.etape-cuisson__numero {
+  margin: 0 0 8px;
+  font-family: var(--police-titre);
+  font-size: 40px;
+  line-height: 1;
+  color: var(--terracotta);
+}
+
+/* 19 px : lisible à 60 cm, une tablette posée sur le plan de travail. */
+.etape-cuisson__texte {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.5;
+}
+
+.astuce--cuisson {
+  margin-top: 16px;
+}
+
+.cuisiner__navigation {
+  display: flex;
+  gap: 12px;
+  margin: 18px 0 22px;
+}
+.cuisiner__navigation .bouton {
+  flex: 1 1 0;
+  min-height: 52px;
+  font-size: 16.5px;
+}
+
+.cuisiner__fin {
+  margin-bottom: 30px;
+  padding: 14px 18px;
+  background: var(--sauge-100);
+  border-radius: var(--rayon-md);
+}
+.cuisiner__fin p {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--sauge-800);
+}
+
+.ingredients-repli {
+  margin-bottom: 30px;
+  padding: 0 0 8px;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-lg);
+}
+
+.ingredients-repli__titre {
+  padding: 15px 20px;
+  font-family: var(--police-titre);
+  font-size: 17px;
+  color: var(--terracotta);
+  cursor: pointer;
+  list-style: none;
+}
+.ingredients-repli__titre::-webkit-details-marker {
+  display: none;
+}
+
+.ingredients-repli__portions {
+  margin: 0 20px 8px;
+  font-size: 14px;
+  color: var(--texte-doux);
+}
+.ingredients-repli .liste-ingredients {
+  margin: 0 20px;
+}
+
+@media print {
+  .segments,
+  .progression,
+  .cuisiner__navigation,
+  .cuisiner__fin {
+    display: none !important;
+  }
+  /* Une fiche imprimée doit être complète. Le dépli est ouvert par JavaScript avant
+     l'impression (voir `ouvrirLesDeplisPourImprimer` dans app.js) : un <details>
+     fermé ne s'ouvre pas en CSS, le navigateur masque son contenu par un mécanisme
+     interne que `display` ne touche pas. */
+  .pour-aller-plus-loin,
+  .ingredients-repli {
+    background: none;
+    border: 0;
+  }
+  .pour-aller-plus-loin__titre,
+  .ingredients-repli__titre {
+    display: none;
+  }
+}

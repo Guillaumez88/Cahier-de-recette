@@ -19,6 +19,7 @@
   var Sm = window.CarnetSemainier;
   var Ph = window.CarnetPhotos;
   var Ic = window.CarnetIcones;
+  var Cu = window.CarnetCuisson;
 
   var criteresVides = L.criteresVides;
   var origineCourte = L.origineCourte;
@@ -1498,6 +1499,181 @@
     ]);
   }
 
+  /**
+   * Selecteur Consulter / Cuisiner.
+   *
+   * Deux usages distincts de la meme fiche : on consulte assis, on cuisine debout
+   * les mains occupees. Le mode choisi est retenu par recette, en local : deux
+   * personnes qui cuisinent le meme plat ne doivent pas se pousser l'une l'autre
+   * d'une etape a l'autre.
+   */
+  function selecteurMode(recette) {
+    var courant = Cu.mode(recette.id);
+
+    return el('div', { class: 'segments', role: 'group', 'aria-label': 'Mode d’affichage de la fiche' }, [
+      { valeur: Cu.MODE_CONSULTER, libelle: 'Consulter' },
+      { valeur: Cu.MODE_CUISINER, libelle: 'Cuisiner' },
+    ].map(function (choix) {
+      var actif = courant === choix.valeur;
+      return el('button', {
+        type: 'button',
+        class: 'segment' + (actif ? ' segment--actif' : ''),
+        'aria-pressed': actif ? 'true' : 'false',
+        'data-mode': choix.valeur,
+        texte: choix.libelle,
+        onclick: function () {
+          Cu.definirMode(recette.id, choix.valeur);
+          monter(vueRecette(recette.id));
+          window.scrollTo(0, 0);
+        },
+      });
+    }));
+  }
+
+  /**
+   * Mode Cuisiner : une etape a la fois, en gros caracteres.
+   *
+   * L'etape en cours est retenue : on repose l'appareil, on y revient, et on doit
+   * retrouver ou on en etait. C'est la seule raison d'etre de js/cuisson.js.
+   */
+  function vueCuisiner(recette) {
+    var etapes = recette.instructions || [];
+    var fragment = document.createDocumentFragment();
+
+    fragment.appendChild(
+      el('div', { class: 'cuisiner__entete' }, [
+        el('a', { class: 'retour', href: '#/livre', texte: '‹ Retour au livre' }),
+        selecteurMode(recette),
+      ])
+    );
+
+    fragment.appendChild(el('h1', { class: 'fiche__titre', texte: recette.titre }));
+
+    if (etapes.length === 0) {
+      fragment.appendChild(
+        el('div', { class: 'etat-vide' }, [
+          el('p', { texte: 'Cette recette n’a aucune étape renseignée.' }),
+          el('p', { texte: 'Passez en mode Consulter pour voir ses ingrédients, ou complétez-la dans l’éditeur.' }),
+        ])
+      );
+      return fragment;
+    }
+
+    var rang = Cu.etape(recette.id, etapes.length);
+    var etape = etapes[rang];
+    var estEntier = typeof etape.numero === 'number';
+
+    function aller(nouveau) {
+      Cu.definirEtape(recette.id, Math.max(0, Math.min(etapes.length - 1, nouveau)));
+      monter(vueRecette(recette.id));
+      // La nouvelle etape doit s'afficher depuis son debut : le contenu a ete
+      // remplace, rester a mi-hauteur ferait lire une etape tronquee par l'en-tete.
+      window.scrollTo(0, 0);
+    }
+
+    fragment.appendChild(
+      el('div', { class: 'progression' }, [
+        el('p', {
+          class: 'progression__texte',
+          id: 'progression-cuisson',
+          texte: 'Étape ' + (rang + 1) + ' sur ' + etapes.length,
+        }),
+        el(
+          'div',
+          { class: 'progression__barres', 'aria-hidden': 'true' },
+          etapes.map(function (sansUsage, i) {
+            return el('span', { class: 'progression__barre' + (i <= rang ? ' progression__barre--faite' : '') });
+          })
+        ),
+      ])
+    );
+
+    fragment.appendChild(
+      el('article', { class: 'etape-cuisson', id: 'etape-cuisson' }, [
+        el('p', { class: 'etape-cuisson__numero', texte: estEntier ? String(etape.numero) : String(etape.numero) }),
+        el('p', { class: 'etape-cuisson__texte', texte: etape.texte }),
+        etape.astuce
+          ? el('div', { class: 'astuce astuce--cuisson' }, [
+              el('span', { class: 'astuce__marque', texte: 'Astuce' }),
+              el('p', { texte: stripTipPrefix(etape.astuce) }),
+            ])
+          : null,
+      ])
+    );
+
+    fragment.appendChild(
+      el('div', { class: 'cuisiner__navigation' }, [
+        el('button', {
+          type: 'button',
+          class: 'bouton bouton--secondaire',
+          id: 'etape-precedente',
+          disabled: rang === 0 ? true : null,
+          texte: '‹ Précédente',
+          onclick: function () {
+            aller(rang - 1);
+          },
+        }),
+        el('button', {
+          type: 'button',
+          class: 'bouton',
+          id: 'etape-suivante',
+          disabled: rang === etapes.length - 1 ? true : null,
+          texte: 'Suivante ›',
+          onclick: function () {
+            aller(rang + 1);
+          },
+        }),
+      ])
+    );
+
+    // Les ingredients restent a portee : en cuisine on verifie une quantite sans
+    // vouloir quitter l'etape en cours.
+    fragment.appendChild(
+      el('details', { class: 'ingredients-repli', id: 'ingredients-repli' }, [
+        el('summary', { class: 'ingredients-repli__titre', texte: 'Voir tous les ingrédients' }),
+        el('p', { class: 'ingredients-repli__portions', texte: recette.portions }),
+        el(
+          'div',
+          {},
+          (recette.ingredients || []).map(function (groupe) {
+            return el('div', {}, [
+              groupe.groupe ? el('h3', { class: 'groupe-ingredients__titre', texte: groupe.groupe }) : null,
+              el(
+                'ul',
+                { class: 'liste-ingredients' },
+                (groupe.items || []).map(function (item) {
+                  return el('li', {}, [
+                    el('span', { class: 'nom', texte: item.nom }),
+                    el('span', { class: 'quantite', texte: item.quantite }),
+                  ]);
+                })
+              ),
+            ]);
+          })
+        ),
+      ])
+    );
+
+    if (rang === etapes.length - 1) {
+      fragment.appendChild(
+        el('div', { class: 'cuisiner__fin' }, [
+          el('p', { texte: 'Dernière étape. Bon appétit.' }),
+          el('button', {
+            type: 'button',
+            class: 'lien-action',
+            id: 'recommencer-cuisson',
+            texte: 'Revenir à la première étape',
+            onclick: function () {
+              aller(0);
+            },
+          }),
+        ])
+      );
+    }
+
+    return fragment;
+  }
+
   function vueRecette(id) {
     var recette = Rc.parId(id);
 
@@ -1513,10 +1689,17 @@
 
     document.title = recette.titre + ' — Mon carnet de recettes';
 
+    if (Cu.mode(id) === Cu.MODE_CUISINER) return vueCuisiner(recette);
+
     var dansListe = recetteDansListe(getShoppingList(), recette.id);
     var fragment = document.createDocumentFragment();
 
-    fragment.appendChild(el('a', { class: 'retour', href: '#/livre', texte: '‹ Retour au livre' }));
+    fragment.appendChild(
+      el('div', { class: 'fiche__barre' }, [
+        el('a', { class: 'retour', href: '#/livre', texte: '‹ Retour au livre' }),
+        selecteurMode(recette),
+      ])
+    );
 
     var bandeauFiche = bandeauErreurRecettes();
     if (bandeauFiche) fragment.appendChild(bandeauFiche);
@@ -1631,46 +1814,6 @@
       ])
     );
 
-    var lignesTemps = [
-      ['Préparation', recette.temps.preparation],
-      ['Cuisson', recette.temps.cuisson],
-      ['Repos', recette.temps.repos],
-      ['Total', recette.temps.total],
-    ].filter(function (paire) {
-      return Boolean(paire[1]);
-    });
-
-    fragment.appendChild(
-      section(
-        'Temps',
-        null,
-        el('table', { class: 'tableau-simple' }, [
-          el(
-            'tbody',
-            {},
-            lignesTemps.map(function (paire) {
-              return el('tr', {}, [
-                el('th', { scope: 'row', texte: paire[0] }),
-                el('td', { texte: paire[1] }),
-              ]);
-            })
-          ),
-        ])
-      )
-    );
-
-    fragment.appendChild(
-      section('Origine', null, [
-        el('p', { texte: recette.origine }),
-        recette.difficulte
-          ? el('p', { class: 'section__soustitre', texte: 'Difficulté indiquée : ' + recette.difficulte })
-          : null,
-        recette.calories
-          ? el('p', { class: 'section__soustitre', texte: 'Calories : ' + recette.calories })
-          : null,
-      ])
-    );
-
     // Chaque ingredient est cochable pour n'ajouter qu'une partie de la recette.
     // Ceux deja dans la liste commune sont marques et non selectionnables : les
     // recocher n'ajouterait rien, la cle d'un article etant deja prise.
@@ -1777,49 +1920,9 @@
       )
     );
 
-    /* Les 16 recettes du lot 2 ont un tableau de flux généré automatiquement, ne
-       contenant que des marqueurs (« ✓ », « Selon étapes »). On ne l'affiche que
-       lorsqu'il porte une information, comme la v2. */
-    // Un tableau fourni avec la recette est toujours prefere : il porte une
-    // interpretation (les sous-preparations qui convergent) que la generation ne
-    // sait pas deviner. Sinon on reconstitue le deroule depuis les etapes.
-    if (isFlowTableInformative(recette.flowTable)) {
-      fragment.appendChild(
-        section(
-          'Déroulé des préparations',
-          'Comment chaque ingrédient est préparé, puis assemblé jusqu’à la cuisson.',
-          tableauFlux(recette.flowTable)
-        )
-      );
-    } else {
-      var genere = tableauDerouleGenere(recette);
-      if (genere) {
-        fragment.appendChild(
-          section(
-            'Déroulé des préparations',
-            'Reconstitué automatiquement : à quelle étape chaque ingrédient entre.',
-            genere
-          )
-        );
-      }
-    }
-
-    if (recette.astuces.recette.length) {
-      fragment.appendChild(section('Astuces de la recette', null, listePuces(recette.astuces.recette)));
-    }
-    if (recette.astuces.commentaires.length) {
-      fragment.appendChild(
-        section('Astuces tirées des commentaires', null, listePuces(recette.astuces.commentaires))
-      );
-    }
-    if (recette.variantes.recette.length) {
-      fragment.appendChild(section('Variantes', null, listePuces(recette.variantes.recette)));
-    }
-    if (recette.variantes.associees.length) {
-      fragment.appendChild(
-        section('Recettes associées', 'Suggestions présentes sur la page source.', listePuces(recette.variantes.associees))
-      );
-    }
+    // « Ce que la source ne donne pas » reste visible, hors du depli : c'est une
+    // garantie d'honnetete des donnees, pas du contexte. La replier reviendrait a
+    // masquer ce que la fiche ne sait pas.
     if (recette.manquants.length) {
       fragment.appendChild(
         section(
@@ -1830,7 +1933,87 @@
       );
     }
 
-    fragment.appendChild(
+    // Le reste est du contexte : on le lit une fois, pas a chaque fois qu'on
+    // cuisine. Replie sous un depli, jamais supprime, et ouvrable d'un clic.
+    var contexte = document.createDocumentFragment();
+
+    var lignesTemps = [
+      ['Préparation', recette.temps.preparation],
+      ['Cuisson', recette.temps.cuisson],
+      ['Repos', recette.temps.repos],
+      ['Total', recette.temps.total],
+    ].filter(function (paire) {
+      return Boolean(paire[1]);
+    });
+
+    contexte.appendChild(
+      section(
+        'Temps',
+        null,
+        el('table', { class: 'tableau-simple' }, [
+          el(
+            'tbody',
+            {},
+            lignesTemps.map(function (paire) {
+              return el('tr', {}, [el('th', { scope: 'row', texte: paire[0] }), el('td', { texte: paire[1] })]);
+            })
+          ),
+        ])
+      )
+    );
+
+    contexte.appendChild(
+      section('Origine', null, [
+        el('p', { texte: recette.origine }),
+        recette.difficulte
+          ? el('p', { class: 'section__soustitre', texte: 'Difficulté indiquée : ' + recette.difficulte })
+          : null,
+        recette.calories ? el('p', { class: 'section__soustitre', texte: 'Calories : ' + recette.calories }) : null,
+      ])
+    );
+
+    // Un tableau fourni avec la recette est toujours prefere : il porte une
+    // interpretation (les sous-preparations qui convergent) que la generation ne
+    // sait pas deviner. Sinon on reconstitue le deroule depuis les etapes.
+    if (isFlowTableInformative(recette.flowTable)) {
+      contexte.appendChild(
+        section(
+          'Déroulé des préparations',
+          'Comment chaque ingrédient est préparé, puis assemblé jusqu’à la cuisson.',
+          tableauFlux(recette.flowTable)
+        )
+      );
+    } else {
+      var genere = tableauDerouleGenere(recette);
+      if (genere) {
+        contexte.appendChild(
+          section(
+            'Déroulé des préparations',
+            'Reconstitué automatiquement : à quelle étape chaque ingrédient entre.',
+            genere
+          )
+        );
+      }
+    }
+
+    if (recette.astuces.recette.length) {
+      contexte.appendChild(section('Astuces de la recette', null, listePuces(recette.astuces.recette)));
+    }
+    if (recette.astuces.commentaires.length) {
+      contexte.appendChild(
+        section('Astuces tirées des commentaires', null, listePuces(recette.astuces.commentaires))
+      );
+    }
+    if (recette.variantes.recette.length) {
+      contexte.appendChild(section('Variantes', null, listePuces(recette.variantes.recette)));
+    }
+    if (recette.variantes.associees.length) {
+      contexte.appendChild(
+        section('Recettes associées', 'Suggestions présentes sur la page source.', listePuces(recette.variantes.associees))
+      );
+    }
+
+    contexte.appendChild(
       section('Source', null, [
         el('p', {}, [
           el('a', {
@@ -1842,6 +2025,18 @@
           }),
         ]),
         el('p', { class: 'url-source', texte: recette.source.url }),
+      ])
+    );
+
+    // `open` a l'impression : une fiche imprimee doit etre complete, un depli
+    // referme y perdrait la source et les temps.
+    fragment.appendChild(
+      el('details', { class: 'pour-aller-plus-loin', id: 'pour-aller-plus-loin' }, [
+        el('summary', { class: 'pour-aller-plus-loin__titre' }, [
+          icone('fleche', { taille: 16 }),
+          el('span', { texte: 'Pour aller plus loin : temps, origine, déroulé, astuces, variantes, source' }),
+        ]),
+        contexte,
       ])
     );
 
@@ -2892,7 +3087,38 @@
     else if (route === '/livre') monter(vueLivre());
   }
 
+  /**
+   * Ouvre les replis avant l'impression, les referme apres.
+   *
+   * Une fiche imprimee doit etre complete : un depli referme y perdrait les temps,
+   * l'origine, le deroule et la source. Le CSS ne peut pas le faire, le navigateur
+   * masquant le contenu d'un <details> ferme par un mecanisme que `display` ne
+   * touche pas. On ne referme que ce qu'on a ouvert, pour ne pas replier ce que
+   * l'utilisateur avait deplie lui-meme.
+   */
+  function brancherImpression() {
+    var ouvertsParNous = [];
+
+    window.addEventListener('beforeprint', function () {
+      ouvertsParNous = [];
+      Array.prototype.forEach.call(document.querySelectorAll('details'), function (depli) {
+        if (!depli.open) {
+          depli.open = true;
+          ouvertsParNous.push(depli);
+        }
+      });
+    });
+
+    window.addEventListener('afterprint', function () {
+      ouvertsParNous.forEach(function (depli) {
+        depli.open = false;
+      });
+      ouvertsParNous = [];
+    });
+  }
+
   function demarrer() {
+    brancherImpression();
     fetch('data/recipes.json')
       .then(function (reponse) {
         if (!reponse.ok) throw new Error('réponse ' + reponse.status + ' du serveur');
