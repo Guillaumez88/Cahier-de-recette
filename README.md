@@ -34,10 +34,10 @@ Aucune dépendance, aucune étape de construction, aucun framework : douze fichi
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js            87 tests de la logique métier
+        ├── run-tests.js            94 tests de la logique métier
         ├── run-sync-tests.js       99 tests de la synchronisation
         ├── test-web.js             66 vérifications navigateur, parcours général
-        ├── test-partage.js         33 vérifications navigateur, partage et hors ligne
+        ├── test-partage.js         38 vérifications navigateur, partage et hors ligne
         ├── test-edition.js         59 vérifications navigateur, modification, parts, déroulé
         ├── test-semainier.js       98 vérifications navigateur, semainier, photos, compteur
         ├── stub-firestore.js       Émulation de Firestore pour les tests
@@ -183,6 +183,14 @@ Deux garde-fous délibérés :
 - **Rien n'est perdu.** Une quantité non chiffrable (« Selon goût », « Pour le moule ») est conservée mot pour mot, et un commentaire attaché à un nombre (« 130 g, plus pour le moule ») n'est jamais fondu dans un total, ce qui l'effacerait.
 - **La fusion ne rapproche que des noms identiques**, à la casse, aux accents, à la ligature et au pluriel près : « Œufs » rejoint « Œuf », mais « Sucre glace » n'est pas confondu avec « Sucre en poudre », ni « Beurre » avec « Beurre mou ». Additionner sur une ressemblance approximative donnerait une liste fausse. Pour regrouper deux libellés voisins, renommez l'un des deux dans la recette.
 
+### Les lignes très proches sont encadrées, jamais fusionnées
+
+Constaté en magasin avec deux recettes seulement : « Beurre 70 g », « Beurre aux cristaux de sel 75 g » et « Beurre aux cristaux de sel ramolli 120 g » formaient trois lignes de crèmerie éparpillées, pour un seul produit à prendre. Idem pour trois farines, trois sucres et deux œufs.
+
+Les lignes qui partagent leur premier mot significatif sont donc **encadrées ensemble**, avec un en-tête « BEURRE — 3 lignes proches ». Chaque ligne garde sa quantité, sa case à cocher et son bouton de suppression : rien n'est additionné, et cocher l'une ne coche pas ses voisines.
+
+Deux garde-fous limitent les faux rapprochements : le mot de tête doit faire au moins quatre caractères, ce qui écarte « ail », « sel » ou « thé », déjà courts et sans variantes ; et il faut au moins deux lignes, sinon il n'y a rien à regrouper. Un faux rapprochement ne coûte qu'un cadre de trop, jamais une quantité fausse : c'est précisément pourquoi ce regroupement est visuel et non calculé.
+
 La fusion est faite à l'affichage, pas en base : chaque ingrédient de chaque recette reste un document Firestore distinct. C'est ce qui permet de retirer une recette et de voir le total baisser d'autant, et c'est aussi ce qui préserve la propriété de concurrence : deux personnes qui cochent ne se marchent pas dessus. Cocher ou supprimer une ligne agit sur toutes ses contributions en une seule salve.
 
 ### Comment ça marche
@@ -264,9 +272,9 @@ Confondre les trois était le vrai défaut de la version précédente : elle ann
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 87 tests de la logique métier
+node tests/run-tests.js           # 94 tests de la logique métier
 node tests/run-sync-tests.js      # 99 tests de la synchronisation
-node tests/run-browser-tests.js   # 256 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 261 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

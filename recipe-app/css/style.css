@@ -2386,3 +2386,106 @@ textarea.champ-edition {
   color: var(--accent-800);
   background: var(--accent-200);
 }
+
+/* --- Lignes très proches, encadrées sans être fusionnées -------------------
+   Réponse au problème constaté en magasin : trois lignes de crèmerie pour un
+   seul beurre à prendre. Le cadre les rassemble à l'œil, chacune reste cochable
+   et supprimable séparément, et aucune quantité n'est additionnée. */
+
+.rayon__corps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lignes-proches {
+  padding: 6px 10px 2px;
+  background: var(--surface);
+  border-left: 3px solid var(--sauge-400);
+  border-radius: var(--rayon-sm);
+}
+
+.lignes-proches__titre {
+  margin: 0 0 2px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--sauge-700);
+}
+.lignes-proches__titre span {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--texte-faible);
+}
+
+.rayon__titre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --- Ce qui reste à prendre ------------------------------------------------ */
+
+.reste-a-prendre {
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  background: var(--surface-creuse);
+  border-radius: var(--rayon-lg);
+}
+
+.reste-a-prendre__titre {
+  margin: 0 0 2px;
+  font-family: var(--police-titre);
+  font-size: 18px;
+}
+
+.reste-a-prendre__nombre {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+.reste-a-prendre__nombre strong {
+  font-family: var(--police-titre);
+  font-size: 40px;
+  line-height: 1;
+  color: var(--terracotta);
+}
+.reste-a-prendre__nombre span {
+  font-size: 14px;
+  color: var(--texte-doux);
+}
+
+.reste-a-prendre__note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--texte-doux);
+}
+
+/* Cibles tactiles en magasin : une case à cocher doit se viser d'une main. */
+@media (pointer: coarse) {
+  .liste-courses .case,
+  .liste-courses input[type="checkbox"] {
+    width: 26px;
+    height: 26px;
+  }
+  .liste-courses li {
+    min-height: 46px;
+  }
+}
+
+@media print {
+  .reste-a-prendre {
+    display: none !important;
+  }
+  .lignes-proches {
+    border-left-color: #999;
+    background: none;
+  }
+}
+
+.barre-resultats--actions {
+  justify-content: flex-end;
+}

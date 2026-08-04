@@ -191,7 +191,7 @@ function verifier(nom, condition, detail = '') {
   verifier('le titre annonce une liste commune', /Liste de courses commune/.test(courses));
   // Rangement par rayon : les 14 ingredients des lasagnes couvrent 6 rayons.
   const rayonsAffiches = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('.rayon__titre span:first-child')).map((n) => n.textContent)
+    Array.from(document.querySelectorAll('.rayon__nom')).map((n) => n.textContent)
   );
   verifier(
     'les rayons suivent l ordre du magasin',
@@ -215,14 +215,14 @@ function verifier(nom, condition, detail = '') {
 
   await page.locator('.liste-courses input[type="checkbox"]').first().click();
   await page.waitForTimeout(700);
-  verifier('cocher decremente le compteur', /13 lignes à acheter sur 14/.test(await texte()), (await texte()).slice(0, 250));
+  verifier('cocher decremente le compteur', /13 lignes sur 14/.test(await texte()), (await texte()).slice(0, 250));
   verifier('la ligne cochee est barree', (await page.locator('.liste-courses li.coche').count()) === 1);
   verifier('un bouton de retrait des coches apparait', /Retirer les 1 cochés/.test(await texte()));
 
   // Persistance : la liste vient desormais du serveur, pas du seul cache local
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
-  verifier('la liste survit au rechargement', /13 lignes à acheter sur 14/.test(await texte()), (await texte()).slice(0, 250));
+  verifier('la liste survit au rechargement', /13 lignes sur 14/.test(await texte()), (await texte()).slice(0, 250));
 
   // Retirer uniquement les articles coches
   await page.locator('#retirer-coches').click();
@@ -231,8 +231,8 @@ function verifier(nom, condition, detail = '') {
   // articles... »), il n'y a donc pas de limite de mot autour des nombres.
   verifier(
     'retirer les coches ne laisse que les lignes restantes',
-    /13 lignes à acheter sur 13/.test(await texte()),
-    (await page.locator('.barre-resultats span').first().textContent()) || ''
+    /13 lignes sur 13/.test(await texte()),
+    (await page.locator('.reste-a-prendre').textContent()) || ''
   );
   verifier(
     'plus aucune ligne cochee apres retrait',

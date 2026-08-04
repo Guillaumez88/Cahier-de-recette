@@ -748,6 +748,92 @@ test('le seul numero d etape non entier est bien celui repere', () => {
   assert.deepStrictEqual(anomalies, [['lasagnes-bolognaise-la-meilleure-recette', 'Pour finir']]);
 });
 
+// --- Regroupement visuel des lignes proches ----------------------------------
+//
+// Purement calculatoire : aucune donnee stockee n'entre en jeu, seul le module doit
+// etre charge, avec le localStorage minimal qu'il attend au chargement.
+
+const St = (function () {
+  global.localStorage = global.localStorage || {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+  };
+  return require(path.join(racine, 'js/storage.js'));
+})();
+
+
+test('les lignes du meme produit sont regroupees sans etre fusionnees', () => {
+  const l = (nom, quantite) => ({ nom, quantite, articles: [] });
+  const entrees = St.grouperProches([
+    l('Beurre', '70 g'),
+    l('Beurre aux cristaux de sel', '75 g'),
+    l('Beurre aux cristaux de sel ramolli', '120 g'),
+    l('Emmental râpé', '100 g'),
+    l('Lait', '50 cl'),
+  ]);
+
+  assert.strictEqual(entrees.length, 3, JSON.stringify(entrees.map((e) => e.type)));
+  assert.strictEqual(entrees[0].type, 'groupe');
+  assert.strictEqual(entrees[0].tete, 'Beurre');
+  assert.strictEqual(entrees[0].lignes.length, 3);
+  // Aucune fusion : les trois quantites restent distinctes, telles quelles.
+  assert.deepStrictEqual(
+    entrees[0].lignes.map((x) => x.quantite),
+    ['70 g', '75 g', '120 g']
+  );
+  assert.strictEqual(entrees[1].type, 'ligne');
+  assert.strictEqual(entrees[2].ligne.nom, 'Lait');
+});
+
+test('le regroupement traite le pluriel et la ligature', () => {
+  const l = (nom) => ({ nom, quantite: '', articles: [] });
+  const entrees = St.grouperProches([l('Œuf pour cookie'), l('Œufs pour brownie')]);
+  assert.strictEqual(entrees.length, 1);
+  assert.strictEqual(entrees[0].type, 'groupe');
+  // Le libelle reprend le mot tel qu'il est ecrit, ligature comprise.
+  assert.strictEqual(entrees[0].tete, 'Œuf');
+  assert.strictEqual(entrees[0].cle, 'oeuf');
+});
+
+test('un mot de tete trop court ne declenche aucun regroupement', () => {
+  const l = (nom) => ({ nom, quantite: '', articles: [] });
+  // « sel » et « ail » sont courts et sans variantes : les regrouper avec
+  // « Sel, poivre » n'apporterait rien et ferait des cadres pour rien.
+  const entrees = St.grouperProches([l('Sel'), l('Sel, poivre'), l('Ail')]);
+  assert.deepStrictEqual(
+    entrees.map((e) => e.type),
+    ['ligne', 'ligne', 'ligne']
+  );
+});
+
+test('une ligne seule de son espece n est pas encadree', () => {
+  const entrees = St.grouperProches([{ nom: 'Farine T65', quantite: '250 g', articles: [] }]);
+  assert.deepStrictEqual(entrees, [{ type: 'ligne', ligne: entrees[0].ligne }]);
+});
+
+test('un groupe prend la place de son premier membre dans l ordre', () => {
+  const l = (nom) => ({ nom, quantite: '', articles: [] });
+  const entrees = St.grouperProches([l('Amandes'), l('Farine'), l('Farine T65'), l('Sucre roux')]);
+  assert.deepStrictEqual(
+    entrees.map((e) => (e.type === 'groupe' ? e.tete : e.ligne.nom)),
+    ['Amandes', 'Farine', 'Sucre roux']
+  );
+});
+
+test('le regroupement tolere une liste vide ou absente', () => {
+  assert.deepStrictEqual(St.grouperProches([]), []);
+  assert.deepStrictEqual(St.grouperProches(null), []);
+});
+
+test('motDeTete isole le premier mot significatif', () => {
+  assert.strictEqual(St.motDeTete('Farine T65 pour brownie'), 'farine');
+  assert.strictEqual(St.motDeTete('Œufs pour brownie'), 'oeuf');
+  assert.strictEqual(St.motDeTete('Pulpe de tomate en conserve (ou 500 g)'), 'pulpe');
+  assert.strictEqual(St.motDeTete('Sel, poivre'), 'sel');
+  assert.strictEqual(St.motDeTete(''), '');
+});
+
 // --- Filtre sur les realisations ---------------------------------------------
 
 test('le filtre des realisations separe le jamais fait du deja fait', () => {

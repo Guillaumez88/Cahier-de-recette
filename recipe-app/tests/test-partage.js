@@ -125,18 +125,18 @@ async function attendreTexte(page, motif, limite = 8000) {
   await pageB.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
   const vuParB = await attendreTexte(pageB, /Tapenade maison/);
   verifier('le second appareil voit la liste du premier', vuParB, (await texteDe(pageB)).slice(0, 300));
-  verifier('le second appareil voit le bon decompte', /2 lignes à acheter sur 2/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
+  verifier('le second appareil voit le bon decompte', /2 lignes sur 2/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
 
   // B coche un article. A ne le verra qu'en rechargeant ou en rafraichissant : il
   // n'y a plus de sondage periodique, c'est le choix assume depuis l'epuisement du
   // quota Firestore.
   await pageB.locator('.liste-courses input[type="checkbox"]').first().check();
   await attendre(800);
-  verifier('le cochage est pris en compte chez B', /1 ligne à acheter sur 2/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
+  verifier('le cochage est pris en compte chez B', /1 ligne sur 2/.test(await texteDe(pageB)), (await texteDe(pageB)).slice(0, 300));
 
   await pageA.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
   await pageA.reload({ waitUntil: 'networkidle' });
-  const cochageVuParA = await attendreTexte(pageA, /1 ligne à acheter sur 2/);
+  const cochageVuParA = await attendreTexte(pageA, /1 ligne sur 2/);
   verifier('le premier appareil voit le cochage du second', cochageVuParA, (await texteDe(pageA)).slice(0, 300));
   verifier('la ligne cochee est barree chez A', (await pageA.locator('.liste-courses li.coche').count()) === 1);
 
@@ -259,6 +259,63 @@ async function attendreTexte(page, motif, limite = 8000) {
     `A en compte ${nbCochesA}, B en compte ${nbCochesB}`
   );
 
+  // --- 6 bis. Lignes proches encadrees sans fusion ---------------------------
+  //
+  // Trois beurres et deux farines dans la meme liste : en magasin c'est un seul
+  // produit a prendre a chaque fois. Le cadre les rassemble, sans additionner.
+
+  for (const nom of ['Beurre', 'Beurre demi-sel', 'Beurre doux', 'Farine', 'Farine T65']) {
+    await pageB.locator('#ajout-nom').fill(nom);
+    await pageB.locator('#ajout-quantite').fill('100 g');
+    await pageB.locator('#ajout-valider').click();
+    await attendre(400);
+  }
+  await attendre(600);
+
+  verifier(
+    'les lignes proches sont encadrees ensemble',
+    (await pageB.locator('[data-proches="beurre"]').count()) === 1 &&
+      (await pageB.locator('[data-proches="farine"]').count()) === 1,
+    `beurre ${await pageB.locator('[data-proches="beurre"]').count()}, farine ${await pageB
+      .locator('[data-proches="farine"]')
+      .count()}`
+  );
+  verifier(
+    'le cadre annonce le nombre de lignes proches',
+    /Beurre — 3 lignes proches/.test(await texteDe(pageB)),
+    (await texteDe(pageB)).slice(0, 600)
+  );
+  verifier(
+    'chaque ligne du cadre reste distincte et cochable',
+    (await pageB.locator('[data-proches="beurre"] input[type="checkbox"]').count()) === 3
+  );
+
+  // Aucune fusion de donnees : cocher une ligne du cadre ne coche pas les autres.
+  await pageB.locator('[data-proches="beurre"] input[type="checkbox"]').first().check();
+  await attendre(700);
+  verifier(
+    'cocher une ligne proche ne coche pas ses voisines',
+    (await pageB.locator('[data-proches="beurre"] li.coche').count()) === 1,
+    String(await pageB.locator('[data-proches="beurre"] li.coche').count())
+  );
+  await pageB.locator('[data-proches="beurre"] input[type="checkbox"]').first().uncheck();
+  await attendre(700);
+
+  // On retire les cinq articles de ce controle : les sections suivantes comparent
+  // l'affichage au contenu du serveur, elles ont besoin d'un etat connu.
+  for (const nom of ['Beurre', 'Beurre demi-sel', 'Beurre doux', 'Farine', 'Farine T65']) {
+    await pageB.locator(`.liste-courses li:has-text("${nom}") .supprimer`).first().click();
+    await attendre(500);
+  }
+  await attendre(600);
+  verifier(
+    'les cadres de lignes proches disparaissent avec leurs lignes',
+    (await pageB.locator('[data-proches]').count()) === 0,
+    String(await pageB.locator('[data-proches]').count())
+  );
+  await pageA.locator('#rafraichir').click();
+  await attendre(900);
+
   // --- 7. Retrait des articles coches ----------------------------------------
 
   await pageA.locator('#retirer-coches').click();
@@ -270,7 +327,7 @@ async function attendreTexte(page, motif, limite = 8000) {
     apresRetrait.slice(0, 300)
   );
 
-  const disparuChezB = await attendreTexte(pageB, /à acheter sur/);
+  const disparuChezB = await attendreTexte(pageB, /lignes? sur/);
   const etatFinal = await etatStub(pageA);
   const restantsA = await pageA.locator('.liste-courses li').count();
   verifier(

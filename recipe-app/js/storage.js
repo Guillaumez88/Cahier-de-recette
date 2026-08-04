@@ -612,6 +612,74 @@
    * Liste prete a afficher : fusionnee par ingredient, puis groupee par rayon dans
    * l'ordre d'un parcours de magasin.
    */
+  // --- Regroupement visuel des lignes proches ---------------------------------
+  //
+  // En magasin, « Beurre 70 g », « Beurre aux cristaux de sel 75 g » et « Beurre aux
+  // cristaux de sel ramolli 120 g » sont trois lignes pour un seul produit a prendre,
+  // et on les decouvre eparpillees dans le rayon cremerie.
+  //
+  // La fusion des donnees, elle, reste interdite : additionner sur une ressemblance
+  // approximative donnerait une liste fausse (« Sucre glace » n'est pas « Sucre en
+  // poudre »). Ce regroupement est donc purement visuel. Chaque ligne reste
+  // distincte, cochable et supprimable separement.
+  //
+  // Le critere est le premier mot significatif du nom, apres normalisation. Deux
+  // garde-fous limitent les faux rapprochements :
+  //   - au moins quatre caracteres, ce qui ecarte « ail », « sel » ou « the », deja
+  //     courts et sans variantes ;
+  //   - au moins deux lignes, sinon il n'y a rien a regrouper.
+  // Un faux rapprochement ne coute qu'un cadre de trop, jamais une quantite fausse.
+
+  var LONGUEUR_TETE_MINIMALE = 4;
+
+  /** Premier mot significatif d'un nom, normalise. */
+  function motDeTete(nom) {
+    var normalise = cleFusion(nom);
+    var premier = normalise.split(/[\s,()/]+/)[0] || '';
+    // cleFusion ne desingularise que la fin de la chaine : « oeufs pour cookie »
+    // garde son « s ». On le retire ici, sur le mot isole.
+    return premier.replace(/(s|x)$/, '');
+  }
+
+  /**
+   * Range les lignes d'un rayon en entrees d'affichage.
+   * Rend une liste de { type: 'groupe', tete, lignes } et { type: 'ligne', ligne },
+   * dans l'ordre d'arrivee : un groupe prend la place de son premier membre.
+   */
+  function grouperProches(lignes) {
+    var comptes = {};
+    (lignes || []).forEach(function (ligne) {
+      var tete = motDeTete(ligne.nom);
+      if (tete.length < LONGUEUR_TETE_MINIMALE) return;
+      comptes[tete] = (comptes[tete] || 0) + 1;
+    });
+
+    var entrees = [];
+    var groupes = {};
+
+    (lignes || []).forEach(function (ligne) {
+      var tete = motDeTete(ligne.nom);
+      if (tete.length < LONGUEUR_TETE_MINIMALE || comptes[tete] < 2) {
+        entrees.push({ type: 'ligne', ligne: ligne });
+        return;
+      }
+      if (!groupes[tete]) {
+        // Le libelle du groupe reprend le mot tel qu'il est ecrit dans la premiere
+        // ligne, accents compris : « Œufs » ne doit pas s'afficher « oeuf ».
+        groupes[tete] = {
+          type: 'groupe',
+          tete: String(ligne.nom).split(/[\s,()/]+/)[0],
+          cle: tete,
+          lignes: [],
+        };
+        entrees.push(groupes[tete]);
+      }
+      groupes[tete].lignes.push(ligne);
+    });
+
+    return entrees;
+  }
+
   function listeParRayon(articles) {
     var lignes = fusionner(articles);
     return Rayons.grouperParRayon(lignes).map(function (groupe) {
@@ -686,6 +754,8 @@
     nomsPresents: nomsPresents,
     grouperParRecette: grouperParRecette,
     cleFusion: cleFusion,
+    motDeTete: motDeTete,
+    grouperProches: grouperProches,
     fusionner: fusionner,
     listeParRayon: listeParRayon,
     recettesDansListe: recettesDansListe,

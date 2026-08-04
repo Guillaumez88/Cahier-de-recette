@@ -1915,7 +1915,8 @@
     fragment.appendChild(
       el('p', {
         class: 'accroche',
-        texte: 'Rangée par rayon, dans l’ordre du magasin. Un même ingrédient venu de plusieurs recettes est additionné.',
+        texte:
+          'Rangée par rayon, dans l’ordre du magasin. Un même ingrédient venu de plusieurs recettes est additionné, et les lignes très proches sont encadrées ensemble sans être fusionnées.',
       })
     );
 
@@ -1944,11 +1945,26 @@
     }).length;
     var coches = lignes.length - restants;
 
+    // Ce qui reste a prendre, en grand : c'est la seule chose qu'on regarde en
+    // magasin, une main sur le caddie.
     fragment.appendChild(
-      el('div', { class: 'barre-resultats' }, [
-        el('span', {
-          texte: restants + ' ligne' + (restants > 1 ? 's' : '') + ' à acheter sur ' + lignes.length,
+      el('div', { class: 'reste-a-prendre' }, [
+        el('p', { class: 'reste-a-prendre__titre', texte: 'Encore à acheter' }),
+        el('p', { class: 'reste-a-prendre__nombre' }, [
+          el('strong', { texte: String(restants) }),
+          el('span', { texte: ' ligne' + (restants > 1 ? 's' : '') + ' sur ' + lignes.length }),
+        ]),
+        el('p', {
+          class: 'reste-a-prendre__note',
+          texte: 'Cocher fonctionne sans réseau, tout repart au retour du signal.',
         }),
+      ])
+    );
+
+    // Le decompte est deja porte par le bloc « Encore a acheter » ci-dessus : cette
+    // barre ne garde que les actions.
+    fragment.appendChild(
+      el('div', { class: 'barre-resultats barre-resultats--actions' }, [
         el('div', { class: 'actions-liste' }, [
           el('button', {
             type: 'button',
@@ -1989,13 +2005,37 @@
     if (recettes) fragment.appendChild(recettes);
 
     groupes.forEach(function (groupe) {
+      // Les lignes tres proches sont encadrees ensemble, sans etre fusionnees : en
+      // magasin, « Beurre », « Beurre aux cristaux de sel » et « Beurre aux cristaux
+      // de sel ramolli » sont un seul produit a prendre, mais additionner sur une
+      // ressemblance donnerait une quantite fausse.
+      var entrees = S.grouperProches(groupe.lignes);
+
       fragment.appendChild(
         el('section', { class: 'rayon' }, [
           el('h2', { class: 'rayon__titre' }, [
-            el('span', { texte: groupe.rayon }),
+            icone(Ic.pourRayon(groupe.rayon), { taille: 18 }),
+            el('span', { class: 'rayon__nom', texte: groupe.rayon }),
             el('span', { class: 'rayon__compte', texte: String(groupe.lignes.length) }),
           ]),
-          el('ul', { class: 'liste-courses' }, groupe.lignes.map(ligneCourses)),
+          el(
+            'div',
+            { class: 'rayon__corps' },
+            entrees.map(function (entree) {
+              if (entree.type === 'ligne') {
+                return el('ul', { class: 'liste-courses' }, [ligneCourses(entree.ligne)]);
+              }
+              return el('div', { class: 'lignes-proches', 'data-proches': entree.cle }, [
+                el('p', { class: 'lignes-proches__titre' }, [
+                  el('strong', { texte: entree.tete }),
+                  el('span', {
+                    texte: ' — ' + entree.lignes.length + ' lignes proches',
+                  }),
+                ]),
+                el('ul', { class: 'liste-courses' }, entree.lignes.map(ligneCourses)),
+              ]);
+            })
+          ),
         ])
       );
     });
