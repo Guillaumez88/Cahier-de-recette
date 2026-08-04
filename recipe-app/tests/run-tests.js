@@ -1063,16 +1063,134 @@ test('semaines rend les semaines demandees a partir de celle du jour', () => {
   assert.strictEqual(Sn.semaines(new Date(2026, 7, 5, 12), 0).length, 1, 'au moins une semaine');
 });
 
+/* --- rappel des ingredients de l'etape en cours --------------------------- */
+
+const RECETTE_RAPPEL = {
+  id: 'test-rappel',
+  titre: 'Test',
+  ingredients: [
+    {
+      groupe: '',
+      items: [
+        { nom: 'Oignon', quantite: '1' },
+        { nom: 'Ail', quantite: '1 gousse' },
+        { nom: "Huile d'olive", quantite: '2 c. à s.' },
+        { nom: 'Œufs', quantite: '3' },
+        { nom: 'Crème fraîche', quantite: '20 cl' },
+      ],
+    },
+  ],
+  instructions: [
+    { numero: 1, texte: "Couper un oignon et une gousse d'ail, faire revenir dans l'huile." },
+    { numero: 2, texte: 'Battre les œufs.' },
+    { numero: 3, texte: 'Laisser reposer la préparation une heure.' },
+  ],
+};
+
+test('le rappel d etape retrouve les ingredients cites, apostrophe comprise', () => {
+  const rappel = L.ingredientsDeLEtape(RECETTE_RAPPEL, RECETTE_RAPPEL.instructions[0]);
+  assert.deepStrictEqual(
+    rappel.map((i) => i.nom),
+    ['Oignon', 'Ail', "Huile d'olive"]
+  );
+  // La quantite accompagne le nom : c'est ce qu'on vient verifier en cuisine.
+  assert.strictEqual(rappel[1].quantite, '1 gousse');
+});
+
+test('le rappel d etape accorde le singulier et le pluriel', () => {
+  // « les oeufs » dans l'etape doit rencontrer « Oeufs » dans la liste, et l'accent
+  // ne doit pas empecher le rapprochement.
+  assert.deepStrictEqual(
+    L.ingredientsDeLEtape(RECETTE_RAPPEL, RECETTE_RAPPEL.instructions[1]).map((i) => i.nom),
+    ['Œufs']
+  );
+});
+
+test('une etape qui ne cite aucun ingredient ne rappelle rien', () => {
+  // Le rappel vide est le comportement voulu : deviner serait pire que se taire,
+  // et la liste complete reste accessible d'un pli.
+  assert.deepStrictEqual(L.ingredientsDeLEtape(RECETTE_RAPPEL, RECETTE_RAPPEL.instructions[2]), []);
+  assert.deepStrictEqual(L.ingredientsDeLEtape(RECETTE_RAPPEL, null), []);
+  assert.deepStrictEqual(L.ingredientsDeLEtape(null, RECETTE_RAPPEL.instructions[0]), []);
+});
+
+test('le rappel d etape lit aussi l astuce de l etape', () => {
+  const rappel = L.ingredientsDeLEtape(RECETTE_RAPPEL, {
+    numero: 1,
+    texte: 'Mélanger le tout.',
+    astuce: 'Astuce : une cuillère de crème fraîche adoucit la sauce.',
+  });
+  assert.deepStrictEqual(
+    rappel.map((i) => i.nom),
+    ['Crème fraîche']
+  );
+});
+
+test('le rappel d etape ne remonte jamais un ingredient deux fois', () => {
+  // Le meme ingredient peut figurer dans deux groupes de la fiche : c'est le meme
+  // bocal, il ne doit apparaitre qu'une fois dans le rappel.
+  const recette = {
+    ingredients: [
+      { groupe: 'Pâte', items: [{ nom: 'Beurre', quantite: '100 g' }] },
+      { groupe: 'Garniture', items: [{ nom: 'Beurre', quantite: '100 g' }] },
+    ],
+  };
+  assert.deepStrictEqual(
+    L.ingredientsDeLEtape(recette, { texte: 'Faire fondre le beurre.' }).map((i) => i.nom),
+    ['Beurre']
+  );
+});
+
+test('le rappel d etape couvre la majorite des etapes du carnet', () => {
+  // Mesure sur les vraies fiches, pas sur un exemple : la deduction ne vaut que ce
+  // qu'elle donne sur les 140 etapes reellement ecrites. Le seuil est un garde-fou
+  // contre une regression silencieuse, pas un objectif.
+  let total = 0;
+  let avecRappel = 0;
+  recettes.forEach((recette) => {
+    (recette.instructions || []).forEach((etape) => {
+      total += 1;
+      if (L.ingredientsDeLEtape(recette, etape).length > 0) avecRappel += 1;
+    });
+  });
+  assert.strictEqual(total, 140, total + ' etapes au lieu de 140');
+  assert.ok(avecRappel >= 95, avecRappel + ' etapes sur ' + total + ' seulement portent un rappel');
+});
+
 test('les cles de creneau se composent et se decoupent', () => {
   assert.strictEqual(Sn.cleCreneau('2026-08-03', 'dejeuner'), '2026-08-03::dejeuner');
+  // Cle historique, a deux morceaux : elle designe l'unique plat de son repas.
   assert.deepStrictEqual(Sn.decouperCreneau('2026-08-03::diner'), {
     jour: '2026-08-03',
     moment: 'diner',
+    suffixe: null,
+    cleCreneau: '2026-08-03::diner',
   });
   assert.strictEqual(Sn.decouperCreneau('2026-08-03'), null);
   assert.strictEqual(Sn.decouperCreneau('pas-une-date::diner'), null);
   assert.strictEqual(Sn.decouperCreneau('a::b::c'), null);
   assert.strictEqual(Sn.decouperCreneau(''), null);
+});
+
+test('une cle de plat porte un suffixe et se rattache a son repas', () => {
+  assert.strictEqual(Sn.cleItem('2026-08-03', 'dejeuner', 'k3f9za'), '2026-08-03::dejeuner::k3f9za');
+  assert.deepStrictEqual(Sn.decouperCreneau('2026-08-03::dejeuner::k3f9za'), {
+    jour: '2026-08-03',
+    moment: 'dejeuner',
+    suffixe: 'k3f9za',
+    cleCreneau: '2026-08-03::dejeuner',
+  });
+  // Un suffixe vide n'identifie rien : la cle est refusee plutot que confondue avec
+  // la forme a deux morceaux.
+  assert.strictEqual(Sn.decouperCreneau('2026-08-03::dejeuner::'), null);
+});
+
+test('les suffixes de plat ne se repetent pas sur une serie courte', () => {
+  // Deux plats poses dans le meme repas doivent aboutir a deux documents : un
+  // suffixe repete en ecraserait un des deux sans un mot.
+  const vus = new Set();
+  for (let i = 0; i < 500; i += 1) vus.add(Sn.suffixeItem());
+  assert.strictEqual(vus.size, 500, 'suffixes en collision : ' + (500 - vus.size));
 });
 
 test('les trois moments de la journee sont ordonnes et dimensionnes', () => {
@@ -1087,6 +1205,29 @@ test('les trois moments de la journee sont ordonnes et dimensionnes', () => {
   );
   assert.strictEqual(Sn.estMomentConnu('dejeuner'), true);
   assert.strictEqual(Sn.estMomentConnu('gouter'), false);
+});
+
+test('la grille et l entete de journee emploient le meme vocabulaire', () => {
+  // « Matin / Midi / Soir » dans la grille et « Petit-dejeuner / Dejeuner / Diner »
+  // dans le recap du jour faisaient deux noms pour le meme creneau.
+  assert.deepStrictEqual(
+    Sn.MOMENTS.map((m) => m.libelle),
+    ['Petit-déjeuner', 'Déjeuner', 'Dîner']
+  );
+  Sn.MOMENTS.forEach((m) => {
+    assert.strictEqual(m.court, m.libelle, m.cle + ' porte deux libelles differents');
+  });
+});
+
+test('les repas hors carnet couvrent les habitudes de la maison', () => {
+  const titres = Sn.REPAS_LIBRES.map((r) => r.titre);
+  ['Japonais', 'Pizzas', 'Restaurant', 'Burger King', 'McDonnalds', 'La boucherie', 'Au bureau'].forEach((attendu) => {
+    assert.ok(titres.includes(attendu), attendu + ' manque dans REPAS_LIBRES');
+  });
+  // Chaque entree porte un pictogramme qui existe : sinon la pastille sort vide.
+  Sn.REPAS_LIBRES.forEach((r) => {
+    assert.strictEqual(Ic.existe(r.icone), true, r.titre + ' : pictogramme ' + r.icone + ' inconnu');
+  });
 });
 
 test('creneauxDe couvre les 21 repas d une semaine sans doublon', () => {

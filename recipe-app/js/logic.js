@@ -112,6 +112,145 @@
     );
   }
 
+  /* --- ingredients d'une etape ------------------------------------- */
+  //
+  // « Quels ingredients me faut-il maintenant ? », en mode Cuisiner. La reponse est
+  // deduite du texte de l'etape : rien n'est stocke recette par recette, il n'y aurait
+  // aucune chance qu'une telle association soit tenue a jour a la main sur vingt fiches.
+  //
+  // La deduction est volontairement prudente. Elle rapproche un ingredient d'une etape
+  // quand le texte de l'etape cite un mot significatif de son nom, au singulier et sans
+  // accent. Ses deux limites sont connues et assumees :
+  //
+  //   - une etape qui dit « la preparation » ou « le melange » ne cite aucun
+  //     ingredient : le rappel reste alors vide, plutot que de deviner ;
+  //   - deux ingredients partageant un mot (« sucre » et « sucre glace ») remontent
+  //     tous les deux : mieux vaut un ingredient de trop sous les yeux qu'un manquant.
+  //
+  // La liste complete reste accessible d'un pli, elle n'est jamais remplacee par ce
+  // rappel.
+
+  // Mots trop courants pour designer un ingredient : les retenir ferait remonter la
+  // moitie de la liste a chaque etape.
+  var MOTS_BANALS = {
+    de: true,
+    du: true,
+    des: true,
+    la: true,
+    le: true,
+    les: true,
+    au: true,
+    aux: true,
+    en: true,
+    et: true,
+    ou: true,
+    pour: true,
+    avec: true,
+    sans: true,
+    bio: true,
+    frais: true,
+    fraiche: true,
+    entier: true,
+    entiere: true,
+    petit: true,
+    petite: true,
+    grand: true,
+    grande: true,
+    gros: true,
+    grosse: true,
+    type: true,
+    sorte: true,
+    facultatif: true,
+    facultative: true,
+    // Mots de trois lettres : le seuil descend a trois pour attraper « ail », « sel »,
+    // « eau » ou « riz », qui sont de vrais ingredients. Il faut donc ecarter
+    // explicitement les mots de liaison de meme longueur.
+    une: true,
+    est: true,
+    son: true,
+    ses: true,
+    sur: true,
+    par: true,
+    que: true,
+    qui: true,
+    pas: true,
+    peu: true,
+    tres: true,
+    bon: true,
+    bien: true,
+  };
+
+  /**
+   * Forme comparable d'un mot : sans accent, en minuscules, au singulier.
+   *
+   * L'apostrophe coupe le mot au lieu d'en faire partie : « une gousse d'ail » doit
+   * rencontrer l'ingredient « Ail », et « d'ail » ne ressemble a rien.
+   */
+  function radical(mot) {
+    var propre = normaliser(mot).replace(/[^a-z0-9]/g, '');
+    if (propre.length > 4 && /(aux|eaux)$/.test(propre)) return propre.replace(/(aux|eaux)$/, 'a');
+    if (propre.length > 3 && /[sx]$/.test(propre)) return propre.slice(0, -1);
+    return propre;
+  }
+
+  /** Mots significatifs d'un nom d'ingredient, sous forme de radicaux. */
+  function motsSignificatifs(nom) {
+    var mots = [];
+    normaliser(nom)
+      .split(/[^a-z0-9]+/)
+      .forEach(function (mot) {
+        var forme = radical(mot);
+        if (forme.length < 3) return;
+        if (MOTS_BANALS[forme]) return;
+        if (mots.indexOf(forme) === -1) mots.push(forme);
+      });
+    return mots;
+  }
+
+  /**
+   * Les ingredients de `recette` cites par `etape`.
+   *
+   * Rend une liste de { nom, quantite, groupe }, dans l'ordre de la fiche. La liste est
+   * vide quand l'etape ne cite aucun ingredient, ce qui doit se traduire a l'ecran par
+   * l'absence de rappel et non par un rappel vide.
+   */
+  function ingredientsDeLEtape(recette, etape) {
+    if (!recette || !etape) return [];
+
+    var texte = normaliser([etape.texte, etape.astuce].filter(Boolean).join(' '));
+    if (texte === '') return [];
+
+    // Les mots de l'etape sont eux aussi ramenes a leur radical : « oeufs » dans le
+    // texte doit rencontrer « oeuf » dans le nom de l'ingredient.
+    var motsEtape = {};
+    texte.split(/[^a-z0-9]+/).forEach(function (mot) {
+      var forme = radical(mot);
+      if (forme.length >= 3) motsEtape[forme] = true;
+    });
+
+    var trouves = [];
+    var vus = {};
+
+    (recette.ingredients || []).forEach(function (groupe) {
+      (groupe.items || []).forEach(function (item) {
+        var mots = motsSignificatifs(item.nom);
+        if (mots.length === 0) return;
+        var cite = mots.some(function (forme) {
+          return motsEtape[forme] === true;
+        });
+        if (!cite) return;
+        // Un ingredient qui revient dans deux groupes ne doit apparaitre qu'une fois :
+        // c'est le meme bocal qu'on va chercher.
+        var cle = normaliser(item.nom) + '|' + normaliser(item.quantite);
+        if (vus[cle]) return;
+        vus[cle] = true;
+        trouves.push({ nom: item.nom, quantite: item.quantite, groupe: groupe.groupe || '' });
+      });
+    });
+
+    return trouves;
+  }
+
   function optionsDisponibles(recettes) {
     function uniques(valeurs) {
       var vues = [];
@@ -232,6 +371,7 @@
     trancheTemps: trancheTemps,
     normaliser: normaliser,
     texteIndexable: texteIndexable,
+    ingredientsDeLEtape: ingredientsDeLEtape,
     optionsDisponibles: optionsDisponibles,
     filterRecipes: filterRecipes,
     isFlowTableInformative: isFlowTableInformative,

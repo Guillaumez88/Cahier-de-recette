@@ -1667,9 +1667,14 @@ textarea.champ-edition {
   background: var(--fond);
   border: 1px dashed var(--bordure-forte);
   border-radius: var(--rayon-md);
+  /* En lecture la case n'est pas un bouton : elle montre le menu, elle ne l'ouvre
+     pas. Le curseur et le survol ne changent donc que sous « Modifier ». */
+  cursor: default;
+}
+.creneau--editable {
   cursor: pointer;
 }
-.creneau:hover {
+.creneau--editable:hover {
   border-color: var(--terracotta);
   background: var(--surface-creuse);
 }
@@ -1749,8 +1754,76 @@ textarea.champ-edition {
   flex-direction: column;
   gap: 4px;
 }
-.creneau:hover .creneau__vide {
+.creneau--editable:hover .creneau__vide {
   color: var(--terracotta);
+}
+
+/* Un repas peut porter plusieurs plats : chacun garde sa ligne, et la case cesse
+   d'etre bordee en pointilles des qu'elle porte quelque chose. */
+.creneau--multiple .creneau__plat + .creneau__plat {
+  padding-top: 4px;
+  border-top: 1px solid var(--bordure);
+}
+
+/* Un plat du carnet est un lien vers sa fiche quand la semaine est en lecture :
+   c'est le geste attendu depuis l'accueil. */
+a.creneau__plat {
+  color: inherit;
+  text-decoration: none;
+}
+a.creneau__plat:hover .creneau__titre {
+  color: var(--terracotta);
+  text-decoration: underline;
+}
+
+/* Case vide en lecture : un point, et rien de plus. Sans lui la case parait cassee,
+   avec un « + » elle inviterait a une action qui n'est pas disponible. */
+.creneau__rien {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--bordure-forte);
+}
+
+/* Le « + » d'une case deja remplie est discret : il ajoute un second plat, il ne
+   represente pas le repas. */
+.creneau__vide--ajout {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+  padding-top: 2px;
+  opacity: 0.55;
+}
+
+.creneau__retirer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px;
+  color: var(--texte-faible);
+  background: none;
+  border: 0;
+  border-radius: var(--rayon-pilule);
+  cursor: pointer;
+}
+.creneau__retirer:hover {
+  color: #a4352b;
+  background: var(--fond);
+}
+/* Quand la photo passe la case en colonne, la croix ne doit pas se retrouver
+   toute seule sur une troisieme ligne. */
+.creneau__plat:has(.vignette--creneau) .creneau__retirer {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--fond);
+}
+.creneau__plat:has(.vignette--creneau) {
+  position: relative;
 }
 
 /* --- Réserve de plats glissables ------------------------------------------
@@ -1791,9 +1864,10 @@ textarea.champ-edition {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
-  /* Deux rangees visibles, le reste defile : la reserve est un outil d'appoint, elle
-     ne doit pas repousser le semainier hors de l'ecran. */
-  max-height: 78px;
+  /* Cinq rangees visibles, le reste defile. La reserve n'apparait plus qu'en mode
+     edition : elle peut donc occuper la place qu'il faut pour choisir sans defiler
+     a l'aveugle, sans jamais repousser le menu hors de l'ecran en lecture. */
+  max-height: 210px;
   overflow-y: auto;
 }
 
@@ -1952,6 +2026,20 @@ textarea.champ-edition {
   align-items: center;
   gap: 10px;
   margin: 0 0 10px;
+}
+.boite__actuel p:last-child {
+  margin-bottom: 0;
+}
+
+/* Une ligne par plat prevu, chacune avec ses propres actions : « Voir la fiche » et
+   « Retirer » portent sur ce plat-la, pas sur le repas entier. */
+.boite__prevu {
+  flex-wrap: wrap;
+}
+.boite__prevu-titre {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .boite__etiquette {
@@ -2222,8 +2310,18 @@ textarea.champ-edition {
     gap: 10px;
     min-height: 0 !important;
   }
+  /* « Petit-déjeuner » ne tient pas dans 42 px : la colonne du moment est calee sur
+     le plus long des trois libelles, sinon il se coupe en quatre lignes. */
   .creneau__moment {
-    flex: 0 0 42px;
+    flex: 0 0 78px;
+  }
+  /* Plusieurs plats dans un meme repas : ils s'empilent au lieu de se serrer
+     l'un contre l'autre sur une ligne de telephone. */
+  .creneau--multiple {
+    flex-wrap: wrap;
+  }
+  .creneau--multiple .creneau__plat {
+    flex: 1 1 100%;
   }
   .vignette--creneau {
     width: 46px;
@@ -2527,11 +2625,21 @@ textarea.champ-edition {
   color: var(--texte-faible);
 }
 
+/* Les plats d'un meme repas s'empilent : le plat, puis le dessert, chacun avec sa
+   croix. La colonne garde le « + » du repas aligne a droite, quel que soit le nombre
+   de lignes. */
+.repas-jour__plats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .repas-jour__titre {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1 1 auto;
   min-width: 0;
   font-size: 17px;
 }
@@ -2566,6 +2674,20 @@ textarea.champ-edition {
 .bouton-icone:hover {
   background: var(--terracotta-clair);
   border-color: var(--bordure);
+}
+
+/* Retirer un plat est une action destructrice : elle reste atteignable au doigt,
+   mais ne doit pas peser autant a l'oeil que le « + » qui ajoute. */
+.bouton-icone--discret {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  color: var(--texte-faible);
+}
+.bouton-icone--discret:hover {
+  color: #a4352b;
+  background: var(--surface-creuse);
 }
 
 /* --- Semaine repliée ------------------------------------------------------- */
@@ -3101,4 +3223,57 @@ textarea.champ-edition {
   .bouton-rafraichir {
     display: none !important;
   }
+}
+
+/* --- Rappel des ingrédients de l'étape en cours ----------------------------
+   Sous l'étape et au-dessus de la navigation : on le lit avant de passer à la
+   suite, et il ne repousse pas les boutons hors de l'écran. La liste complète
+   reste accessible d'un pli, plus bas. */
+
+.etape-ingredients {
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  background: var(--surface-creuse);
+  border: 1px solid var(--bordure);
+  border-left: 3px solid var(--terracotta);
+  border-radius: var(--rayon-md);
+}
+
+.etape-ingredients__titre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-family: system-ui, sans-serif;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--texte-doux);
+}
+.etape-ingredients__titre .icone {
+  color: var(--terracotta);
+}
+
+.etape-ingredients__liste {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.etape-ingredients__liste li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 5px 0;
+  font-size: 16px;
+  border-top: 1px solid var(--bordure);
+}
+.etape-ingredients__liste li:first-child {
+  border-top: 0;
+}
+.etape-ingredients__liste .quantite {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--texte-doux);
 }

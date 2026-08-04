@@ -40,10 +40,14 @@
   // Les trois creneaux d'une journee. `taille` gouverne la hauteur de la case a
   // l'ecran : le dejeuner et le diner sont les repas que l'on cuisine, le
   // petit-dejeuner est une ligne d'appoint.
+  //
+  // `court` porte le meme mot que `libelle` : la grille disait « Matin / Midi / Soir »
+  // et l'entete de journee « Petit-dejeuner / Dejeuner / Diner », deux vocabulaires
+  // pour la meme chose. Le champ est conserve pour ne pas casser ses appelants.
   var MOMENTS = [
-    { cle: 'petit-dejeuner', libelle: 'Petit-déjeuner', court: 'Matin', taille: 'courte' },
-    { cle: 'dejeuner', libelle: 'Déjeuner', court: 'Midi', taille: 'haute' },
-    { cle: 'diner', libelle: 'Dîner', court: 'Soir', taille: 'haute' },
+    { cle: 'petit-dejeuner', libelle: 'Petit-déjeuner', court: 'Petit-déjeuner', taille: 'courte' },
+    { cle: 'dejeuner', libelle: 'Déjeuner', court: 'Déjeuner', taille: 'haute' },
+    { cle: 'diner', libelle: 'Dîner', court: 'Dîner', taille: 'haute' },
   ];
 
   // Repas qui ne viennent pas du carnet. Le champ libre reste disponible : ces
@@ -52,6 +56,10 @@
     { titre: 'Restaurant', icone: 'restaurant' },
     { titre: 'Pizzas', icone: 'pizza' },
     { titre: 'Japonais', icone: 'sushi' },
+    { titre: 'Burger King', icone: 'restaurant' },
+    { titre: 'McDonnalds', icone: 'restaurant' },
+    { titre: 'La boucherie', icone: 'viandes' },
+    { titre: 'Au bureau', icone: 'horloge' },
     { titre: 'Restes', icone: 'restes' },
     { titre: 'Chacun pour soi', icone: 'libre' },
   ];
@@ -104,16 +112,50 @@
     return ajouterJours(jour, -recul);
   }
 
-  /** Cle d'un creneau : « 2026-08-03::dejeuner ». */
+  /** Cle d'un creneau : « 2026-08-03::dejeuner ». Designe le repas, pas un plat. */
   function cleCreneau(jourCle, moment) {
     return String(jourCle) + '::' + String(moment);
   }
 
+  /**
+   * Cle d'un plat pose : « 2026-08-03::dejeuner::k3f9za ».
+   *
+   * Un repas peut porter plusieurs plats (un plat et un dessert le midi), il faut
+   * donc un document par plat et non par repas. Le suffixe est tire au hasard et non
+   * incremente : deux telephones qui ajoutent un dessert en meme temps produiraient
+   * le meme rang, donc la meme cle, et l'un des deux ajouts disparaitrait sans un mot.
+   *
+   * Les cles a deux morceaux, ecrites avant ce changement, restent valides et se
+   * lisent comme un plat unique dans leur repas : aucune migration n'est necessaire.
+   */
+  function cleItem(jourCle, moment, suffixe) {
+    return cleCreneau(jourCle, moment) + '::' + String(suffixe);
+  }
+
+  var compteurSuffixe = 0;
+
+  /** Suffixe unique pour un plat pose. Six caracteres suffisent a l'usage d'une maison. */
+  function suffixeItem() {
+    compteurSuffixe = (compteurSuffixe + 1) % 1296;
+    var hasard = Math.floor(Math.random() * 1679616).toString(36);
+    return ('0000' + hasard).slice(-4) + ('00' + compteurSuffixe.toString(36)).slice(-2);
+  }
+
+  /**
+   * Decoupe une cle de plat. Rend `suffixe` a null pour les cles historiques a deux
+   * morceaux, et `cleCreneau` qui permet de regrouper les plats d'un meme repas.
+   */
   function decouperCreneau(cle) {
     var morceaux = String(cle || '').split('::');
-    if (morceaux.length !== 2) return null;
+    if (morceaux.length !== 2 && morceaux.length !== 3) return null;
     if (!depuisCle(morceaux[0])) return null;
-    return { jour: morceaux[0], moment: morceaux[1] };
+    if (morceaux.length === 3 && morceaux[2] === '') return null;
+    return {
+      jour: morceaux[0],
+      moment: morceaux[1],
+      suffixe: morceaux.length === 3 ? morceaux[2] : null,
+      cleCreneau: cleCreneau(morceaux[0], morceaux[1]),
+    };
   }
 
   function estMomentConnu(moment) {
@@ -204,6 +246,8 @@
     ajouterJours: ajouterJours,
     lundiDe: lundiDe,
     cleCreneau: cleCreneau,
+    cleItem: cleItem,
+    suffixeItem: suffixeItem,
     decouperCreneau: decouperCreneau,
     estMomentConnu: estMomentConnu,
     libelleJour: libelleJour,

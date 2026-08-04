@@ -1,10 +1,10 @@
-# Mon carnet de recettes
+# Miam miam !
 
 Carnet de cuisine de la maison. Trois écrans : le **semainier** des repas de la semaine sur la page d'accueil, le **livre de cuisine** avec ses 20 recettes, et la **liste de courses commune**. Les trois sont partagés entre tous les appareils de la maison : ce que l'un pose, coche ou modifie, les autres le voient.
 
 En ligne : `https://guillaumez88.github.io/Cahier-de-recette/`
 
-Aucune dépendance, aucune étape de construction, aucun framework : douze fichiers JavaScript, une feuille de style, un fichier de données. Le partage passe par Firestore, appelé directement par son API REST en `fetch`, sans le SDK Firebase.
+Aucune dépendance, aucune étape de construction, aucun framework : quatorze fichiers JavaScript, une feuille de style, un fichier de données. Le partage passe par Firestore, appelé directement par son API REST en `fetch`, sans le SDK Firebase.
 
 ## Structure
 
@@ -35,12 +35,12 @@ Aucune dépendance, aucune étape de construction, aucun framework : douze fichi
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js           101 tests de la logique métier
-        ├── run-sync-tests.js       99 tests de la synchronisation
-        ├── test-web.js             82 vérifications navigateur, parcours général
-        ├── test-partage.js         38 vérifications navigateur, partage et hors ligne
+        ├── run-tests.js           111 tests de la logique métier
+        ├── run-sync-tests.js      105 tests de la synchronisation
+        ├── test-web.js             88 vérifications navigateur, parcours général
+        ├── test-partage.js         40 vérifications navigateur, partage et hors ligne
         ├── test-edition.js         69 vérifications navigateur, modification, parts, accordéon
-        ├── test-semainier.js      109 vérifications navigateur, semainier, photos, compteur
+        ├── test-semainier.js      126 vérifications navigateur, semainier, photos, compteur
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -76,6 +76,7 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 - **Déroulé des préparations** : le tableau fourni avec la recette quand il existe, reconstitué automatiquement sinon (voir plus bas).
 - **Liste de courses commune** (voir la section suivante) : partagée entre tous les appareils, rangée par rayon de magasin, avec addition des quantités d'un même ingrédient, sélection d'ingrédients à la carte, ajout d'articles libres, compteur dans l'en-tête et fonctionnement hors ligne.
 - **Modification des recettes** et **changement du nombre de parts** (voir plus bas).
+- **Navigation adaptée à l'écran.** Sur ordinateur, l'en-tête porte les liens « Le livre » et « Liste de courses », chacun avec son pictogramme, l'état actif visible, le compteur d'articles restants et le bouton de rafraîchissement. Sur téléphone, l'en-tête n'a plus de liens : une **barre d'onglets** en bas de l'écran (Semaine, Le livre, Courses) met les trois destinations sous le pouce, avec un retrait pour l'encoche du bas, et le rafraîchissement se fait en **tirant la page vers le bas**.
 - **Pictogrammes** en SVG écrit dans la page, dans `js/icones.js` : aucune police d'icônes ni CDN, donc rien à charger et rien qui casse en cuisine sans connexion. Ils se colorent par `currentColor` et suivent la palette sans code supplémentaire.
 - **Impression** (`@media print`) : la navigation, les filtres et les boutons disparaissent, le fond repasse en blanc, et les étapes comme les lignes du tableau ne sont pas coupées entre deux pages.
 
@@ -85,14 +86,17 @@ La page d'accueil répond à une seule question : qu'est-ce qu'on mange. Elle mo
 
 ### Comment on l'utilise
 
-- **Le bloc « Aujourd'hui » est la première chose de la page**, avec les trois repas du jour et un bouton de 44 px par ligne pour les changer. Sur téléphone, cette information était auparavant sous un titre, un résumé, deux cartes d'accès, trois onglets, une phrase d'aide et un bandeau d'état : il fallait faire défiler pour savoir ce qu'on mange le soir. Un test vérifie que ce bloc tient dans la hauteur d'un écran de 390 × 850 px.
-- **La semaine commence le lundi** et finit le dimanche. Trois créneaux par jour : matin, midi, soir. Le déjeuner et le dîner ont plus de hauteur que le petit-déjeuner, parce que ce sont les repas qu'on cuisine.
+- **Le bloc « Aujourd'hui » est la première chose de la page**, avec les trois repas du jour, un bouton « + » de 44 px par ligne pour en ajouter un et une croix par plat pour le retirer. Sur téléphone, cette information était auparavant sous un titre, un résumé, deux cartes d'accès, trois onglets, une phrase d'aide et un bandeau d'état : il fallait faire défiler pour savoir ce qu'on mange le soir. Un test vérifie que ce bloc tient dans la hauteur d'un écran de 390 × 850 px.
+- **La semaine commence le lundi** et finit le dimanche. Trois créneaux par jour : petit-déjeuner, déjeuner, dîner, nommés de la même façon dans la grille et dans le récapitulatif du jour. Le déjeuner et le dîner ont plus de hauteur que le petit-déjeuner, parce que ce sont les repas qu'on cuisine.
 - **Une semaine vide est repliée en un bandeau** d'une ligne, dépliable d'un clic. La semaine suivante est presque toujours entièrement vide et occupait la moitié de la hauteur de page pour vingt-et-une cases à remplir. La semaine en cours est toujours dépliée, et une semaine qui porte des plats ne se replie pas.
 - **Jamais de semaine passée** : un repas déjà mangé ne sert ni aux courses ni à la cuisine.
-- **Toucher une case** ouvre le choix du repas : un plat du livre (avec sa propre recherche), ou un repas hors carnet. Cinq raccourcis sont proposés (Restaurant, Pizzas, Japonais, Restes, Chacun pour soi) et un champ libre accepte n'importe quoi d'autre.
-- **Glisser-déposer** sur ordinateur : un plat se glisse d'une case à l'autre, et la réserve sous le semainier permet de glisser un plat du livre directement dans une case. Glisser sur une case occupée **échange** les deux plats au lieu d'en effacer un. Les pastilles de la réserve portent le titre et un pictogramme de catégorie, jamais la photo de la recette : une pastille est un nom de plat à saisir, pas une image à regarder.
+- **L'accueil s'ouvre en lecture.** La grille montre le menu : pas de « + » dans les cases, pas de réserve de plats à glisser. Le bouton « Modifier », à côté de « Ajouter aux courses », fait apparaître les deux. Le « + » du bloc « Aujourd'hui » reste là en permanence : c'est le geste du jour même, celui qu'on fait le plus.
+- **Plusieurs plats par repas.** Un déjeuner peut porter un plat et un dessert. Chaque plat est un document distinct, avec une clé propre : deux téléphones qui ajoutent un dessert en même temps n'en écrasent pas un. Chaque plat se retire seul, par sa croix, depuis la grille ou depuis « Aujourd'hui ». « Vider ce repas » n'est proposé qu'à partir de deux plats, sinon il ferait doublon avec « Retirer ».
+- **En mode Modifier, toucher une case** ouvre le choix du repas : un plat du livre (avec sa propre recherche), ou un repas hors carnet. Neuf raccourcis sont proposés (Restaurant, Pizzas, Japonais, Burger King, McDonnalds, La boucherie, Au bureau, Restes, Chacun pour soi) et un champ libre accepte n'importe quoi d'autre.
+- **Glisser-déposer** sur ordinateur, en mode Modifier : un plat se glisse d'une case à l'autre, et la réserve permet de glisser un plat du livre ou un repas hors carnet directement dans une case. Glisser sur une case occupée **ajoute** le plat au repas : il n'y a plus d'échange, puisqu'un repas peut porter les deux, et rien n'est déplacé sans qu'on l'ait demandé.
+- La réserve se filtre par famille : **Entrées, Plats, Desserts, Autres**. « Autres » ne vient pas du carnet, ce sont les repas qu'on ne cuisine pas. La recherche ne cherche que dans la famille affichée. Les pastilles portent le titre et un pictogramme de catégorie, jamais la photo de la recette : une pastille est un nom de plat à saisir, pas une image à regarder.
 - La réserve glissable est masquée au tactile et sous 700 px : le glisser-déposer HTML5 n'existe pas sur mobile, et l'appui sur une case fait déjà le travail. **Toute action est faisable sans glisser.**
-- Les menus sont lus **une fois au chargement de la page**, puis mis à jour par le bouton « Rafraîchir ». Voir « Pourquoi il n'y a plus de rafraîchissement automatique » plus bas.
+- Les menus sont lus **une fois au chargement de la page**, puis mis à jour par le bouton de rafraîchissement de l'en-tête. Voir « Pourquoi il n'y a plus de rafraîchissement automatique » plus bas.
 
 ### Ajouter les plats de la semaine aux courses
 
@@ -107,7 +111,11 @@ Quatre cas sont traités explicitement, parce qu'ils se produisent :
 
 ### Comment ça marche
 
-Un document Firestore **par créneau de repas**, dans `semainiers/commune/creneaux`, avec une clé qui porte la date et le moment (`2026-08-03::dejeuner`). Même raison que pour les articles de la liste : deux personnes qui posent deux plats différents modifient deux documents distincts. Avec un document par semaine, le dernier qui écrit effacerait le plat de l'autre.
+Un document Firestore **par plat posé**, dans `semainiers/commune/creneaux`, avec une clé qui porte la date, le moment et un suffixe (`2026-08-03::dejeuner::k3f9za`). Même raison que pour les articles de la liste : deux personnes qui posent deux plats différents modifient deux documents distincts. Avec un document par semaine, le dernier qui écrit effacerait le plat de l'autre.
+
+Le suffixe est **tiré au hasard et non incrémenté**, parce qu'un repas peut porter plusieurs plats : deux téléphones qui ajoutent un dessert au même déjeuner en même temps produiraient le même rang, donc la même clé, et l'un des deux ajouts disparaîtrait sans un mot.
+
+Les clés à deux morceaux écrites avant ce changement (`2026-08-03::dejeuner`) **restent valides** et se lisent comme le plat unique de leur repas. Il n'y a pas eu de migration et il n'en faut pas. Un test le vérifie sur un document écrit directement dans l'émulation, sous l'ancienne forme.
 
 **Un créneau vide n'est pas un document vide, c'est un document absent** : vider un repas est une suppression. Cela évite d'accumuler des documents pour les repas non prévus, qui sont la majorité.
 
@@ -138,13 +146,15 @@ La fiche sert à deux choses qui n'ont ni la même posture ni le même besoin : 
 
 **Une exception délibérée au repli : « Ce que la source ne donne pas » reste visible.** C'est une garantie d'honnêteté des données, pas du contexte. La replier reviendrait à masquer ce que la fiche ne sait pas.
 
-**Cuisiner.** Une étape à la fois, en 19 px, lisible à 60 cm d'une tablette posée sur le plan de travail. L'astuce de l'étape est mise en évidence, une barre de progression dit où l'on en est, et deux boutons de 52 px de haut passent d'une étape à l'autre. Les ingrédients restent à portée dans un repli : en cuisine on vérifie une quantité sans vouloir quitter l'étape en cours.
+**Cuisiner.** Une étape à la fois, en 19 px, lisible à 60 cm d'une tablette posée sur le plan de travail. L'astuce de l'étape est mise en évidence, une barre de progression dit où l'on en est, et deux boutons de 52 px de haut passent d'une étape à l'autre. **Les ingrédients de l'étape en cours sont rappelés** sous l'étape, avec leurs quantités : en cuisine, ce qu'on veut savoir est quoi sortir du placard maintenant. La liste complète reste à portée dans un repli, elle n'est jamais remplacée.
+
+Ce rappel est déduit du texte de l'étape, rien n'est saisi recette par recette : une association tenue à la main sur vingt fiches ne resterait pas juste. Sur les 140 étapes du carnet, 103 portent un rappel. Les deux limites sont connues et assumées : une étape qui dit « la préparation » ou « le mélange » ne cite aucun ingrédient et n'affiche donc rien, plutôt que de deviner ; et deux ingrédients partageant un mot (« Sucre » et « Sucre glace ») remontent tous les deux, parce qu'un ingrédient de trop sous les yeux vaut mieux qu'un manquant.
 
 **L'étape en cours est retenue**, ainsi que le mode choisi, par recette et **en local** (`js/cuisson.js`). On repose l'appareil, on y revient, on retrouve où on en était. Volontairement non partagé : deux personnes qui cuisinent le même plat sur deux appareils ne doivent pas se pousser mutuellement d'une étape à l'autre, et cela évite une écriture Firestore à chaque « Suivante ». Ce module existe aussi pour que `app.js` ne touche jamais au `localStorage`, ce qui est l'invariant du projet.
 
 L'étape est bornée **à la lecture** et non à l'écriture : une recette raccourcie par une modification laisserait sinon un index au-delà de la dernière étape, et l'écran resterait vide sans qu'on comprenne pourquoi.
 
-**À l'impression, les replis sont ouverts par JavaScript** (`beforeprint`), puis refermés ensuite, et seulement ceux que le code a ouverts. Une fiche imprimée doit être complète : un dépli refermé y perdrait les temps, le déroulé et la source. Le CSS ne peut pas le faire, le navigateur masquant le contenu d'un `<details>` fermé par un mécanisme que `display` ne touche pas.
+**Il n'y a plus de bouton « Imprimer la fiche ».** L'impression reste possible par le navigateur, et **les replis y sont ouverts par JavaScript** (`beforeprint`), puis refermés ensuite, et seulement ceux que le code a ouverts. Une fiche imprimée doit être complète : un dépli refermé y perdrait les temps, le déroulé et la source. Le CSS ne peut pas le faire, le navigateur masquant le contenu d'un `<details>` fermé par un mécanisme que `display` ne touche pas.
 
 ## Compteur de réalisations
 
@@ -199,7 +209,7 @@ Une seule liste, partagée par tous ceux qui ouvrent le site. Ce que l'un ajoute
 - Sur une fiche recette : cocher les ingrédients voulus puis « Ajouter la sélection », ou « Tout ajouter à la liste » pour la recette entière. Les ingrédients déjà dans la liste sont marqués et leur case est désactivée.
 - Sur la page liste : un champ permet d'ajouter un article libre (« pain », « lessive ») avec sa quantité, hors recette. Les articles sont groupés par recette, les ajouts libres à part.
 - Cocher un article le barre chez tout le monde. « Retirer les cochés » fait le ménage au retour des courses.
-- La liste est lue **une fois au chargement**, puis mise à jour par le bouton « Rafraîchir ». Le bandeau indique l'âge de ce qui est affiché et vous invite à rafraîchir au bout de deux minutes.
+- La liste est lue **une fois au chargement**, puis mise à jour par le bouton de rafraîchissement de l'en-tête. Le bandeau indique l'âge de ce qui est affiché.
 
 ### Rangement par rayon et addition des quantités
 
@@ -283,10 +293,10 @@ Le symptôme était trompeur : quand les lectures et les écritures échouent, c
 La mise à jour est donc désormais **explicite** :
 
 - une seule lecture au chargement de la page, pour chaque collection ;
-- un bouton « Rafraîchir » sur la liste de courses et sur l'accueil ;
+- un seul bouton de rafraîchissement, dans l'en-tête, qui relit la liste **et** les menus du même geste ; sur téléphone, tirer la page vers le bas fait la même chose ;
 - aucun sondage périodique, aucune relecture au retour sur l'onglet.
 
-En échange, **l'âge de ce qui est affiché est visible en permanence** : « Liste partagée, à jour il y a 3 minutes ». Au-delà de deux minutes (`seuilDonneesAgees`), le bandeau change de couleur et affiche « Rafraîchir pour voir les modifications faites depuis les autres appareils ». Un minuteur de 15 secondes réécrit ce seul libellé, sans aucune lecture réseau : sans lui, l'âge affiché resterait figé à sa valeur du dernier rendu, ce qui serait pire que de ne rien afficher.
+En échange, **l'âge de ce qui est affiché est visible en permanence** : « Liste partagée, à jour il y a 3 minutes » dans le bandeau, et « il y a 3 min » sur le bouton de l'en-tête. Au-delà de deux minutes (`seuilDonneesAgees`), les deux changent de couleur. Un minuteur de 15 secondes réécrit ces seuls libellés, sans aucune lecture réseau : sans lui, l'âge affiché resterait figé à sa valeur du dernier rendu, ce qui serait pire que de ne rien afficher.
 
 Le bandeau distingue par ailleurs **trois causes d'échec**, qui n'appellent pas les mêmes actions :
 
@@ -303,9 +313,9 @@ Confondre les trois était le vrai défaut de la version précédente : elle ann
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 101 tests de la logique métier
-node tests/run-sync-tests.js      # 99 tests de la synchronisation
-node tests/run-browser-tests.js   # 298 vérifications dans un vrai Chromium
+node tests/run-tests.js           # 111 tests de la logique métier
+node tests/run-sync-tests.js      # 105 tests de la synchronisation
+node tests/run-browser-tests.js   # 323 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

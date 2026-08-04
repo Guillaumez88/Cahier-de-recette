@@ -107,6 +107,20 @@ const PNG_ROUGE =
   const MARDI = JOURS[1];
   const creneau = (page, jour, moment) => page.locator(`[data-creneau="${jour}::${moment}"]`);
 
+  /**
+   * Bascule l'accueil en mode edition si ce n'est pas deja fait.
+   *
+   * L'accueil s'ouvre en lecture : les cases n'y sont pas cliquables et n'affichent
+   * pas de « + ». Tout ce qui modifie la semaine passe donc par ce bouton, comme pour
+   * un utilisateur.
+   */
+  const passerEnEdition = async (page) => {
+    const bouton = page.locator('#modifier-semaine');
+    if ((await bouton.getAttribute('aria-pressed')) === 'true') return;
+    await bouton.click();
+    await attendre(400);
+  };
+
   // --- 1. L accueil affiche le semainier --------------------------------------
 
   await pageA.goto(BASE, { waitUntil: 'networkidle' });
@@ -146,6 +160,24 @@ const PNG_ROUGE =
     hauteurs.midi > hauteurs.matin && hauteurs.soir > hauteurs.matin,
     JSON.stringify(hauteurs)
   );
+
+  // --- 1 bis. L accueil s ouvre en lecture ------------------------------------
+  //
+  // La grille montre le menu : ni « + » dans les cases, ni reserve de plats a glisser.
+  // Sans cela l'accueil demandait de composer la semaine avant de pouvoir la lire.
+
+  verifier('aucun « + » dans les cases en lecture', (await pageA.locator('.creneau__vide').count()) === 0);
+  verifier('la reserve de plats est absente en lecture', (await pageA.locator('#reserve').count()) === 0);
+  verifier(
+    'les cases ne sont pas des boutons en lecture',
+    (await pageA.locator('button.creneau').count()) === 0,
+    String(await pageA.locator('button.creneau').count())
+  );
+  verifier('le bouton Modifier est propose', (await pageA.locator('#modifier-semaine').count()) === 1);
+
+  await passerEnEdition(pageA);
+  verifier('en edition, chaque case vide porte un « + »', (await pageA.locator('.creneau__vide').count()) === 42);
+  verifier('en edition, la reserve de plats apparait', (await pageA.locator('#reserve').count()) === 1);
 
   // --- 2. Poser un plat du livre ----------------------------------------------
 
@@ -202,7 +234,10 @@ const PNG_ROUGE =
     /Chez les voisins/.test(await creneau(pageA, MARDI, 'diner').textContent())
   );
 
-  // --- 5. Remplacer et vider --------------------------------------------------
+  // --- 5. Plusieurs plats par repas, retirer et vider -------------------------
+  //
+  // Un repas peut porter un plat et un dessert : poser un second plat s'ajoute au
+  // premier au lieu de l'ecraser, et chaque plat se retire seul.
 
   await creneau(pageA, MARDI, 'diner').click();
   await attendre(400);
@@ -210,25 +245,56 @@ const PNG_ROUGE =
   await pageA.locator('[data-repas-libre="Restaurant"]').click();
   await attendre(700);
   verifier(
-    'poser un plat sur une case occupee remplace le precedent',
+    'un second plat s ajoute au repas sans effacer le premier',
     /Restaurant/.test(await creneau(pageA, MARDI, 'diner').textContent()) &&
-      !/Chez les voisins/.test(await creneau(pageA, MARDI, 'diner').textContent())
+      /Chez les voisins/.test(await creneau(pageA, MARDI, 'diner').textContent()),
+    await creneau(pageA, MARDI, 'diner').textContent()
+  );
+  verifier(
+    'la case porte deux plats distincts',
+    (await creneau(pageA, MARDI, 'diner').locator('.creneau__plat').count()) === 2
   );
 
   etat = await etatStub();
-  verifier('la case remplacee n a pas cree un second document', etat.nbCreneaux === 3, `${etat.nbCreneaux} documents`);
+  verifier('chaque plat a son propre document', etat.nbCreneaux === 4, `${etat.nbCreneaux} documents`);
 
+  // Retirer un seul plat, par sa croix, depuis la grille.
+  await creneau(pageA, MARDI, 'diner').locator('.creneau__retirer').first().click();
+  await attendre(900);
+  verifier(
+    'la croix retire un seul plat du repas',
+    !/Chez les voisins/.test(await creneau(pageA, MARDI, 'diner').textContent()) &&
+      /Restaurant/.test(await creneau(pageA, MARDI, 'diner').textContent()),
+    await creneau(pageA, MARDI, 'diner').textContent()
+  );
+  etat = await etatStub();
+  verifier('retirer un plat supprime son document', etat.nbCreneaux === 3, `${etat.nbCreneaux} documents`);
+
+  // « Vider ce repas » n'est propose qu a partir de deux plats : avec un seul, c'est
+  // le bouton « Retirer » de sa ligne, et deux boutons pour le meme effet font hesiter.
   await creneau(pageA, MARDI, 'diner').click();
   await attendre(400);
-  await pageA.locator('#vider-creneau').click();
+  verifier('un repas d un seul plat ne propose pas « Vider »', (await pageA.locator('#vider-creneau').count()) === 0);
+  await pageA.locator('[data-repas-libre="Pizzas"]').click();
   await attendre(700);
-  verifier('vider une case l efface', !/Restaurant/.test(await creneau(pageA, MARDI, 'diner').textContent()));
+  await creneau(pageA, MARDI, 'diner').click();
+  await attendre(400);
+  verifier('un repas de deux plats propose « Vider »', (await pageA.locator('#vider-creneau').count()) === 1);
+  await pageA.locator('#vider-creneau').click();
+  await attendre(900);
+  verifier(
+    'vider une case efface tous ses plats',
+    (await creneau(pageA, MARDI, 'diner').locator('.creneau__plat').count()) === 0,
+    await creneau(pageA, MARDI, 'diner').textContent()
+  );
   etat = await etatStub();
   verifier('un creneau vide est un document supprime', etat.nbCreneaux === 2, `${etat.nbCreneaux} documents`);
 
   // --- 6. Glisser-deposer entre deux cases ------------------------------------
 
-  await creneau(pageA, LUNDI, 'diner').dragTo(creneau(pageA, MARDI, 'dejeuner'));
+  // C'est le plat qui est glissable, pas la case : la case porte aussi son « + »
+  // d'ajout, et viser son centre ne saisirait pas forcement le plat.
+  await creneau(pageA, LUNDI, 'diner').locator('[data-plat]').first().dragTo(creneau(pageA, MARDI, 'dejeuner'));
   await attendre(900);
   verifier(
     'le plat glisse a change de case',
@@ -242,19 +308,73 @@ const PNG_ROUGE =
   etat = await etatStub();
   verifier('le glissement n a pas duplique le plat', etat.nbCreneaux === 2, `${etat.nbCreneaux} documents`);
 
-  // Glisser sur une case occupee echange les deux plats plutot que d en effacer un.
-  await creneau(pageA, MARDI, 'dejeuner').dragTo(creneau(pageA, LUNDI, 'dejeuner'));
+  // Glisser sur une case occupee ajoute le plat au repas : il n y a plus d echange,
+  // le repas peut porter les deux, et rien n est deplace sans l avoir demande.
+  await creneau(pageA, MARDI, 'dejeuner').locator('[data-plat]').first().dragTo(creneau(pageA, LUNDI, 'dejeuner'));
   await attendre(900);
   verifier(
-    'glisser sur une case occupee echange les deux plats',
+    'glisser sur une case occupee ajoute au lieu d echanger',
     /Pizzas/.test(await creneau(pageA, LUNDI, 'dejeuner').textContent()) &&
-      /Tapenade maison/.test(await creneau(pageA, MARDI, 'dejeuner').textContent()),
+      /Tapenade maison/.test(await creneau(pageA, LUNDI, 'dejeuner').textContent()) &&
+      (await creneau(pageA, MARDI, 'dejeuner').locator('.creneau__plat').count()) === 0,
     (await creneau(pageA, LUNDI, 'dejeuner').textContent()) +
       ' | ' +
       (await creneau(pageA, MARDI, 'dejeuner').textContent())
   );
 
-  // Glisser un plat depuis la reserve, sous le semainier.
+  // Remettre le plat surnumeraire a sa case d origine : la suite du parcours compte
+  // sur un plat par repas, et le deplacer verifie au passage qu on peut sortir un
+  // plat d un repas qui en porte deux.
+  await creneau(pageA, LUNDI, 'dejeuner').locator('[data-plat]').last().dragTo(creneau(pageA, LUNDI, 'diner'));
+  await attendre(900);
+  verifier(
+    'un plat sort d un repas qui en porte deux',
+    /Pizzas/.test(await creneau(pageA, LUNDI, 'diner').textContent()) &&
+      (await creneau(pageA, LUNDI, 'dejeuner').locator('.creneau__plat').count()) === 1,
+    (await creneau(pageA, LUNDI, 'dejeuner').textContent()) +
+      ' | ' +
+      (await creneau(pageA, LUNDI, 'diner').textContent())
+  );
+
+  // --- 6 bis. Le filtre de la reserve -----------------------------------------
+  //
+  // Quatre familles : Entrees, Plats, Desserts, Autres. « Autres » ne vient pas du
+  // carnet, ce sont les repas qu on ne cuisine pas.
+
+  verifier('la reserve porte quatre familles', (await pageA.locator('.segment[data-famille]').count()) === 4);
+  verifier(
+    'les plats sont la famille par defaut',
+    (await pageA.locator('.segment[data-famille="Plat"]').getAttribute('aria-selected')) === 'true'
+  );
+  await pageA.locator('.segment[data-famille="Autres"]').click();
+  await attendre(400);
+  verifier(
+    'la famille Autres propose les repas hors carnet',
+    (await pageA.locator('[data-reserve="Burger King"]').count()) === 1 &&
+      (await pageA.locator('[data-reserve="La boucherie"]').count()) === 1 &&
+      (await pageA.locator('[data-reserve="Au bureau"]').count()) === 1,
+    await pageA.locator('#reserve').textContent()
+  );
+  verifier(
+    'la famille Autres ne melange pas les recettes du carnet',
+    (await pageA.locator('[data-reserve="tapenade-maison"]').count()) === 0
+  );
+
+  // Un repas hors carnet se glisse comme un plat du livre.
+  await pageA.locator('[data-reserve="Japonais"]').dragTo(creneau(pageA, JOURS[3], 'diner'));
+  await attendre(900);
+  verifier(
+    'un repas hors carnet se glisse depuis la reserve',
+    /Japonais/.test(await creneau(pageA, JOURS[3], 'diner').textContent()),
+    await creneau(pageA, JOURS[3], 'diner').textContent()
+  );
+  await creneau(pageA, JOURS[3], 'diner').locator('.creneau__retirer').first().click();
+  await attendre(900);
+
+  // Glisser un plat du carnet depuis la reserve. L anchoiade est une entree : il faut
+  // sa famille, la recherche ne cherche que dans la famille affichee.
+  await pageA.locator('.segment[data-famille="Entrée"]').click();
+  await attendre(400);
   await pageA.locator('#recherche-reserve').fill('anchoiade');
   await attendre(400);
   await pageA.locator('[data-reserve="anchoiade"]').dragTo(creneau(pageA, JOURS[2], 'diner'));
@@ -285,7 +405,7 @@ const PNG_ROUGE =
   });
   verifier('le jour courant est identifiable dans la grille', cleAujourdhui !== null);
   const platDeMidi = (await creneau(pageA, cleAujourdhui, 'dejeuner').textContent())
-    .replace(/^\s*Midi\s*/i, '')
+    .replace(/^\s*Déjeuner\s*/i, '')
     .trim();
   verifier(
     'le bloc du jour dit la meme chose que la case du semainier',
@@ -299,28 +419,29 @@ const PNG_ROUGE =
     await pageA.locator('[data-repas-jour="petit-dejeuner"]').textContent()
   );
 
-  // Le crayon du bloc du jour ouvre la meme boite que la case du semainier.
+  // Le « + » du bloc du jour ouvre la meme boite que la case du semainier. Il reste
+  // present en lecture : c'est le geste du jour meme, celui qu'on fait le plus.
   await pageA.locator('[data-modifier-jour="diner"]').click();
   await attendre(400);
-  verifier('le crayon du jour ouvre le choix de plat', (await pageA.locator('#voile').count()) === 1);
+  verifier('le « + » du jour ouvre le choix de plat', (await pageA.locator('#voile').count()) === 1);
   await pageA.locator('#fermer-boite').click();
   await attendre(300);
 
   // Cible tactile : 44 px de cote, c'est ce qu'on vise les mains occupees.
-  const tailleCrayon = await pageA.evaluate(() => {
+  const tailleAjout = await pageA.evaluate(() => {
     const n = document.querySelector('[data-modifier-jour="diner"]').getBoundingClientRect();
     return { l: Math.round(n.width), h: Math.round(n.height) };
   });
   verifier(
-    'le crayon du jour fait au moins 44 px de cote',
-    tailleCrayon.l >= 44 && tailleCrayon.h >= 44,
-    JSON.stringify(tailleCrayon)
+    'le « + » du jour fait au moins 44 px de cote',
+    tailleAjout.l >= 44 && tailleAjout.h >= 44,
+    JSON.stringify(tailleAjout)
   );
 
   // --- 8. Ajouter les plats de la semaine a la liste de courses ---------------
   //
-  // Etat a ce stade sur la semaine en cours : Pizzas (lundi midi), Tapenade maison
-  // (mardi midi), Anchoiade (mercredi soir).
+  // Etat a ce stade sur la semaine en cours : Tapenade maison (lundi midi), Pizzas
+  // (lundi soir), Anchoiade (mercredi soir).
 
   await pageA.locator(`[data-courses-semaine="${LUNDI}"]`).click();
   await attendre(500);
@@ -456,6 +577,10 @@ const PNG_ROUGE =
   // pastille est un nom de plat a saisir, pas une image a regarder.
   await pageA.goto(BASE, { waitUntil: 'networkidle' });
   await attendre(900);
+  // Le rechargement remet l accueil en lecture : la reserve n existe qu en edition.
+  await passerEnEdition(pageA);
+  await pageA.locator('.segment[data-famille="Entrée"]').click();
+  await attendre(300);
   await pageA.locator('#recherche-reserve').fill('tapenade');
   await attendre(400);
   verifier(
@@ -594,6 +719,7 @@ const PNG_ROUGE =
   await attendre(900);
   await pageA.request.post(new URL('__stub/panne', BASE).href, { data: { panne: true } });
 
+  await passerEnEdition(pageA);
   await creneau(pageA, JOURS[5], 'diner').click();
   await attendre(400);
   await pageA.locator('[data-repas-libre="Japonais"]').click();
@@ -667,11 +793,19 @@ const PNG_ROUGE =
   // atteignables uniquement par l'API du module, ce qui est le cas reel d'un
   // historique accumule au fil des semaines.
 
+  // Le semainier est vide avant de compter. Les sections precedentes ont pose des
+  // plats sur la semaine en cours, dont certains jours sont deja passes selon le jour
+  // ou la suite tourne : sans remise a zero, le decompte attendu dependrait du jour
+  // de la semaine, ce qui n'est pas une propriete du produit.
+  await pageA.evaluate(async () => {
+    const Sm = window.CarnetSemainier;
+    for (const plat of Sm.tous()) await Sm.retirer(plat.cle);
+  });
   await pageA.goto(`${BASE}#/livre`, { waitUntil: 'networkidle' });
   await attendre(700);
   const avantHistorique = await texteDe(pageA);
-  // A ce stade le semainier a des repas prevus mais aucun repas passe : tous les
-  // plats sont donc « jamais faits », et aucun ne peut afficher un decompte.
+  // Sans repas passe, tous les plats sont « jamais faits » : aucun ne peut afficher
+  // un decompte.
   verifier(
     'sans repas passe, aucun plat n est compte comme fait',
     !/Fait \d+ fois/.test(avantHistorique),

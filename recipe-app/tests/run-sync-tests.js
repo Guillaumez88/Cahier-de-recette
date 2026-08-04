@@ -966,22 +966,25 @@ serveur.listen(PORT, '127.0.0.1', async () => {
   await test('deplacer un plat vers un creneau libre le deplace vraiment', async () => {
     const { Semainier } = neuf();
     await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
-    await Semainier.deplacer(LUNDI, 'dejeuner', MARDI, 'diner');
+    await Semainier.deplacer(Semainier.creneau(LUNDI, 'dejeuner').cle, MARDI, 'diner');
     assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner'), null, 'le depart n a pas ete vide');
     assert.strictEqual(Semainier.creneau(MARDI, 'diner').titre, 'Pizzas');
     assert.strictEqual(stub.etat.creneaux.size, 1, 'le plat existe en double');
   });
 
-  await test('deplacer sur un creneau occupe echange les deux plats', async () => {
+  await test('deplacer sur un creneau occupe ajoute sans effacer', async () => {
     const { Semainier } = neuf();
     await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
     await Semainier.poser(MARDI, 'diner', { type: 'recette', recetteId: 'tapenade-maison', titre: 'Tapenade' });
-    await Semainier.deplacer(LUNDI, 'dejeuner', MARDI, 'diner');
-    // Un echange plutot qu un ecrasement : sans cela, glisser un diner sur un autre
-    // effacerait le second sans le dire.
-    assert.strictEqual(Semainier.creneau(MARDI, 'diner').titre, 'Pizzas');
-    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner').titre, 'Tapenade');
-    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner').recetteId, 'tapenade-maison');
+    await Semainier.deplacer(Semainier.creneau(LUNDI, 'dejeuner').cle, MARDI, 'diner');
+    // Un repas porte desormais plusieurs plats : le plat glisse vient s'ajouter a
+    // l'arrivee. L'echange n'existait que parce qu'il fallait bien liberer la case,
+    // et il deplacait un plat que personne n'avait demande a bouger.
+    assert.deepStrictEqual(
+      Semainier.creneaux(MARDI, 'diner').map((c) => c.titre),
+      ['Tapenade', 'Pizzas']
+    );
+    assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner'), null, 'le depart n a pas ete vide');
     assert.strictEqual(stub.etat.creneaux.size, 2);
   });
 
@@ -989,9 +992,87 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     const { Semainier } = neuf();
     await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
     const avant = stub.etat.appels.ecritures;
-    await Semainier.deplacer(LUNDI, 'dejeuner', LUNDI, 'dejeuner');
+    await Semainier.deplacer(Semainier.creneau(LUNDI, 'dejeuner').cle, LUNDI, 'dejeuner');
     assert.strictEqual(stub.etat.appels.ecritures, avant);
     assert.strictEqual(Semainier.creneau(LUNDI, 'dejeuner').titre, 'Pizzas');
+  });
+
+  await test('un repas porte plusieurs plats, chacun dans son document', async () => {
+    const { Semainier } = neuf();
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'recette', recetteId: 'tapenade-maison', titre: 'Tapenade' });
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'recette', recetteId: 'tarte-citron', titre: 'Tarte au citron' });
+    assert.deepStrictEqual(
+      Semainier.creneaux(LUNDI, 'dejeuner').map((c) => c.titre),
+      ['Tapenade', 'Tarte au citron'],
+      'les plats ne sont pas dans l ordre de pose'
+    );
+    // Un document par plat : sans cela le second ecraserait le premier.
+    assert.strictEqual(stub.etat.creneaux.size, 2);
+  });
+
+  await test('retirer un plat laisse les autres plats du repas en place', async () => {
+    const { Semainier } = neuf();
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'libre', titre: 'Glace' });
+    const cible = Semainier.creneaux(LUNDI, 'dejeuner')[0];
+    await Semainier.retirer(cible.cle);
+    assert.deepStrictEqual(
+      Semainier.creneaux(LUNDI, 'dejeuner').map((c) => c.titre),
+      ['Glace']
+    );
+    assert.strictEqual(stub.etat.creneaux.size, 1);
+  });
+
+  await test('retirer une cle inconnue n appelle pas le reseau', async () => {
+    const { Semainier } = neuf();
+    const avant = stub.etat.appels.suppressions;
+    await Semainier.retirer('2026-08-03::dejeuner::inexistant');
+    assert.strictEqual(stub.etat.appels.suppressions, avant);
+  });
+
+  await test('vider un repas supprime tous ses plats', async () => {
+    const { Semainier } = neuf();
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'libre', titre: 'Glace' });
+    await Semainier.vider(LUNDI, 'dejeuner');
+    assert.deepStrictEqual(Semainier.creneaux(LUNDI, 'dejeuner'), []);
+    assert.strictEqual(stub.etat.creneaux.size, 0);
+  });
+
+  await test('poser remplace tout le contenu du repas', async () => {
+    const { Semainier } = neuf();
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'libre', titre: 'Glace' });
+    await Semainier.poser(LUNDI, 'dejeuner', { type: 'libre', titre: 'Restaurant' });
+    assert.deepStrictEqual(
+      Semainier.creneaux(LUNDI, 'dejeuner').map((c) => c.titre),
+      ['Restaurant']
+    );
+    assert.strictEqual(stub.etat.creneaux.size, 1);
+  });
+
+  await test('un creneau ecrit avant le changement de cle reste lisible', async () => {
+    // Les documents deja en base portent une cle a deux morceaux. Ils doivent
+    // continuer a s'afficher : il n'y a pas eu de migration, et il n'en faut pas.
+    const { Semainier } = neuf();
+    stub.etat.creneaux.set('2026-08-03::diner', {
+      fields: {
+        cle: { stringValue: '2026-08-03::diner' },
+        jour: { stringValue: '2026-08-03' },
+        moment: { stringValue: 'diner' },
+        type: { stringValue: 'libre' },
+        titre: { stringValue: 'Ancien format' },
+        modifieLe: { stringValue: '2026-07-01T10:00:00.000Z' },
+      },
+    });
+    await Semainier.rafraichir();
+    assert.deepStrictEqual(
+      Semainier.creneaux('2026-08-03', 'diner').map((c) => c.titre),
+      ['Ancien format']
+    );
+    // Et il se retire par sa cle, comme les autres.
+    await Semainier.retirer('2026-08-03::diner');
+    assert.deepStrictEqual(Semainier.creneaux('2026-08-03', 'diner'), []);
   });
 
   await test('poser hors ligne fonctionne et part au retour du reseau', async () => {

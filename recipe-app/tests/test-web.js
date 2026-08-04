@@ -233,12 +233,43 @@ function verifier(nom, condition, detail = '') {
   );
   verifier('le texte de l etape est lisible a distance', tailleEtape >= 19, `${tailleEtape} px`);
 
+  // Rappel des ingredients de l etape en cours : en cuisine on veut savoir quoi sortir
+  // du placard maintenant, sans deplier les quatorze ingredients de la recette.
+  verifier('l etape rappelle ses ingredients', (await page.locator('#etape-ingredients').count()) === 1);
+  const rappelEtape1 = await page.locator('#etape-ingredients').textContent();
+  verifier(
+    'le rappel cite les ingredients de la premiere etape',
+    /Oignon/.test(rappelEtape1) && /Ail/.test(rappelEtape1) && /Huile d’olive|Huile d'olive/.test(rappelEtape1),
+    rappelEtape1
+  );
+  verifier(
+    'le rappel donne les quantites',
+    /1 gousse/.test(rappelEtape1),
+    rappelEtape1
+  );
+  verifier(
+    'le rappel ne recopie pas toute la liste',
+    (await page.locator('#etape-ingredients li').count()) === 3,
+    String(await page.locator('#etape-ingredients li').count())
+  );
+  verifier(
+    'la liste complete reste accessible d un pli',
+    (await page.locator('#ingredients-repli').count()) === 1
+  );
+
   await page.locator('#etape-suivante').click();
   await page.waitForTimeout(400);
   verifier(
     'Suivante avance d une etape',
     /Étape 2 sur 6/.test(await page.locator('#progression-cuisson').textContent()),
     await page.locator('#progression-cuisson').textContent()
+  );
+  // Le rappel suit l etape : ce serait pire que rien s il restait sur la precedente.
+  const rappelEtape2 = await page.locator('#etape-ingredients').textContent();
+  verifier(
+    'le rappel change avec l etape',
+    /tomate/i.test(rappelEtape2) && !/Ail/.test(rappelEtape2),
+    rappelEtape2
   );
 
   // L etape en cours survit a un rechargement complet : c'est tout l'interet.

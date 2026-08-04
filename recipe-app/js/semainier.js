@@ -159,7 +159,14 @@
     });
     return creneaux.slice().sort(function (a, b) {
       if (a.jour !== b.jour) return String(a.jour).localeCompare(String(b.jour));
-      return (rang[a.moment] === undefined ? 9 : rang[a.moment]) - (rang[b.moment] === undefined ? 9 : rang[b.moment]);
+      var ecart =
+        (rang[a.moment] === undefined ? 9 : rang[a.moment]) - (rang[b.moment] === undefined ? 9 : rang[b.moment]);
+      if (ecart !== 0) return ecart;
+      // Plusieurs plats dans un meme repas : les ordonner par date de pose, pour que
+      // le plat precede le dessert qu'on a ajoute ensuite. La cle departage les
+      // horodatages egaux, sinon l'ordre sauterait d'une lecture a l'autre.
+      if (a.modifieLe !== b.modifieLe) return String(a.modifieLe || '').localeCompare(String(b.modifieLe || ''));
+      return String(a.cle).localeCompare(String(b.cle));
     });
   }
 
@@ -251,21 +258,37 @@
 
   // --- Lecture ----------------------------------------------------------------
 
-  /** Le creneau pose a ce jour et ce moment, ou null. */
-  function creneau(jourCle, moment) {
-    var cle = Semaine.cleCreneau(jourCle, moment);
-    var trouve = null;
-    tous().forEach(function (c) {
-      if (c.cle === cle) trouve = c;
-    });
-    return trouve;
+  /** Tous les plats poses a ce jour et ce moment, dans l'ordre de pose. */
+  function creneaux(jourCle, moment) {
+    return parCreneau()[Semaine.cleCreneau(jourCle, moment)] || [];
   }
 
-  /** Index cle -> creneau, pour un rendu qui ne refait pas la recherche 21 fois. */
+  /** Le premier plat pose a ce jour et ce moment, ou null. */
+  function creneau(jourCle, moment) {
+    var liste = creneaux(jourCle, moment);
+    return liste.length > 0 ? liste[0] : null;
+  }
+
+  /** Index cle de plat -> plat. Une cle de plat est unique, elle designe un document. */
   function parCle() {
     var index = {};
     tous().forEach(function (c) {
       index[c.cle] = c;
+    });
+    return index;
+  }
+
+  /**
+   * Index cle de repas -> liste de plats. C'est cet index que le rendu utilise :
+   * une case de la grille affiche tous les plats de son repas, pas seulement le premier.
+   */
+  function parCreneau() {
+    var index = {};
+    tous().forEach(function (c) {
+      var decoupe = Semaine.decouperCreneau(c.cle);
+      var cle = decoupe ? decoupe.cleCreneau : Semaine.cleCreneau(c.jour, c.moment);
+      if (!index[cle]) index[cle] = [];
+      index[cle].push(c);
     });
     return index;
   }
@@ -394,15 +417,8 @@
     return new Date().toISOString();
   }
 
-  /**
-   * Pose un plat sur un creneau. `plat` est
-   *   { type: 'recette', recetteId, titre }  ou  { type: 'libre', titre }.
-   * Remplace ce qui s'y trouvait : un creneau ne porte qu'un plat.
-   */
-  function poser(jourCle, moment, plat) {
-    if (!plat || !plat.titre) return Promise.resolve(tous());
-    var cle = Semaine.cleCreneau(jourCle, moment);
-    var nouveau = {
+  function fabriquer(cle, jourCle, moment, plat) {
+    return {
       cle: cle,
       jour: jourCle,
       moment: moment,
@@ -411,75 +427,110 @@
       titre: plat.titre,
       modifieLe: horodatage(),
     };
-
-    var creneaux = tous().filter(function (c) {
-      return c.cle !== cle;
-    });
-    creneaux.push(nouveau);
-
-    return appliquer(trier(creneaux), { type: 'ecrire', creneau: nouveau });
-  }
-
-  /** Vide un creneau. */
-  function vider(jourCle, moment) {
-    var cle = Semaine.cleCreneau(jourCle, moment);
-    var avant = tous();
-    var creneaux = avant.filter(function (c) {
-      return c.cle !== cle;
-    });
-    if (creneaux.length === avant.length) return Promise.resolve(avant);
-    return appliquer(creneaux, { type: 'supprimer', cle: cle });
   }
 
   /**
-   * Deplace un plat d'un creneau vers un autre. Si le creneau d'arrivee est occupe,
-   * les deux plats sont echanges : c'est ce qu'on attend en glissant un diner sur un
-   * autre diner, et cela evite d'effacer un plat sans le dire.
+   * Ajoute un plat a un repas, sans toucher a ce qui s'y trouve deja. `plat` est
+   *   { type: 'recette', recetteId, titre }  ou  { type: 'libre', titre }.
+   *
+   * C'est l'operation normale : un repas peut porter un plat et un dessert.
    */
-  function deplacer(deJour, deMoment, versJour, versMoment) {
-    var cleDepart = Semaine.cleCreneau(deJour, deMoment);
-    var cleArrivee = Semaine.cleCreneau(versJour, versMoment);
-    if (cleDepart === cleArrivee) return Promise.resolve(tous());
+  function ajouter(jourCle, moment, plat) {
+    if (!plat || !plat.titre) return Promise.resolve(tous());
+    var nouveau = fabriquer(Semaine.cleItem(jourCle, moment, Semaine.suffixeItem()), jourCle, moment, plat);
+    return appliquer(trier(tous().concat([nouveau])), { type: 'ecrire', creneau: nouveau });
+  }
 
-    var index = parCle();
-    var depart = index[cleDepart];
-    if (!depart) return Promise.resolve(tous());
-    var arrivee = index[cleArrivee] || null;
+  /**
+   * Remplace tout le contenu d'un repas par ce seul plat.
+   * Sert quand on veut explicitement repartir de zero sur un creneau.
+   */
+  function poser(jourCle, moment, plat) {
+    if (!plat || !plat.titre) return Promise.resolve(tous());
+    var anciens = creneaux(jourCle, moment);
+    var nouveau = fabriquer(Semaine.cleItem(jourCle, moment, Semaine.suffixeItem()), jourCle, moment, plat);
 
-    var operations = [];
-    var creneaux = tous().filter(function (c) {
-      return c.cle !== cleDepart && c.cle !== cleArrivee;
+    var aRetirer = {};
+    anciens.forEach(function (c) {
+      aRetirer[c.cle] = true;
     });
 
-    var pose = {
-      cle: cleArrivee,
-      jour: versJour,
-      moment: versMoment,
-      type: depart.type,
-      recetteId: depart.recetteId || '',
-      titre: depart.titre,
-      modifieLe: horodatage(),
-    };
-    creneaux.push(pose);
-    operations.push({ type: 'ecrire', creneau: pose });
+    var operations = anciens.map(function (c) {
+      return { type: 'supprimer', cle: c.cle };
+    });
+    operations.push({ type: 'ecrire', creneau: nouveau });
 
-    if (arrivee) {
-      var echange = {
-        cle: cleDepart,
-        jour: deJour,
-        moment: deMoment,
-        type: arrivee.type,
-        recetteId: arrivee.recetteId || '',
-        titre: arrivee.titre,
-        modifieLe: horodatage(),
-      };
-      creneaux.push(echange);
-      operations.push({ type: 'ecrire', creneau: echange });
-    } else {
-      operations.push({ type: 'supprimer', cle: cleDepart });
-    }
+    return appliquer(
+      trier(
+        tous()
+          .filter(function (c) {
+            return !aRetirer[c.cle];
+          })
+          .concat([nouveau])
+      ),
+      operations
+    );
+  }
 
-    return appliquer(trier(creneaux), operations);
+  /** Retire un plat, designe par sa cle de document. */
+  function retirer(cle) {
+    var avant = tous();
+    var apres = avant.filter(function (c) {
+      return c.cle !== cle;
+    });
+    if (apres.length === avant.length) return Promise.resolve(avant);
+    return appliquer(apres, { type: 'supprimer', cle: cle });
+  }
+
+  /** Vide un repas, avec tous les plats qu'il porte. */
+  function vider(jourCle, moment) {
+    var vises = creneaux(jourCle, moment);
+    if (vises.length === 0) return Promise.resolve(tous());
+
+    var aRetirer = {};
+    vises.forEach(function (c) {
+      aRetirer[c.cle] = true;
+    });
+
+    return appliquer(
+      tous().filter(function (c) {
+        return !aRetirer[c.cle];
+      }),
+      vises.map(function (c) {
+        return { type: 'supprimer', cle: c.cle };
+      })
+    );
+  }
+
+  /**
+   * Deplace un plat, designe par sa cle, vers un autre repas.
+   *
+   * Il n'y a plus d'echange entre les deux creneaux : le plat vient s'ajouter a
+   * l'arrivee. L'echange n'existait que parce qu'un repas ne portait qu'un plat et
+   * qu'il fallait bien eviter d'en effacer un ; ce n'est plus le cas.
+   */
+  function deplacer(cle, versJour, versMoment) {
+    var depart = parCle()[cle];
+    if (!depart) return Promise.resolve(tous());
+    if (depart.jour === versJour && depart.moment === versMoment) return Promise.resolve(tous());
+
+    // Le plat prend un nouvel horodatage : il arrive derriere ce qui est deja pose,
+    // ce qui est ce qu'on voit en le lachant sur la case.
+    var pose = fabriquer(Semaine.cleItem(versJour, versMoment, Semaine.suffixeItem()), versJour, versMoment, depart);
+
+    return appliquer(
+      trier(
+        tous()
+          .filter(function (c) {
+            return c.cle !== cle;
+          })
+          .concat([pose])
+      ),
+      [
+        { type: 'ecrire', creneau: pose },
+        { type: 'supprimer', cle: cle },
+      ]
+    );
   }
 
   /** Retire toutes les occurrences d'une recette du semainier. */
@@ -518,7 +569,9 @@
 
     tous: tous,
     creneau: creneau,
+    creneaux: creneaux,
     parCle: parCle,
+    parCreneau: parCreneau,
     platsDeLaSemaine: platsDeLaSemaine,
 
     realisations: realisations,
@@ -527,7 +580,9 @@
     derniereFois: derniereFois,
     classement: classement,
 
+    ajouter: ajouter,
     poser: poser,
+    retirer: retirer,
     vider: vider,
     deplacer: deplacer,
     retirerRecette: retirerRecette,
