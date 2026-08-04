@@ -39,7 +39,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : douze fichi
         ├── test-web.js             66 vérifications navigateur, parcours général
         ├── test-partage.js         38 vérifications navigateur, partage et hors ligne
         ├── test-edition.js         59 vérifications navigateur, modification, parts, déroulé
-        ├── test-semainier.js       98 vérifications navigateur, semainier, photos, compteur
+        ├── test-semainier.js      106 vérifications navigateur, semainier, photos, compteur
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -274,7 +274,7 @@ Confondre les trois était le vrai défaut de la version précédente : elle ann
 cd recipe-app
 node tests/run-tests.js           # 94 tests de la logique métier
 node tests/run-sync-tests.js      # 99 tests de la synchronisation
-node tests/run-browser-tests.js   # 261 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 269 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

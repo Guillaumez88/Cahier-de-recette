@@ -1435,7 +1435,17 @@ textarea.champ-edition {
 /* --- Accueil : entrée et accès --------------------------------------------- */
 
 .entree {
-  padding: 26px 0 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 26px 0 16px;
+}
+
+.entree__texte {
+  flex: 1 1 320px;
+  min-width: 0;
 }
 
 .entree__salut {
@@ -1522,30 +1532,9 @@ textarea.champ-edition {
 
 /* --- Semainier ------------------------------------------------------------- */
 
-.semainier__entete {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .semainier__titre {
-  margin: 0;
+  margin: 0 0 12px;
   font-size: 24px;
-}
-
-.onglets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.semainier__aide {
-  margin: 8px 0 12px;
-  font-family: system-ui, sans-serif;
-  font-size: 13px;
-  color: var(--texte-doux);
 }
 
 .semaine {
@@ -2488,4 +2477,164 @@ textarea.champ-edition {
 
 .barre-resultats--actions {
   justify-content: flex-end;
+}
+
+/* --- Aujourd'hui, les trois repas du jour ----------------------------------
+   Première chose de la page. Sur téléphone, l'information la plus demandée était
+   auparavant sous un titre, un résumé, deux cartes d'accès, trois onglets, une
+   phrase d'aide et un bandeau d'état : il fallait faire défiler pour savoir ce
+   qu'on mange ce soir. */
+
+.aujourdhui {
+  margin: 0 0 22px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-lg);
+  box-shadow: var(--ombre-sm);
+}
+
+.aujourdhui__entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+}
+
+.aujourdhui__titre {
+  margin: 0;
+  font-family: var(--police-titre);
+  font-size: 22px;
+}
+
+.aujourdhui__date {
+  font-size: 14px;
+  color: var(--texte-doux);
+}
+
+.aujourdhui__repas {
+  display: flex;
+  flex-direction: column;
+}
+
+.repas-jour {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--bordure);
+}
+.repas-jour:first-child {
+  border-top: 0;
+}
+
+.repas-jour__moment {
+  flex: 0 0 108px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--texte-faible);
+}
+
+.repas-jour__titre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 17px;
+}
+.repas-jour__lien {
+  color: inherit;
+  text-decoration: none;
+}
+.repas-jour__lien:hover {
+  text-decoration: underline;
+}
+
+.repas-jour__vide {
+  flex: 1 1 auto;
+  font-size: 15px;
+  color: var(--texte-faible);
+}
+
+/* 44 px de côté : c'est une cible qu'on vise les mains occupées. */
+.bouton-icone {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  color: var(--terracotta);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--rayon-pilule);
+  cursor: pointer;
+}
+.bouton-icone:hover {
+  background: var(--terracotta-clair);
+  border-color: var(--bordure);
+}
+
+/* --- Semaine repliée ------------------------------------------------------- */
+
+.semaine-repliee {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-bottom: 26px;
+  padding: 14px 18px;
+  background: var(--surface-creuse);
+  border-radius: var(--rayon-lg);
+}
+
+.semaine-repliee__titre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--police-titre);
+  font-size: 17px;
+  color: var(--terracotta);
+}
+
+.semaine-repliee__dates {
+  flex: 1 1 auto;
+  font-size: 13.5px;
+  color: var(--texte-doux);
+}
+
+/* Le bandeau d'état se tient à droite du titre de la page : il doit être lisible
+   sans occuper une ligne entière au-dessus du contenu utile. */
+.entree .sync {
+  flex: 0 1 380px;
+  margin-bottom: 0;
+}
+@media (max-width: 700px) {
+  .entree .sync {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .repas-jour__moment {
+    flex-basis: 74px;
+    font-size: 11.5px;
+  }
+  .repas-jour__titre {
+    font-size: 16px;
+  }
+  .aujourdhui {
+    padding: 14px;
+  }
+}
+
+@media print {
+  .aujourdhui,
+  .semaine-repliee {
+    display: none !important;
+  }
 }

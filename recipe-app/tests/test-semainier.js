@@ -113,7 +113,18 @@ const PNG_ROUGE =
   await attendre(900);
 
   verifier('l accueil pose la question du repas', /Qu’est-ce qu’on mange/.test(await texteDe(pageA)));
-  verifier('deux semaines sont affichees', (await pageA.locator('.semaine').count()) === 2);
+  // La semaine suivante est vide au demarrage : elle est repliee, et n'occupe donc
+  // pas la moitie de la hauteur de page pour vingt-et-une cases a remplir.
+  verifier('une seule semaine est depliee au depart', (await pageA.locator('.semaine').count()) === 1);
+  verifier('la semaine suivante est repliee', (await pageA.locator('[data-semaine-repliee]').count()) === 1);
+  verifier(
+    'le bandeau replie dit qu il n y a rien de prevu',
+    /rien de prévu pour l’instant/.test(await texteDe(pageA)),
+    (await texteDe(pageA)).slice(0, 400)
+  );
+  await pageA.locator('#deplier-semaine').click();
+  await attendre(500);
+  verifier('la semaine suivante se deplie d un clic', (await pageA.locator('.semaine').count()) === 2);
   verifier('chaque semaine a sept jours', (await pageA.locator('.semaine').first().locator('.jour').count()) === 7);
   verifier(
     'chaque semaine a vingt-et-un creneaux',
@@ -254,21 +265,57 @@ const PNG_ROUGE =
     await creneau(pageA, JOURS[2], 'diner').textContent()
   );
 
-  // --- 7. Onglets de semaines -------------------------------------------------
+  // --- 7. Le bloc « Aujourd'hui » ---------------------------------------------
+  //
+  // Les trois repas du jour, en haut de page, atteignables sans defilement.
 
-  await pageA.locator('[data-onglet-semaine="0"]').click();
-  await attendre(400);
-  verifier('un seul semainier est affiche apres filtrage', (await pageA.locator('.semaine').count()) === 1);
-  await pageA.locator('[data-onglet-semaine="1"]').click();
-  await attendre(400);
+  verifier('le bloc du jour est present', (await pageA.locator('#aujourdhui').count()) === 1);
   verifier(
-    'la semaine suivante s affiche seule',
-    (await pageA.locator('.semaine').count()) === 1 &&
-      (await creneau(pageA, LUNDI, 'dejeuner').count()) === 0
+    'le bloc du jour porte les trois repas',
+    (await pageA.locator('[data-repas-jour]').count()) === 3,
+    String(await pageA.locator('[data-repas-jour]').count())
   );
-  await pageA.locator('[data-onglet-semaine="null"]').click();
+  // Assertion relationnelle, et sur le jour reellement courant : le plat de midi a
+  // change plusieurs fois au fil des controles, et la suite peut etre jouee
+  // n'importe quel jour de la semaine. Ce qui compte est que le bloc du jour dise la
+  // meme chose que la case correspondante du semainier.
+  const cleAujourdhui = await pageA.evaluate(() => {
+    const cases = document.querySelectorAll('.jour--aujourdhui [data-creneau]');
+    return cases.length ? cases[0].getAttribute('data-creneau').split('::')[0] : null;
+  });
+  verifier('le jour courant est identifiable dans la grille', cleAujourdhui !== null);
+  const platDeMidi = (await creneau(pageA, cleAujourdhui, 'dejeuner').textContent())
+    .replace(/^\s*Midi\s*/i, '')
+    .trim();
+  verifier(
+    'le bloc du jour dit la meme chose que la case du semainier',
+    (await pageA.locator('[data-repas-jour="dejeuner"]').textContent()).includes(platDeMidi),
+    `case « ${platDeMidi} », bloc « ${await pageA.locator('[data-repas-jour="dejeuner"]').textContent()} »`
+  );
+  verifier(
+    'un repas non prevu est annonce comme tel',
+    /Rien de prévu/.test(await pageA.locator('[data-repas-jour="petit-dejeuner"]').textContent()) ||
+      /Restes/.test(await pageA.locator('[data-repas-jour="petit-dejeuner"]').textContent()),
+    await pageA.locator('[data-repas-jour="petit-dejeuner"]').textContent()
+  );
+
+  // Le crayon du bloc du jour ouvre la meme boite que la case du semainier.
+  await pageA.locator('[data-modifier-jour="diner"]').click();
   await attendre(400);
-  verifier('les deux semaines reviennent', (await pageA.locator('.semaine').count()) === 2);
+  verifier('le crayon du jour ouvre le choix de plat', (await pageA.locator('#voile').count()) === 1);
+  await pageA.locator('#fermer-boite').click();
+  await attendre(300);
+
+  // Cible tactile : 44 px de cote, c'est ce qu'on vise les mains occupees.
+  const tailleCrayon = await pageA.evaluate(() => {
+    const n = document.querySelector('[data-modifier-jour="diner"]').getBoundingClientRect();
+    return { l: Math.round(n.width), h: Math.round(n.height) };
+  });
+  verifier(
+    'le crayon du jour fait au moins 44 px de cote',
+    tailleCrayon.l >= 44 && tailleCrayon.h >= 44,
+    JSON.stringify(tailleCrayon)
+  );
 
   // --- 8. Ajouter les plats de la semaine a la liste de courses ---------------
   //
@@ -556,10 +603,25 @@ const PNG_ROUGE =
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth
   );
   verifier('aucun debordement horizontal en 360 px', debordement <= 1, `${debordement} px`);
+  // Vingt-et-une cases et non quarante-deux : la semaine suivante est vide, donc
+  // repliee, sur un ecran neuf qui n'a pas demande a la voir.
   verifier(
     'le semainier reste utilisable sur telephone',
-    (await telephone.locator('.creneau').count()) === 42,
+    (await telephone.locator('.creneau').count()) === 21,
     String(await telephone.locator('.creneau').count())
+  );
+  verifier(
+    'le bloc du jour est atteignable sans defilement sur telephone',
+    await telephone.evaluate(() => {
+      const bloc = document.getElementById('aujourdhui');
+      if (!bloc) return false;
+      const bas = bloc.getBoundingClientRect().bottom;
+      return bas > 0 && bas <= window.innerHeight;
+    }),
+    await telephone.evaluate(() => {
+      const bloc = document.getElementById('aujourdhui');
+      return bloc ? Math.round(bloc.getBoundingClientRect().bottom) + ' px pour ' + window.innerHeight : 'absent';
+    })
   );
   // La reserve de plats est masquee au tactile : le glissement HTML5 n'y existe pas.
   verifier(

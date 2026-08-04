@@ -39,8 +39,9 @@
   var recetteDansListe = S.recetteDansListe;
   var grouperParRecette = S.grouperParRecette;
 
-  // `semaineSeule` : null pour afficher les deux semaines, sinon leur rang.
-  var etat = { recettes: [], criteres: criteresVides(), semaineSeule: null, rechercheReserve: '' };
+  // `semainesDepliees` : les semaines vides sont repliees, sauf celles qu'on a
+  // explicitement demande a voir.
+  var etat = { recettes: [], criteres: criteresVides(), semainesDepliees: {}, rechercheReserve: '' };
 
   /** Route affichee, sans le dièse. Utilisee pour ne re-rendre que l'ecran courant. */
   function routeCourante() {
@@ -670,25 +671,124 @@
     ]);
   }
 
+  /**
+   * Bloc « Aujourd'hui », les trois repas du jour.
+   *
+   * Premiere chose de la page, avant tout le reste : c'est l'information la plus
+   * demandee, et sur telephone elle etait auparavant sous un titre, un resume, deux
+   * cartes d'acces, trois onglets, une phrase d'aide et un bandeau d'etat.
+   */
+  function blocAujourdhui(sem) {
+    var jour = null;
+    (sem.jours || []).forEach(function (j) {
+      if (j.estAujourdhui) jour = j;
+    });
+    if (!jour) return null;
+
+    var index = Sm.parCle();
+
+    return el('section', { class: 'aujourdhui', id: 'aujourdhui' }, [
+      el('header', { class: 'aujourdhui__entete' }, [
+        el('h2', { class: 'aujourdhui__titre', texte: 'Aujourd’hui' }),
+        el('span', { class: 'aujourdhui__date', texte: jour.libelle }),
+      ]),
+      el(
+        'div',
+        { class: 'aujourdhui__repas' },
+        Sem.MOMENTS.map(function (moment) {
+          var creneau = index[Sem.cleCreneau(jour.cle, moment.cle)] || null;
+          var recette = creneau && creneau.type === Sm.TYPE_RECETTE ? Rc.parId(creneau.recetteId) : null;
+
+          return el('div', { class: 'repas-jour', 'data-repas-jour': moment.cle }, [
+            el('span', { class: 'repas-jour__moment', texte: moment.libelle }),
+            creneau
+              ? el('span', { class: 'repas-jour__titre' }, [
+                  el('span', { class: classeCategorie('marque-plat', recette ? recette.categorie : 'Plat') }, [
+                    icone(recette ? Ic.pourCategorie(recette.categorie) : iconeRepasLibre(creneau.titre), {
+                      taille: 15,
+                    }),
+                  ]),
+                  recette
+                    ? el('a', { class: 'repas-jour__lien', href: '#/recette/' + recette.id, texte: recette.titre })
+                    : el('span', { texte: creneau.titre }),
+                ])
+              : el('span', { class: 'repas-jour__vide', texte: 'Rien de prévu' }),
+            el('button', {
+              type: 'button',
+              class: 'bouton-icone',
+              'data-modifier-jour': moment.cle,
+              'aria-label': (creneau ? 'Modifier le ' : 'Choisir le ') + moment.libelle + ' du ' + jour.libelle,
+              onclick: function () {
+                ouvrirSelecteurCreneau(jour, moment);
+              },
+            }, [icone(creneau ? 'crayon' : 'plus', { taille: 18 })]),
+          ]);
+        })
+      ),
+    ]);
+  }
+
+  /**
+   * Bandeau d'une semaine vide, replie.
+   *
+   * La semaine suivante est presque toujours entierement vide et occupait la moitie
+   * de la hauteur de page pour vingt-et-une cases a remplir. Elle se deplie d'un clic.
+   */
+  function bandeauSemaineRepliee(sem) {
+    return el('div', { class: 'semaine-repliee', 'data-semaine-repliee': sem.cle }, [
+      el('span', { class: 'semaine-repliee__titre' }, [
+        icone('calendrier', { taille: 16 }),
+        el('span', { texte: 'Semaine suivante' }),
+      ]),
+      el('span', { class: 'semaine-repliee__dates', texte: sem.libelle + ' · rien de prévu pour l’instant' }),
+      el('button', {
+        type: 'button',
+        class: 'bouton bouton--sobre',
+        id: 'deplier-semaine',
+        texte: 'Déplier',
+        onclick: function () {
+          etat.semainesDepliees[sem.cle] = true;
+          rendreAccueil();
+        },
+      }),
+    ]);
+  }
+
   function vueAccueil() {
     document.title = 'Mon carnet de recettes';
 
     var aujourdhui = new Date();
     var toutes = Sem.semaines(aujourdhui, Math.max(1, window.CarnetConfig.nbSemaines || 2));
-    var affichees = etat.semaineSeule === null ? toutes : [toutes[etat.semaineSeule] || toutes[0]];
-
     var recettes = Rc.toutes();
     var restants = nbArticlesRestants();
+    var index = Sm.parCle();
+
+    /** Une semaine est vide si aucun de ses vingt-et-un creneaux ne porte de plat. */
+    function estVide(sem) {
+      return !Sem.creneauxDe(sem).some(function (creneau) {
+        return index[creneau.cle];
+      });
+    }
 
     var fragment = document.createDocumentFragment();
 
+    // La question, puis tout de suite la reponse : les repas du jour. L'etat de
+    // partage se tient a droite du titre, ou il est visible sans occuper une ligne.
     fragment.appendChild(
       el('section', { class: 'entree' }, [
-        el('p', { class: 'entree__salut' }, [icone('marmite', { taille: 20 }), el('span', { texte: 'À la maison' })]),
-        el('h1', { class: 'entree__titre', texte: 'Qu’est-ce qu’on mange ?' }),
-        el('p', { class: 'entree__resume', id: 'resume-accueil', texte: resumeAccueil(affichees) }),
+        el('div', { class: 'entree__texte' }, [
+          el('h1', { class: 'entree__titre', texte: 'Qu’est-ce qu’on mange ?' }),
+          el('p', { class: 'entree__resume', id: 'resume-accueil', texte: resumeAccueil(toutes) }),
+        ]),
+        barreSyncSemainier(),
       ])
     );
+
+    var duJour = blocAujourdhui(toutes[0]);
+    if (duJour) fragment.appendChild(duJour);
+
+    var bandeau = bandeauErreurRecettes();
+    if (bandeau) fragment.appendChild(bandeau);
 
     fragment.appendChild(
       el('nav', { class: 'acces-liste', 'aria-label': 'Accès principaux' }, [
@@ -709,51 +809,19 @@
       ])
     );
 
-    var bandeau = bandeauErreurRecettes();
-    if (bandeau) fragment.appendChild(bandeau);
-
-    var onglets = el('div', { class: 'onglets', role: 'group', 'aria-label': 'Semaines affichées' }, [
-      { valeur: null, libelle: 'Les deux semaines' },
-      { valeur: 0, libelle: 'Cette semaine' },
-      { valeur: 1, libelle: 'La suivante' },
-    ]
-      .filter(function (onglet) {
-        return onglet.valeur === null || onglet.valeur < toutes.length;
-      })
-      .map(function (onglet) {
-        var actif = etat.semaineSeule === onglet.valeur;
-        return el('button', {
-          type: 'button',
-          class: 'pilule',
-          'aria-pressed': actif ? 'true' : 'false',
-          'data-onglet-semaine': String(onglet.valeur),
-          texte: onglet.libelle,
-          onclick: function () {
-            etat.semaineSeule = onglet.valeur;
-            rendreAccueil();
-          },
-        });
-      }));
-
     fragment.appendChild(
       el('section', { class: 'semainier' }, [
-        el('header', { class: 'semainier__entete' }, [
-          el('h2', { class: 'semainier__titre', texte: 'Les repas de la semaine' }),
-          onglets,
-        ]),
-        el('p', {
-          class: 'semainier__aide',
-          texte:
-            'Touchez une case pour choisir un plat du livre ou un repas hors carnet. Sur ordinateur, un plat se glisse d’une case à l’autre.',
-        }),
-        barreSyncSemainier(),
+        el('h2', { class: 'semainier__titre', texte: 'Les repas de la semaine' }),
       ])
     );
 
     fragment.appendChild(reserveDePlats());
 
-    affichees.forEach(function (sem) {
-      fragment.appendChild(blocSemaine(sem, sem.contientAujourdhui));
+    // La semaine en cours est toujours dépliée. Les suivantes ne le sont que si
+    // elles portent quelque chose, ou si on a demandé à les voir.
+    toutes.forEach(function (sem, rang) {
+      var deplie = rang === 0 || etat.semainesDepliees[sem.cle] || !estVide(sem);
+      fragment.appendChild(deplie ? blocSemaine(sem, sem.contientAujourdhui) : bandeauSemaineRepliee(sem));
     });
 
     return fragment;
