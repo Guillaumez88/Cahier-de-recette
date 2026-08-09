@@ -468,6 +468,7 @@ Un quatrième écart, mineur : pour `lasagnes-bolognaise`, le tableau de flux d�
 
 - `docs/BRIEF-UX-2026-08-03.md` : le brief remis au design. Contexte d'usage, contraintes techniques non négociables, inventaire des écrans et de leurs états, modèle de données mesuré, identité visuelle d'alors, problèmes constatés avec leurs preuves, critères d'acceptation. Les captures de l'état au 3 août 2026 sont dans `docs/captures-2026-08-03/`.
 - `docs/refonte-2026-08-03/` : la proposition retenue (`HANDOFF-DESIGN.md`, `design-final.html`, six plans). Les cinq écrans qu'elle décrit sont implémentés. Deux points ont été volontairement écartés depuis, à la demande : la pastille de partage compacte, remplacée par un bouton de rafraîchissement dans l'en-tête, et le vocabulaire « Matin / Midi / Soir » de la grille, remplacé par « Petit-déjeuner / Déjeuner / Dîner ».
+- `docs/PISTES-2026-08-09.md` : analyse du projet à date et pistes d'amélioration chiffrées, à valider ou invalider. Dit aussi ce qui n'a pas besoin d'être amélioré (poids du site, vitesse de la recherche), pour ne pas encombrer la liste de faux problèmes.
 - `docs/DECISIONS-2026-08-04.md` : ce qui a été tranché lors du passage à plusieurs plats par repas, contre quoi, et pourquoi. À lire avant de revenir sur la forme des clés de créneau, sur le comportement du glisser-déposer ou sur le rappel d'ingrédients de l'étape en cours.
 
 ## Historique
