@@ -49,6 +49,7 @@ function chargerModules() {
     'js/recettes.js',
     'js/storage.js',
     'js/semainier.js',
+    'js/placard.js',
     'js/photos.js',
   ].forEach((relatif) => {
     delete require.cache[require.resolve(path.join(racine, relatif))];
@@ -62,8 +63,9 @@ function chargerModules() {
   const Recettes = require(path.join(racine, 'js/recettes.js'));
   const Storage = require(path.join(racine, 'js/storage.js'));
   const Semainier = require(path.join(racine, 'js/semainier.js'));
+  const Placard = require(path.join(racine, 'js/placard.js'));
   const Photos = require(path.join(racine, 'js/photos.js'));
-  return { config, Sync, Recettes, Storage, Semainier, Photos };
+  return { config, Sync, Recettes, Storage, Semainier, Placard, Photos };
 }
 
 function neuf() {
@@ -1021,6 +1023,145 @@ serveur.listen(PORT, '127.0.0.1', async () => {
       ['Glace']
     );
     assert.strictEqual(stub.etat.creneaux.size, 1);
+  });
+
+  // --- Placard ---------------------------------------------------------------
+
+  await test('le placard normalise les noms : casse, accents et apostrophes', async () => {
+    const { Placard } = neuf();
+    await Placard.ajouter('Huile d’olive');
+    // Trois ecritures du meme bocal. Sans normalisation, le placard accumulerait
+    // trois entrees et n'en reconnaitrait aucune au moment des courses.
+    assert.strictEqual(Placard.contient('huile d\'olive'), true);
+    assert.strictEqual(Placard.contient('HUILE D’OLIVE'), true);
+    assert.strictEqual(Placard.contient('Crème fraîche'), false);
+
+    await Placard.ajouter('Huile d\'olive');
+    assert.strictEqual(Placard.tous().length, 1, 'un doublon a ete cree');
+    assert.strictEqual(stub.etat.placard.size, 1);
+  });
+
+  await test('le placard se retire et repart en base', async () => {
+    const { Placard } = neuf();
+    await Placard.ajouter('Sel');
+    await Placard.ajouter('Farine');
+    await Placard.retirer('SEL');
+    assert.deepStrictEqual(
+      Placard.tous().map((e) => e.nom),
+      ['Farine']
+    );
+    assert.strictEqual(stub.etat.placard.size, 1);
+  });
+
+  await test('le placard est trie par nom, pas par ordre d ajout', async () => {
+    const { Placard } = neuf();
+    await Placard.ajouter('Sel');
+    await Placard.ajouter('Farine');
+    await Placard.ajouter('Beurre');
+    assert.deepStrictEqual(
+      Placard.tous().map((e) => e.nom),
+      ['Beurre', 'Farine', 'Sel']
+    );
+  });
+
+  await test('couverts dit quels ingredients d une recette sont au placard', async () => {
+    const { Placard } = neuf();
+    await Placard.ajouter('Sel');
+    await Placard.ajouter('Huile d’olive');
+    const recette = {
+      ingredients: [
+        { groupe: null, items: [{ nom: 'Sel', quantite: '1 pincée' }, { nom: 'Tomates', quantite: '4' }] },
+        { groupe: 'Assaisonnement', items: [{ nom: 'Huile d’olive', quantite: '2 c. à s.' }] },
+      ],
+    };
+    assert.deepStrictEqual(Placard.couverts(recette), ['Sel', 'Huile d’olive']);
+  });
+
+  await test('un placard inaccessible laisse le carnet fonctionner', async () => {
+    // Les regles de la collection `placard` peuvent ne pas etre publiees. Le carnet
+    // doit alors marcher sans : aucun ingredient ecarte, une erreur consultable.
+    const { Placard } = neuf();
+    await basculerPanne(true);
+    await Placard.rafraichir();
+    assert.deepStrictEqual(Placard.tous(), []);
+    assert.strictEqual(Placard.contient('Sel'), false);
+    assert.strictEqual(Placard.etatSync().enLigne, false);
+    assert.ok(Placard.etatSync().erreur, 'l erreur doit etre consultable');
+    await basculerPanne(false);
+  });
+
+  await test('les ingredients du placard ne partent pas en courses', async () => {
+    const { Storage, Placard } = neuf();
+    await Placard.ajouter('Sel');
+    const recette = {
+      id: 'test-placard',
+      titre: 'Test',
+      ingredients: [{ groupe: null, items: [{ nom: 'Sel', quantite: '1 pincée' }, { nom: 'Tomates', quantite: '4' }] }],
+    };
+    const resultat = await Storage.addRecipesToList([recette], (nom) => Placard.contient(nom));
+    assert.strictEqual(resultat.ajoutes, 1, 'seules les tomates devaient partir');
+    assert.strictEqual(resultat.exclus, 1);
+    assert.deepStrictEqual(
+      Storage.getShoppingList().map((a) => a.nom),
+      ['Tomates']
+    );
+  });
+
+  await test('sans exclusion, addRecipesToList se comporte comme avant', async () => {
+    const { Storage } = neuf();
+    const recette = {
+      id: 'test-sans-placard',
+      titre: 'Test',
+      ingredients: [{ groupe: null, items: [{ nom: 'Sel', quantite: '1 pincée' }, { nom: 'Tomates', quantite: '4' }] }],
+    };
+    const resultat = await Storage.addRecipesToList([recette]);
+    assert.strictEqual(resultat.ajoutes, 2);
+    assert.strictEqual(resultat.exclus, 0);
+  });
+
+  await test('retirer rend le plat retire, et reposer le remet a l identique', async () => {
+    const { Semainier } = neuf();
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'libre', titre: 'Glace' });
+    const premier = Semainier.creneaux(LUNDI, 'dejeuner')[0];
+
+    const retire = await Semainier.retirer(premier.cle);
+    assert.ok(retire, 'retirer doit rendre le plat retire, pour pouvoir l annuler');
+    assert.strictEqual(retire.cle, premier.cle);
+    assert.strictEqual(retire.titre, 'Pizzas');
+
+    await Semainier.reposer(retire);
+    // La cle est conservee, donc la place dans l ordre du repas aussi : une annulation
+    // qui renverrait le plat en fin de liste ne serait pas une annulation.
+    assert.deepStrictEqual(
+      Semainier.creneaux(LUNDI, 'dejeuner').map((c) => c.titre),
+      ['Pizzas', 'Glace']
+    );
+    assert.strictEqual(Semainier.creneaux(LUNDI, 'dejeuner')[0].cle, premier.cle);
+    assert.strictEqual(stub.etat.creneaux.size, 2);
+  });
+
+  await test('reposer ne remplace pas un plat qui a repris la cle', async () => {
+    // Un autre appareil a pu poser quelque chose entre-temps. L annulation doit alors
+    // ne rien faire : ecraser serait pire que de ne pas annuler.
+    const { Semainier } = neuf();
+    await Semainier.ajouter(LUNDI, 'dejeuner', { type: 'libre', titre: 'Pizzas' });
+    const plat = Semainier.creneaux(LUNDI, 'dejeuner')[0];
+    await Semainier.retirer(plat.cle);
+    await Semainier.reposer({ ...plat, titre: 'Ancien' });
+    await Semainier.reposer({ ...plat, titre: 'Doublon' });
+    assert.deepStrictEqual(
+      Semainier.creneaux(LUNDI, 'dejeuner').map((c) => c.titre),
+      ['Ancien']
+    );
+  });
+
+  await test('reposer refuse un plat sans cle ou sans titre', async () => {
+    const { Semainier } = neuf();
+    await Semainier.reposer(null);
+    await Semainier.reposer({ cle: '', titre: 'X' });
+    await Semainier.reposer({ cle: `${LUNDI}::dejeuner::abc`, titre: '' });
+    assert.strictEqual(stub.etat.creneaux.size, 0);
   });
 
   await test('retirer une cle inconnue n appelle pas le reseau', async () => {

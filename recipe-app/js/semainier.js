@@ -472,14 +472,55 @@
     );
   }
 
-  /** Retire un plat, designe par sa cle de document. */
+  /**
+   * Retire un plat, designe par sa cle de document.
+   *
+   * Rend le plat retire, ou null s'il n'existait pas. C'est ce qui permet de reposer
+   * exactement le meme plat, a la meme place, si le retrait etait une erreur : voir
+   * `reposer()`.
+   */
   function retirer(cle) {
     var avant = tous();
+    var vise = null;
     var apres = avant.filter(function (c) {
-      return c.cle !== cle;
+      if (c.cle !== cle) return true;
+      vise = c;
+      return false;
     });
-    if (apres.length === avant.length) return Promise.resolve(avant);
-    return appliquer(apres, { type: 'supprimer', cle: cle });
+    if (!vise) return Promise.resolve(null);
+    return appliquer(apres, { type: 'supprimer', cle: cle }).then(function () {
+      return vise;
+    });
+  }
+
+  /**
+   * Repose un plat retire, tel qu'il etait, cle comprise.
+   *
+   * Sert a annuler un retrait. La cle d'origine est conservee et non regeneree : un
+   * plat repose doit retrouver sa place dans l'ordre du repas, et une cle neuve le
+   * renverrait en fin de liste, ce qui n'est pas une annulation.
+   *
+   * Si la cle a ete reprise entre-temps, par un autre appareil ou par un nouvel ajout,
+   * le plat present gagne et l'annulation ne fait rien : ecraser serait pire que de
+   * ne pas annuler.
+   */
+  function reposer(plat) {
+    if (!plat || !plat.cle || !plat.titre) return Promise.resolve(tous());
+    var existe = tous().some(function (c) {
+      return c.cle === plat.cle;
+    });
+    if (existe) return Promise.resolve(tous());
+
+    var remis = {
+      cle: plat.cle,
+      jour: plat.jour,
+      moment: plat.moment,
+      type: plat.type === TYPE_LIBRE ? TYPE_LIBRE : TYPE_RECETTE,
+      recetteId: plat.recetteId || '',
+      titre: plat.titre,
+      modifieLe: plat.modifieLe || horodatage(),
+    };
+    return appliquer(trier(tous().concat([remis])), { type: 'ecrire', creneau: remis });
   }
 
   /** Vide un repas, avec tous les plats qu'il porte. */
@@ -583,6 +624,7 @@
     ajouter: ajouter,
     poser: poser,
     retirer: retirer,
+    reposer: reposer,
     vider: vider,
     deplacer: deplacer,
     retirerRecette: retirerRecette,

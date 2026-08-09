@@ -384,6 +384,60 @@
     }
   }
 
+  // --- Placard : les ingredients qu'on a toujours -------------------------------
+  //
+  // Un document par ingredient, dans `placard`, comme partout ailleurs : deux
+  // personnes qui ajoutent chacune un ingredient au placard modifient deux documents
+  // distincts, et aucune des deux n'ecrase l'autre.
+  //
+  // Pourquoi partage et non local : le placard decrit la maison, pas l'appareil. S'il
+  // etait local, l'un curerait sa liste et l'autre recevrait quand meme le sel et la
+  // farine dans ses courses. C'est exactement le defaut corrige sur le semainier.
+
+  function cheminPlacard() {
+    return `projects/${config.projectId}/databases/(default)/documents/placard`;
+  }
+
+  /** Lit tout le placard. Retourne une liste de { cle, nom }. */
+  async function lirePlacard() {
+    var entrees = [];
+    var pageSuivante = null;
+
+    do {
+      var url = `${cheminPlacard()}?pageSize=300${pageSuivante ? `&pageToken=${encodeURIComponent(pageSuivante)}` : ''}`;
+      var corps = await requete(url, { method: 'GET' });
+      (corps && corps.documents ? corps.documents : []).forEach(function (document_) {
+        var objet = champsVersObjet(document_.fields);
+        objet.idDocument = String(document_.name).split('/').pop();
+        entrees.push(objet);
+      });
+      pageSuivante = corps && corps.nextPageToken;
+    } while (pageSuivante);
+
+    return entrees;
+  }
+
+  async function ecrirePlacard(entree) {
+    var id = idDocument(entree.cle);
+    var aEcrire = Object.assign({}, entree);
+    delete aEcrire.idDocument;
+    return requete(`${cheminPlacard()}/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: objetVersChamps(aEcrire) }),
+    });
+  }
+
+  async function supprimerPlacard(cle) {
+    var id = idDocument(cle);
+    try {
+      return await requete(`${cheminPlacard()}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch (erreur) {
+      if (erreur.statut === 404) return null;
+      throw erreur;
+    }
+  }
+
   // --- Photos des recettes -----------------------------------------------------
   //
   // Un document par recette dans `photos`, avec deux tailles dans le meme document :
@@ -489,6 +543,9 @@
     ecrireCreneau: ecrireCreneau,
     supprimerCreneau: supprimerCreneau,
     cheminPhotos: cheminPhotos,
+    lirePlacard: lirePlacard,
+    ecrirePlacard: ecrirePlacard,
+    supprimerPlacard: supprimerPlacard,
     lireVignettes: lireVignettes,
     lireGrandePhoto: lireGrandePhoto,
     ecrirePhoto: ecrirePhoto,

@@ -20,6 +20,8 @@
   var Ph = window.CarnetPhotos;
   var Ic = window.CarnetIcones;
   var Cu = window.CarnetCuisson;
+  var Mg = window.CarnetVueMagasin;
+  var Pl = window.CarnetPlacard;
 
   var criteresVides = L.criteresVides;
   var origineCourte = L.origineCourte;
@@ -54,6 +56,8 @@
     // Le bouton « Modifier » de l'entete de semaine bascule les deux modes. L'etat
     // n'est pas persiste : on ne revient pas sur un accueil en chantier.
     modeEdition: false,
+    // Mode « En magasin » : les lignes deja prises sont repliees par defaut.
+    magasin: { voirCoches: false },
     // Section ouverte dans l'editeur en accordeon.
     sectionEditeur: 'parts',
   };
@@ -282,6 +286,90 @@
     }
   }
 
+  /**
+   * Annonce une phrase aux lecteurs d'ecran, sans rien changer a l'affichage.
+   *
+   * La zone d'annonce est videe avant d'etre reecrite : deux navigations vers le meme
+   * ecran produisent le meme texte, et une zone `aria-live` dont le contenu ne change
+   * pas n'est pas relue.
+   */
+  function annoncer(phrase) {
+    var zone = document.getElementById('annonce');
+    if (!zone) return;
+    zone.textContent = '';
+    // Le vidage et l'ecriture doivent tomber dans deux tours de boucle distincts,
+    // sinon le navigateur ne voit qu'un seul changement.
+    setTimeout(function () {
+      zone.textContent = phrase;
+    }, 60);
+  }
+
+  /* --- bandeau d'annulation ------------------------------------------------ */
+  //
+  // Retirer un plat se fait d'un seul appui, sans confirmation : demander « êtes-vous
+  // sûr ? » a chaque geste est plus penible que le geste lui-meme. La contrepartie est
+  // ce bandeau, qui laisse quelques secondes pour revenir en arriere.
+  //
+  // Il est pose dans le corps du document et non dans #vue : un re-rendu de la vue,
+  // declenche par la synchronisation, le ferait disparaitre sous les doigts.
+
+  var DUREE_ANNULATION = 7000;
+  var bandeauAnnulation = null;
+  var minuteurAnnulation = null;
+
+  function fermerAnnulation() {
+    if (minuteurAnnulation) clearTimeout(minuteurAnnulation);
+    minuteurAnnulation = null;
+    if (bandeauAnnulation && bandeauAnnulation.parentNode) {
+      bandeauAnnulation.parentNode.removeChild(bandeauAnnulation);
+    }
+    bandeauAnnulation = null;
+  }
+
+  /**
+   * Affiche « <message> — Annuler » pendant quelques secondes.
+   * `action` est appelee si l'utilisateur annule.
+   */
+  function proposerAnnulation(message, action) {
+    fermerAnnulation();
+
+    bandeauAnnulation = el('div', { class: 'annulation', id: 'annulation', role: 'status' }, [
+      el('span', { class: 'annulation__texte', texte: message }),
+      el('button', {
+        type: 'button',
+        class: 'annulation__bouton',
+        id: 'annuler-retrait',
+        onclick: function () {
+          fermerAnnulation();
+          action();
+        },
+      }, [icone('fleche', { taille: 16 }), el('span', { texte: 'Annuler' })]),
+    ]);
+
+    document.body.appendChild(bandeauAnnulation);
+    // La classe d'apparition est posee au tour suivant, sinon la transition CSS part
+    // de l'etat final et ne se voit pas.
+    setTimeout(function () {
+      if (bandeauAnnulation) bandeauAnnulation.classList.add('annulation--visible');
+    }, 20);
+    minuteurAnnulation = setTimeout(fermerAnnulation, DUREE_ANNULATION);
+  }
+
+  /** Retire un plat du semainier, avec un bandeau pour revenir en arriere. */
+  function retirerPlat(plat) {
+    return Sm.retirer(plat.cle).then(function (retire) {
+      rendreAccueil();
+      if (!retire) return;
+      annoncer(retire.titre + ' retiré');
+      proposerAnnulation(retire.titre + ' retiré', function () {
+        Sm.reposer(retire).then(function () {
+          rendreAccueil();
+          annoncer(retire.titre + ' remis');
+        });
+      });
+    });
+  }
+
   function monter(noeud) {
     var vue = document.getElementById('vue');
     vue.textContent = '';
@@ -352,6 +440,34 @@
       if (evenement.key === 'Escape') {
         evenement.stopPropagation();
         fermerVoile();
+        return;
+      }
+      if (evenement.key !== 'Tab') return;
+
+      // Piege de focus. `aria-modal` dit aux technologies d'assistance d'ignorer le
+      // reste de la page, mais aucun navigateur n'empeche la tabulation d'en sortir :
+      // au clavier, on se retrouvait a parcourir un ecran masque par le voile, sans
+      // rien voir bouger. La boite retient donc le focus tant qu'elle est ouverte.
+      var atteignables = Array.prototype.filter.call(
+        boite.querySelectorAll('a[href], button, input, select, textarea, [tabindex]'),
+        function (n) {
+          // Un element desactive ou replie ne prend pas le focus : l'inclure ferait
+          // une etape morte dans le cycle.
+          return !n.disabled && n.tabIndex !== -1 && n.offsetParent !== null;
+        }
+      );
+      if (atteignables.length === 0) return;
+
+      var premier = atteignables[0];
+      var dernier = atteignables[atteignables.length - 1];
+      var actif = document.activeElement;
+
+      if (evenement.shiftKey && (actif === premier || !boite.contains(actif))) {
+        evenement.preventDefault();
+        dernier.focus();
+      } else if (!evenement.shiftKey && (actif === dernier || !boite.contains(actif))) {
+        evenement.preventDefault();
+        premier.focus();
       }
     });
 
@@ -582,7 +698,7 @@
           'aria-label': 'Retirer ' + plat.titre + ' du ' + moment.libelle + ' du ' + jour.libelle,
           onclick: function (evenement) {
             evenement.stopPropagation();
-            Sm.retirer(plat.cle).then(rendreAccueil);
+            retirerPlat(plat);
           },
         }, [icone('croix', { taille: 13 })])
       );
@@ -1005,7 +1121,7 @@
                       'data-retirer-jour': plat.cle,
                       'aria-label': 'Retirer ' + plat.titre + ' du ' + moment.libelle,
                       onclick: function () {
-                        Sm.retirer(plat.cle).then(rendreAccueil);
+                        retirerPlat(plat);
                       },
                     }, [icone('croix', { taille: 15 })]),
                   ]);
@@ -1346,16 +1462,21 @@
             );
           }, 0)
         : 0;
+      // Ce que le placard couvre deja : ces ingredients ne partiront pas en courses.
+      var enPlacard = recette ? Pl.couverts(recette) : [];
+      var aAjouter = total - nbDeja - enPlacard.length;
 
       return {
         plat: plat,
         recette: recette,
         total: total,
         nbDeja: nbDeja,
+        enPlacard: enPlacard,
         // Sans ingredients il n'y a rien a ajouter : un restaurant ne se met pas
-        // dans une liste de courses.
-        ajoutable: Boolean(recette) && total > nbDeja,
-        coche: Boolean(recette) && total > nbDeja,
+        // dans une liste de courses. Et si tout est deja en liste ou en placard,
+        // il n'y a rien a faire non plus.
+        ajoutable: Boolean(recette) && aAjouter > 0,
+        coche: Boolean(recette) && aAjouter > 0,
       };
     });
 
@@ -1380,7 +1501,11 @@
           S.addRecipesToList(
             choisies.map(function (l) {
               return l.recette;
-            })
+            }),
+            // Le placard reste hors des courses : c'est tout l'objet de cette liste.
+            function (nom) {
+              return Pl.contient(nom);
+            }
           ).then(function (resultat) {
             rendreCorpsVoile([
               el('p', { class: 'boite__succes', id: 'resultat-courses' }, [
@@ -1391,6 +1516,11 @@
                     (resultat.ajoutes > 1 ? ' articles ajoutés' : ' article ajouté') +
                     (resultat.deja > 0
                       ? ', ' + resultat.deja + (resultat.deja > 1 ? ' déjà présents' : ' déjà présent')
+                      : '') +
+                    // Ce que le placard a retenu est dit : sans cela, un ingredient
+                    // manquant en magasin passerait pour un oubli de l'application.
+                    (resultat.exclus > 0
+                      ? ', ' + resultat.exclus + (resultat.exclus > 1 ? ' laissés au placard' : ' laissé au placard')
                       : '') +
                     '.',
                 }),
@@ -1444,10 +1574,33 @@
               notes.push('cette fiche n’a aucun ingrédient renseigné');
             } else if (ligne.nbDeja >= ligne.total) {
               notes.push('déjà entièrement dans la liste');
+            } else if (!ligne.ajoutable) {
+              notes.push('tout est déjà en liste ou en placard');
             } else if (ligne.nbDeja > 0) {
               notes.push(ligne.nbDeja + ' sur ' + ligne.total + ' déjà dans la liste');
             } else {
               notes.push(ligne.total + ' ingrédients');
+            }
+            // Le placard est dit a part : c'est une decision de la maison, pas un
+            // etat de la liste, et on doit pouvoir se rappeler pourquoi le sel
+            // n'apparait jamais dans les courses.
+            if (ligne.enPlacard.length > 0) {
+              notes.push(
+                ligne.enPlacard.length +
+                  (ligne.enPlacard.length > 1 ? ' ingrédients en placard : ' : ' ingrédient en placard : ') +
+                  ligne.enPlacard.join(', ')
+              );
+            }
+            // B1 : ce que la source ne donne pas, dit au moment ou cela compte. Une
+            // recette dont deux ingredients ne sont pas dans la liste part incomplete
+            // en courses, et on s'en apercoit devant les fourneaux.
+            if (ligne.recette && (ligne.recette.manquants || []).length > 0) {
+              notes.push(
+                ligne.recette.manquants.length +
+                  (ligne.recette.manquants.length > 1
+                    ? ' points signalés sur la fiche : vérifiez avant de partir'
+                    : ' point signalé sur la fiche : vérifiez avant de partir')
+              );
             }
             if (ligne.plat.occurrences.length > 1) {
               notes.push(
@@ -2524,6 +2677,170 @@
     ]);
   }
 
+  /* --- le placard ---------------------------------------------------------- */
+
+  /**
+   * Boite de gestion du placard.
+   *
+   * Elle s'ouvre depuis la liste de courses, parce que c'est la qu'on constate qu'un
+   * ingredient n'aurait pas du y etre. Les ingredients proposes viennent du carnet :
+   * saisir « huile d'olive » a la main, avec ou sans apostrophe typographique, est le
+   * meilleur moyen que le placard ne reconnaisse jamais rien.
+   */
+  function ouvrirPlacard() {
+    var recherche = '';
+
+    function corps() {
+      var enPlacard = Pl.tous();
+      var index = Pl.index();
+
+      // Tous les noms d'ingredients du carnet, dedoublonnes, moins ceux deja poses.
+      var candidats = [];
+      var vus = {};
+      Rc.toutes().forEach(function (recette) {
+        (recette.ingredients || []).forEach(function (groupe) {
+          (groupe.items || []).forEach(function (item) {
+            var k = Pl.cle(item.nom);
+            if (k === '' || index[k] || vus[k]) return;
+            vus[k] = true;
+            candidats.push(item.nom);
+          });
+        });
+      });
+      candidats.sort(function (a, b) {
+        return a.localeCompare(b, 'fr');
+      });
+
+      var filtres =
+        recherche === ''
+          ? candidats
+          : candidats.filter(function (nom) {
+              return Pl.cle(nom).indexOf(Pl.cle(recherche)) !== -1;
+            });
+
+      var champ = el('input', {
+        type: 'search',
+        class: 'champ-recherche champ-recherche--fin',
+        id: 'recherche-placard',
+        placeholder: 'Chercher un ingrédient du carnet…',
+        'aria-label': 'Chercher un ingrédient à mettre au placard',
+        value: recherche,
+        oninput: function (evenement) {
+          recherche = evenement.target.value;
+          var position = evenement.target.selectionStart;
+          rendreCorpsVoile(corps());
+          var nouveau = document.getElementById('recherche-placard');
+          if (nouveau) {
+            nouveau.focus();
+            try {
+              nouveau.setSelectionRange(position, position);
+            } catch (erreur) {
+              /* sans effet */
+            }
+          }
+        },
+      });
+
+      var probleme = diagnostiquer(Pl.etatSync());
+
+      return [
+        el('p', {
+          class: 'accroche',
+          texte:
+            'Ce que vous avez toujours : sel, farine, huile. Ces ingrédients ne partiront plus en courses quand vous ajouterez les plats de la semaine.',
+        }),
+
+        // Les regles de la collection `placard` peuvent ne pas etre publiees : le
+        // dire plutot que de laisser croire que les ajouts ont fonctionne.
+        probleme
+          ? el('div', { class: 'sync ' + probleme.classe, id: 'etat-placard' }, [
+              el('span', { class: 'sync__etat', texte: probleme.titre }),
+              el('p', { class: 'sync__erreur', texte: probleme.explication }),
+            ])
+          : null,
+
+        el('h3', { class: 'boite__section', texte: 'Au placard' }),
+        enPlacard.length === 0
+          ? el('p', { class: 'boite__vide', texte: 'Le placard est vide : rien n’est écarté des courses.' })
+          : el(
+              'div',
+              { class: 'pastilles', id: 'placard-pose' },
+              enPlacard.map(function (entree) {
+                return el(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'pastille pastille--placard',
+                    'data-placard': entree.cle,
+                    'aria-label': 'Retirer ' + entree.nom + ' du placard',
+                    onclick: function () {
+                      Pl.retirer(entree.nom).then(function () {
+                        rendreCorpsVoile(corps());
+                      });
+                    },
+                  },
+                  [el('span', { texte: entree.nom }), icone('croix', { taille: 14 })]
+                );
+              })
+            ),
+
+        el('h3', { class: 'boite__section', texte: 'Ajouter depuis le carnet' }),
+        champ,
+        filtres.length === 0
+          ? el('p', { class: 'boite__vide', texte: 'Aucun ingrédient du carnet ne correspond.' })
+          : el(
+              'div',
+              { class: 'pastilles', id: 'placard-candidats' },
+              filtres.slice(0, 60).map(function (nom) {
+                return el(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'pastille',
+                    'data-candidat-placard': Pl.cle(nom),
+                    onclick: function () {
+                      Pl.ajouter(nom).then(function () {
+                        rendreCorpsVoile(corps());
+                      });
+                    },
+                  },
+                  [icone('plus', { taille: 14 }), el('span', { texte: nom })]
+                );
+              })
+            ),
+        filtres.length > 60
+          ? el('p', {
+              class: 'boite__vide',
+              texte: 'Les 60 premiers sont affichés : précisez la recherche pour voir les autres.',
+            })
+          : null,
+      ];
+    }
+
+    ouvrirVoile('Toujours en placard', function () {
+      return corps();
+    }, { large: true });
+  }
+
+  /**
+   * Mode « En magasin ». Le rendu est dans js/vue-magasin.js : c'est le premier ecran
+   * sorti de ce fichier, qui portait les cinq vues. app.js ne garde ici que le
+   * raccordement, les outils de rendu et le re-rendu.
+   */
+  function vueMagasin() {
+    document.title = 'En magasin — Miam miam !';
+    return Mg.construire({
+      el: el,
+      icone: icone,
+      S: S,
+      etat: etat.magasin,
+      annoncer: annoncer,
+      rendre: function () {
+        if (routeCourante() === '/liste-de-courses/magasin') monter(vueMagasin());
+      },
+    });
+  }
+
   function vueListeDeCourses() {
     document.title = 'Liste de courses — Miam miam !';
 
@@ -2581,6 +2898,17 @@
           class: 'reste-a-prendre__note',
           texte: 'Cocher fonctionne sans réseau, tout repart au retour du signal.',
         }),
+        el('a', {
+          class: 'bouton',
+          href: '#/liste-de-courses/magasin',
+          id: 'aller-magasin',
+        }, [icone('panier', { taille: 18 }), el('span', { texte: 'En magasin' })]),
+        el('button', {
+          type: 'button',
+          class: 'bouton bouton--sobre',
+          id: 'ouvrir-placard',
+          onclick: ouvrirPlacard,
+        }, [icone('livre', { taille: 16 }), el('span', { texte: 'Placard' })]),
       ])
     );
 
@@ -3463,40 +3791,55 @@
     // suivante donnerait une boite qui parle d'un ecran qu'on a quitte.
     fermerVoile();
 
-    if (ancre === '/recette/nouvelle') {
-      monter(vueEditeur(null));
+    // Chaque ecran est annonce une fois, en une phrase. `document.title` est pose par
+    // la vue elle-meme, il faut donc l'annoncer apres le montage et non avant.
+    var afficher = function (noeud, complement) {
+      monter(noeud);
       window.scrollTo(0, 0);
+      annoncer(document.title.replace(' — Miam miam !', '') + (complement ? ', ' + complement : ''));
+    };
+
+    if (ancre === '/recette/nouvelle') {
+      afficher(vueEditeur(null));
       return;
     }
     if (ancre.indexOf('/recette/') === 0) {
       var reste = ancre.slice('/recette/'.length);
       var modification = reste.match(/^(.*)\/modifier$/);
       if (modification) {
-        monter(vueEditeur(decodeURIComponent(modification[1])));
-        window.scrollTo(0, 0);
+        afficher(vueEditeur(decodeURIComponent(modification[1])));
         return;
       }
       // On quitte l'editeur : le brouillon non enregistre n'a plus lieu d'etre.
       brouillon = null;
       erreurEditeur = null;
       etatPhoto = { message: null, erreur: null, enCours: false };
-      monter(vueRecette(decodeURIComponent(reste)));
-      window.scrollTo(0, 0);
+      afficher(vueRecette(decodeURIComponent(reste)));
+      return;
+    }
+    if (ancre === '/liste-de-courses/magasin') {
+      var aPrendre = nbArticlesRestants();
+      afficher(
+        vueMagasin(),
+        aPrendre === 0 ? 'rien à prendre' : aPrendre + (aPrendre > 1 ? ' articles à prendre' : ' article à prendre')
+      );
       return;
     }
     if (ancre === '/liste-de-courses') {
-      monter(vueListeDeCourses());
-      window.scrollTo(0, 0);
+      var restants = nbArticlesRestants();
+      afficher(
+        vueListeDeCourses(),
+        restants === 0 ? 'rien à prendre' : restants + (restants > 1 ? ' articles à prendre' : ' article à prendre')
+      );
       return;
     }
     if (ancre === '/livre') {
       document.title = 'Le livre de cuisine — Miam miam !';
-      monter(vueLivre());
-      window.scrollTo(0, 0);
+      afficher(vueLivre(), Rc.toutes().length + ' recettes');
       return;
     }
 
-    monter(vueAccueil());
+    afficher(vueAccueil());
   }
 
   /* --- démarrage ----------------------------------------------------------- */
@@ -3543,6 +3886,9 @@
   function surChangementListe() {
     majChrome();
     if (surEcranListe() && !saisieEnCours()) monter(vueListeDeCourses());
+    // Le mode magasin suit lui aussi : un article coche par quelqu'un d'autre doit
+    // disparaitre de l'ecran de celui qui pousse le caddie.
+    if (routeCourante() === '/liste-de-courses/magasin') monter(vueMagasin());
     // L'accueil annonce le nombre d'articles restants : il doit suivre. On ne
     // re-rend pas pendant une saisie, ni quand une boite est ouverte : le re-rendu
     // remplacerait la vue sous la boite et perdrait les cases deja decochees.
@@ -3681,7 +4027,28 @@
     );
   }
 
+  /**
+   * Enregistre le service worker, qui rend le carnet consultable hors ligne.
+   *
+   * Echouer ici n'est pas grave : le carnet fonctionne exactement comme avant, il
+   * demande simplement le reseau au premier chargement. On ne previent donc de rien.
+   *
+   * Le service worker n'est enregistre que sur http(s) : ouvert par un double-clic
+   * (file://), l'API n'existe pas, et sur un serveur de test local elle existe mais
+   * mettrait en cache des fichiers de test.
+   */
+  function brancherHorsLigne() {
+    if (!('serviceWorker' in navigator)) return;
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') return;
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {
+        /* hors ligne indisponible : le carnet fonctionne, il demande le reseau */
+      });
+    });
+  }
+
   function demarrer() {
+    brancherHorsLigne();
     brancherImpression();
     brancherTirerPourRafraichir();
     // Le bouton d'en-tete porte l'age de la donnee : il doit vieillir tout seul,
@@ -3708,6 +4075,10 @@
         Sm.surChangement(surChangementSemainier);
         Sm.initialiser();
 
+        // Le placard est lu une fois, comme le reste. S'il est inaccessible (regles
+        // non publiees), le carnet fonctionne sans : aucun ingredient n'est ecarte.
+        Pl.initialiser();
+
         // Les recettes modifiees sont relues une fois, au chargement. Elles changent
         // trop rarement pour justifier un sondage permanent.
         Rc.rafraichir().then(function () {
@@ -3717,6 +4088,9 @@
         // Les vignettes sont relues une fois, comme les recettes : une photo change
         // encore plus rarement qu'une recette, et chaque lecture pese lourd.
         Ph.surChangement(surChangementPhotos);
+        // Demarrage a chaud : la copie durable (IndexedDB) s'affiche avant que
+        // Firestore ait repondu. Elle ne remplace jamais ce qui vient du serveur.
+        Ph.initialiser();
         Ph.rafraichirVignettes()
           .then(function () {
             router();

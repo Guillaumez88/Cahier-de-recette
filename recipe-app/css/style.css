@@ -770,6 +770,20 @@ h4,
   color: var(--terracotta);
 }
 
+/* Visible des lecteurs d'écran, invisible à l'œil. `clip-path` plutôt que
+   `display: none` : un contenu masqué par `display` n'est pas annoncé du tout. */
+.hors-ecran {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* --- Petits écrans -------------------------------------------------------- */
 
 @media (max-width: 640px) {
@@ -3265,4 +3279,225 @@ a.creneau__plat:hover .creneau__titre {
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
   color: var(--texte-doux);
+}
+
+/* --- Bandeau d'annulation --------------------------------------------------
+   Retirer un plat se fait d'un seul appui, sans confirmation. Ce bandeau est la
+   contrepartie : quelques secondes pour revenir en arrière. Il se pose au-dessus
+   de la barre d'onglets sur mobile, sinon il la recouvrirait. */
+
+.annulation {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100% - 32px);
+  padding: 10px 12px 10px 18px;
+  font-family: system-ui, sans-serif;
+  font-size: 14.5px;
+  color: var(--organic-fond);
+  background: var(--organic-encre);
+  border-radius: var(--rayon-pilule);
+  box-shadow: 0 8px 24px rgba(32, 30, 29, 0.28);
+  opacity: 0;
+  transform: translate(-50%, 14px);
+  transition: opacity 0.18s ease-out, transform 0.18s ease-out;
+}
+.annulation--visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.annulation__texte {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annulation__bouton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 7px 15px;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--organic-encre);
+  background: var(--organic-fond);
+  border: 0;
+  border-radius: var(--rayon-pilule);
+  cursor: pointer;
+}
+.annulation__bouton:hover {
+  background: var(--terracotta-clair);
+}
+
+@media (max-width: 700px) {
+  /* La barre d'onglets fait 64 px : le bandeau se pose juste au-dessus. */
+  .annulation {
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media print {
+  .annulation {
+    display: none !important;
+  }
+}
+
+/* --- Mode « En magasin » ---------------------------------------------------
+   Le pendant du mode « Cuisiner » de la fiche : on enlève tout ce qui ne sert
+   pas au geste du moment. Une main tient le téléphone, l'autre le panier, et
+   l'écran se lit à bout de bras. */
+
+.magasin__entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--bordure);
+}
+
+.magasin__compteur {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 16px;
+  color: var(--texte-doux);
+}
+.magasin__compteur strong {
+  font-family: var(--police-titre);
+  font-size: 30px;
+  color: var(--terracotta);
+}
+
+.magasin__fini {
+  margin-bottom: 22px;
+  padding: 18px 20px;
+  text-align: center;
+  background: var(--sauge-100);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-lg);
+}
+.magasin__fini-titre {
+  margin: 0 0 6px;
+  font-family: var(--police-titre);
+  font-size: 24px;
+}
+.magasin__fini p {
+  margin: 0;
+}
+
+.magasin__rayon {
+  margin-bottom: 26px;
+}
+
+.magasin__rayon-titre {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--texte-faible);
+}
+.magasin__rayon-nb {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--texte-faible);
+}
+
+.magasin__lignes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.magasin__ligne {
+  border-top: 1px solid var(--bordure);
+}
+.magasin__ligne:first-child {
+  border-top: 0;
+}
+
+/* Toute la ligne est la cible, pas seulement la case : viser une case de 20 px
+   en marchant est le geste que ce mode existe pour supprimer. */
+.magasin__label {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 60px;
+  padding: 6px 4px;
+  cursor: pointer;
+}
+
+.magasin__case {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  accent-color: var(--terracotta);
+  cursor: pointer;
+}
+
+.magasin__nom {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 20px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.magasin__quantite {
+  flex: 0 0 auto;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  color: var(--texte-doux);
+}
+
+.magasin__ligne--coche .magasin__nom,
+.magasin__ligne--coche .magasin__quantite {
+  color: var(--texte-faible);
+  text-decoration: line-through;
+}
+
+.magasin__coches {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--bordure);
+}
+.magasin__lignes--coches {
+  margin-top: 10px;
+}
+
+@media (max-width: 640px) {
+  .magasin__nom {
+    font-size: 19px;
+  }
+  .magasin__label {
+    min-height: 56px;
+  }
+}
+
+/* Pastille du placard : un ingrédient posé, qu'un clic retire. La croix est à
+   droite du nom, contrairement au « + » des candidats, qui est à gauche : les
+   deux gestes ne doivent pas se confondre. */
+.pastille--placard {
+  color: var(--accent-800);
+  background: var(--terracotta-clair);
+  border-color: var(--terracotta);
+}
+.pastille--placard:hover {
+  background: var(--surface);
+}
+.pastille--placard .icone {
+  opacity: 0.7;
 }

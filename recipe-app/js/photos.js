@@ -57,32 +57,124 @@
   }
 
   // --- Cache des vignettes ----------------------------------------------------
+  //
+  // Deux etages, et la raison de chacun :
+  //
+  // 1. La memoire est la source du rendu. `vignette()` doit rester synchrone : elle
+  //    est appelee pour chaque carte du livre et chaque case du semainier, et rendre
+  //    le rendu asynchrone pour une image de 320 px contaminerait tout l'affichage.
+  //
+  // 2. IndexedDB est la copie durable, ecrite et relue de facon asynchrone. Elle sert
+  //    uniquement au demarrage a chaud : les vignettes s'affichent avant que Firestore
+  //    ait repondu.
+  //
+  // Pourquoi plus le localStorage : son quota est de 5 Mo pour tout le site, une
+  // vignette pese jusqu'a 58 Ko, le plafond etait donc atteint vers 85 recettes
+  // photographiees. Le depassement etait silencieux : les vignettes cessaient
+  // simplement d'etre conservees entre deux visites. IndexedDB n'a pas de plafond
+  // comparable et signale ses erreurs.
 
-  function lireCache() {
-    try {
-      var brut = global.localStorage && global.localStorage.getItem(CLE_VIGNETTES);
-      if (!brut) return {};
-      var valeur = JSON.parse(brut);
-      return valeur && typeof valeur === 'object' && !Array.isArray(valeur) ? valeur : {};
-    } catch (erreur) {
-      return {};
+  var NOM_BASE = 'carnet-de-recettes';
+  var MAGASIN = 'vignettes';
+
+  var enMemoire = {};
+  var basePromesse = null;
+
+  /** Ouvre la base, ou rend null si IndexedDB n'existe pas (Node, navigation privee). */
+  function ouvrirBase() {
+    if (basePromesse) return basePromesse;
+    basePromesse = new Promise(function (resoudre) {
+      if (!global.indexedDB) return resoudre(null);
+      var requete;
+      try {
+        requete = global.indexedDB.open(NOM_BASE, 1);
+      } catch (erreur) {
+        return resoudre(null);
+      }
+      requete.onupgradeneeded = function () {
+        var base = requete.result;
+        if (!base.objectStoreNames.contains(MAGASIN)) base.createObjectStore(MAGASIN);
+      };
+      requete.onsuccess = function () {
+        resoudre(requete.result);
+      };
+      // Base inaccessible : le carnet fonctionne sans cache durable, les vignettes
+      // seront relues depuis Firestore au chargement suivant.
+      requete.onerror = function () {
+        resoudre(null);
+      };
+      requete.onblocked = function () {
+        resoudre(null);
+      };
+    });
+    return basePromesse;
+  }
+
+  /** Relit la copie durable et la verse en memoire. A appeler une fois au demarrage. */
+  async function chargerCacheDurable() {
+    var base = await ouvrirBase();
+    if (!base) return enMemoire;
+
+    var index = await new Promise(function (resoudre) {
+      try {
+        var transaction = base.transaction(MAGASIN, 'readonly');
+        var demande = transaction.objectStore(MAGASIN).get('index');
+        demande.onsuccess = function () {
+          resoudre(demande.result);
+        };
+        demande.onerror = function () {
+          resoudre(null);
+        };
+      } catch (erreur) {
+        resoudre(null);
+      }
+    });
+
+    if (index && typeof index === 'object' && !Array.isArray(index)) {
+      // Ce qui est deja en memoire vient de Firestore, donc fait autorite : la copie
+      // durable ne comble que les trous.
+      Object.keys(index).forEach(function (id) {
+        if (!Object.prototype.hasOwnProperty.call(enMemoire, id)) enMemoire[id] = index[id];
+      });
+      notifier();
     }
+    return enMemoire;
+  }
+
+  /** Ecrit la copie durable. Sans attente : le rendu ne depend pas de sa reussite. */
+  function ecrireCacheDurable(index) {
+    ouvrirBase().then(function (base) {
+      if (!base) return;
+      try {
+        var transaction = base.transaction(MAGASIN, 'readwrite');
+        transaction.objectStore(MAGASIN).put(index, 'index');
+      } catch (erreur) {
+        /* base fermee ou pleine : sans consequence sur l'affichage */
+      }
+    });
   }
 
   function ecrireCache(index) {
+    enMemoire = index || {};
+    ecrireCacheDurable(enMemoire);
+    // Le localStorage portait ce cache jusqu'ici. On l'efface pour rendre la place :
+    // jusqu'a 1,2 Mo de data URL qui ne servent plus a rien.
     try {
-      if (global.localStorage) global.localStorage.setItem(CLE_VIGNETTES, JSON.stringify(index));
+      if (global.localStorage) global.localStorage.removeItem(CLE_VIGNETTES);
     } catch (erreur) {
-      // Quota atteint : les vignettes ne sont pas conservees entre deux visites,
-      // mais elles seront relues au prochain chargement. Rien a signaler a
-      // l'utilisateur, l'application reste utilisable.
+      /* sans consequence */
     }
     notifier();
   }
 
-  /** Vignette d'une recette, ou null. Synchrone : lue dans le cache local. */
+  /** Vignette d'une recette, ou null. Synchrone : lue en memoire. */
   function vignette(recetteId) {
-    return lireCache()[recetteId] || null;
+    return enMemoire[recetteId] || null;
+  }
+
+  /** Copie de l'index en memoire, pour le modifier sans toucher a l'original. */
+  function lireCache() {
+    return Object.assign({}, enMemoire);
   }
 
   function aUnePhoto(recetteId) {
@@ -106,6 +198,14 @@
     var distantes = await Sync.lireVignettes();
     ecrireCache(distantes);
     return distantes;
+  }
+
+  /**
+   * Demarrage a chaud : verse la copie durable en memoire, sans reseau.
+   * Les vignettes s'affichent alors avant que Firestore ait repondu.
+   */
+  function initialiser() {
+    return chargerCacheDurable();
   }
 
   /**
@@ -269,6 +369,7 @@
     vignette: vignette,
     aUnePhoto: aUnePhoto,
     grande: grande,
+    initialiser: initialiser,
     rafraichirVignettes: rafraichirVignettes,
     preparer: preparer,
     enregistrer: enregistrer,

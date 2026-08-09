@@ -9,6 +9,10 @@
       content="Carnet personnel de recettes : recherche, filtres, fiches détaillées et liste de courses."
     />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#c67139" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Miam miam" />
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
@@ -27,11 +31,20 @@
     </header>
 
     <main class="conteneur" id="contenu">
-      <!-- Un seul point de montage : le routage par ancre remplace ce contenu. -->
-      <div id="vue" aria-live="polite">
+      <!-- Un seul point de montage : le routage par ancre remplace ce contenu.
+
+           Pas d'aria-live ici : cette zone porte l'ecran entier, et un lecteur
+           d'ecran relisait donc toute la page a chaque navigation. L'annonce se
+           fait par #annonce, plus bas, qui ne porte qu'une phrase. -->
+      <div id="vue">
         <p class="etat-chargement">Chargement des recettes…</p>
       </div>
     </main>
+
+    <!-- Zone d'annonce pour les lecteurs d'ecran : une phrase par navigation
+         (« Liste de courses, 14 articles »), invisible a l'oeil. Une zone aria-live
+         doit envelopper un message d'etat, jamais l'application entiere. -->
+    <p class="hors-ecran" id="annonce" role="status" aria-live="polite"></p>
 
     <!-- Barre d'onglets, sur mobile uniquement. Trois destinations, le pouce en bas
          de l'ecran : c'est la convention des applications, et l'en-tete n'a plus a
@@ -51,8 +64,10 @@
     <script src="js/recettes.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/semainier.js"></script>
+    <script src="js/placard.js"></script>
     <script src="js/photos.js"></script>
     <script src="js/cuisson.js"></script>
+    <script src="js/vue-magasin.js"></script>
     <script src="js/app.js"></script>
   </body>
 </html>

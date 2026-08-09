@@ -726,6 +726,45 @@ test('echelonnerCellule laisse une cellule sans quantite intacte', () => {
 
 // --- Integrite du jeu de donnees ---------------------------------------------
 
+test('la coquille du service worker couvre tous les fichiers de la page', () => {
+  // Un module ajoute a index.html et oublie dans sw.js casserait le hors ligne en
+  // silence : la page s'ouvrirait sans reseau, puis echouerait sur un script absent.
+  const sw = fs.readFileSync(path.join(racine, 'sw.js'), 'utf8');
+  const html = fs.readFileSync(path.join(racine, 'index.html'), 'utf8');
+
+  const scripts = [...html.matchAll(/<script src="(js\/[a-z-]+\.js)">/g)].map((m) => './' + m[1]);
+  assert.ok(scripts.length > 0, 'aucun script trouve dans index.html');
+  scripts.forEach((f) => {
+    assert.ok(sw.includes(`'${f}'`), `${f} est dans index.html mais absent de la coquille de sw.js`);
+  });
+
+  // Et les autres fichiers servis, qui ne sont pas des scripts.
+  ['./index.html', './favicon.svg', './css/style.css', './data/recipes.json'].forEach((f) => {
+    assert.ok(sw.includes(`'${f}'`), `${f} est absent de la coquille de sw.js`);
+  });
+
+  // Chaque entree de la coquille doit exister sur le disque, sinon `cache.addAll`
+  // rejette en bloc et le service worker ne s'installe pas du tout.
+  const coquille = [...sw.matchAll(/'(\.\/[^']*)'/g)].map((m) => m[1]).filter((f) => f !== './');
+  coquille.forEach((f) => {
+    assert.ok(fs.existsSync(path.join(racine, f.slice(2))), `${f} est dans la coquille mais absent du dépôt`);
+  });
+});
+
+test('le manifeste decrit une application installable', () => {
+  const manifeste = JSON.parse(fs.readFileSync(path.join(racine, 'manifest.webmanifest'), 'utf8'));
+  assert.strictEqual(manifeste.name, 'Miam miam !');
+  assert.strictEqual(manifeste.display, 'standalone');
+  // Les chemins sont relatifs : le site est publie sous /Cahier-de-recette/ et non
+  // a la racine du domaine, une URL absolue sortirait de la portee.
+  assert.ok(manifeste.start_url.startsWith('./'), 'start_url doit etre relatif');
+  assert.ok(manifeste.scope.startsWith('./'), 'scope doit etre relatif');
+  assert.ok(manifeste.icons.length > 0, 'aucune icone');
+  manifeste.icons.forEach((i) => {
+    assert.ok(fs.existsSync(path.join(racine, i.src)), `icone absente : ${i.src}`);
+  });
+});
+
 test('les 21 recettes respectent le schema attendu', () => {
   const champs = [
     'id',

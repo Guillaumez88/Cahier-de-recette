@@ -14,6 +14,8 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
 ├── firestore.rules                      Règles de sécurité de la liste commune
 └── recipe-app/
     ├── index.html               Structure de la page, un seul point de montage
+    ├── manifest.webmanifest     Nom, icône et couleurs pour « Ajouter à l'écran d'accueil »
+    ├── sw.js                    Service worker : le carnet s'ouvre sans réseau
     ├── css/style.css            Thème « carnet de cuisine chaleureux », responsive, impression
     ├── js/
     │   ├── firebase-config.js   Configuration Firebase (publique) et réglages de sync
@@ -27,18 +29,20 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
     │   ├── recettes.js          Recettes d'origine, modifications, créations, parts
     │   ├── storage.js           Liste commune : cache local, fusion, file d'attente
     │   ├── semainier.js         Menus communs : cache local, file d'attente
-    │   ├── photos.js            Photos : redimensionnement, deux tailles, cache
+    │   ├── placard.js           Ce qu'on a toujours et qu'il ne faut pas racheter
+    │   ├── photos.js            Photos : redimensionnement, deux tailles, cache IndexedDB
     │   ├── cuisson.js           Où l'on en est dans une recette, en local
+    │   ├── vue-magasin.js       L'écran « En magasin », premier écran sorti de app.js
     │   └── app.js               Rendu DOM et routage par ancre
     ├── data/recipes.json        Les 21 recettes
     ├── favicon.svg
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js           112 tests de la logique métier
-        ├── run-sync-tests.js      105 tests de la synchronisation
+        ├── run-tests.js           114 tests de la logique métier
+        ├── run-sync-tests.js      115 tests de la synchronisation
         ├── test-web.js             88 vérifications navigateur, parcours général
-        ├── test-partage.js         40 vérifications navigateur, partage et hors ligne
+        ├── test-partage.js         57 vérifications navigateur, partage, placard, magasin
         ├── test-edition.js         69 vérifications navigateur, modification, parts, accordéon
         ├── test-semainier.js      129 vérifications navigateur, semainier, photos, compteur
         ├── stub-firestore.js       Émulation de Firestore pour les tests
@@ -48,9 +52,9 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
         └── serveur.js              Serveur statique sans dépendance
 ```
 
-Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `recettes.js`, `storage.js`, `semainier.js`, `photos.js`, `cuisson.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
+Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `recettes.js`, `storage.js`, `semainier.js`, `placard.js`, `photos.js`, `cuisson.js`, `vue-magasin.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
 
-`app.js` ne parle jamais au réseau ni au `localStorage` : il passe par `storage.js`, `semainier.js`, `recettes.js` et `photos.js`, seuls endroits décidant où sont rangées les données.
+`app.js` ne parle jamais au réseau ni au stockage : il passe par `storage.js`, `semainier.js`, `placard.js`, `recettes.js` et `photos.js`, seuls endroits décidant où sont rangées les données.
 
 ## Lancer en local
 
@@ -76,6 +80,8 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 - **Déroulé des préparations** : le tableau fourni avec la recette quand il existe, reconstitué automatiquement sinon (voir plus bas).
 - **Liste de courses commune** (voir la section suivante) : partagée entre tous les appareils, rangée par rayon de magasin, avec addition des quantités d'un même ingrédient, sélection d'ingrédients à la carte, ajout d'articles libres, compteur dans l'en-tête et fonctionnement hors ligne.
 - **Modification des recettes** et **changement du nombre de parts** (voir plus bas).
+- **Le carnet s'ouvre sans réseau.** Un *service worker* (`sw.js`) met en cache les 20 fichiers du site, soit 119 Ko compressés, et les sert en priorité avec mise à jour en arrière-plan. Sans lui, une page ouverte hors ligne n'affichait rien du tout : les données survivaient dans le stockage local, mais il n'y avait plus d'application pour les afficher. Un `manifest.webmanifest` permet « Ajouter à l'écran d'accueil », qui donne une icône et un lancement sans barre d'URL.
+- **Annuler le retrait d'un plat.** La croix retire sans confirmation, parce que demander « êtes-vous sûr ? » à chaque geste est plus pénible que le geste. La contrepartie est un bandeau « Plat retiré — Annuler » pendant sept secondes, qui repose le plat **avec sa clé d'origine** : il retrouve sa place dans l'ordre du repas, alors qu'une clé neuve l'enverrait en fin de liste, ce qui ne serait pas une annulation. Si la clé a été reprise entre-temps par un autre appareil, le plat présent gagne : écraser serait pire que de ne pas annuler.
 - **Navigation adaptée à l'écran.** Sur ordinateur, l'en-tête porte les liens « Le livre » et « Liste de courses », chacun avec son pictogramme, l'état actif visible, le compteur d'articles restants et le bouton de rafraîchissement, qui affiche l'âge de la donnée en trois caractères (« 4min », « 3h », « 2j »). Sur téléphone, l'en-tête n'a plus de liens : une **barre d'onglets** en bas de l'écran (Semaine, Le livre, Courses) met les trois destinations sous le pouce, avec un retrait pour l'encoche du bas, et le rafraîchissement se fait en **tirant la page vers le bas**.
 - **Pictogrammes** en SVG écrit dans la page, dans `js/icones.js` : aucune police d'icônes ni CDN, donc rien à charger et rien qui casse en cuisine sans connexion. Ils se colorent par `currentColor` et suivent la palette sans code supplémentaire.
 - **Impression** (`@media print`) : la navigation, les filtres et les boutons disparaissent, le fond repasse en blanc, et les étapes comme les lignes du tableau ne sont pas coupées entre deux pages.
@@ -191,6 +197,17 @@ Deux limites assumées :
 - **Une recette sans photo connue n'est pas interrogée.** Le cache des vignettes est la seule source d'autorité sur « qui a une photo » : sans cela, ouvrir une fiche déclencherait une lecture facturée et un 404 pour dix-neuf recettes sur vingt.
 - **Pas de Firebase Storage** : il faudrait le SDK ou une seconde API à signer, alors que Firestore est déjà en place et qu'une photo compressée y tient largement.
 
+### Où sont rangées les vignettes
+
+Deux étages, et la raison de chacun :
+
+1. **La mémoire est la source du rendu.** `vignette()` doit rester synchrone : elle est appelée pour chaque carte du livre et chaque case du semainier, et rendre le rendu asynchrone pour une image de 320 px contaminerait tout l'affichage.
+2. **IndexedDB est la copie durable**, écrite et relue de façon asynchrone. Elle sert au démarrage à chaud : les vignettes s'affichent avant que Firestore ait répondu, et ce qui vient du serveur fait toujours autorité sur elle.
+
+Pourquoi plus le `localStorage` : son quota est de 5 Mo pour tout le site, une vignette pèse jusqu'à 58 Ko, le plafond était donc atteint vers **85 recettes photographiées**. Le dépassement était silencieux, les vignettes cessant simplement d'être conservées entre deux visites. IndexedDB n'a pas de plafond comparable. L'ancien cache est effacé du `localStorage` au premier chargement, ce qui rend jusqu'à 1,2 Mo.
+
+Si IndexedDB est indisponible (navigation privée sur certains navigateurs), le carnet fonctionne sans copie durable : les vignettes sont simplement relues depuis Firestore à chaque chargement.
+
 ## Ajouter et supprimer une recette
 
 Le livre a un bouton « Ajouter une recette » qui ouvre le même formulaire que la modification : un seul écran à maintenir plutôt que deux qui divergeraient.
@@ -200,6 +217,28 @@ Le livre a un bouton « Ajouter une recette » qui ouvre le même formulaire que
 - **Une recette ajoutée ne peut pas prendre l'identifiant d'une recette d'origine**, qui vit dans le fichier servi avec le site.
 - **La photo vient après le premier enregistrement**, et l'écran l'explique : elle est rangée sous l'identifiant de la recette, qui n'existe pas encore.
 - **Une recette ajoutée se supprime, une recette d'origine se rétablit.** Ce ne sont pas les mêmes gestes et ils ne portent pas le même risque, donc pas le même bouton. La suppression demande confirmation, dit qu'elle vaut pour tout le monde et qu'il n'y a pas d'original à rétablir, puis retire aussi la recette du semainier. Supprimer une recette d'origine est refusé par le code : elle réapparaîtrait à la prochaine lecture du fichier.
+
+## Le placard, et le mode « En magasin »
+
+### Le placard : ce qu'on a toujours
+
+Le sel, la farine et l'huile d'olive reviennent dans presque toutes les recettes. Sans cette liste, ils repartaient en courses chaque semaine, et on les décochait à la main ou on les rachetait.
+
+Le placard s'ouvre depuis la liste de courses, bouton « Placard ». Les ingrédients proposés viennent du carnet et non d'une saisie libre : taper « huile d'olive » à la main, avec ou sans apostrophe typographique, est le meilleur moyen que le placard ne reconnaisse jamais rien. Les noms sont comparés sans casse ni accent, « Crème fraîche » et « creme fraiche » désignant le même bocal.
+
+**Le placard est partagé, comme le reste.** Il décrit la maison, pas l'appareil. S'il était local, l'un curerait sa liste et l'autre recevrait quand même le sel dans ses courses : c'est exactement le défaut corrigé sur le semainier. Il demande donc **une republication de `firestore.rules`**, qui couvre désormais une cinquième collection, `placard`.
+
+Tant que ces règles ne sont pas publiées, le carnet fonctionne sans : le placard reste vide, aucun ingrédient n'est écarté, et la boîte affiche « Accès refusé par la base » avec la marche à suivre. Une fonctionnalité absente vaut mieux qu'un écran bloqué.
+
+Ce que le placard a retenu est dit au moment de l'ajout : « 12 articles ajoutés, 3 laissés au placard ». Sans cette mention, un ingrédient manquant en magasin passerait pour un oubli de l'application.
+
+### Le mode « En magasin »
+
+Le pendant du mode « Cuisiner » de la fiche recette. Il enlève le formulaire d'ajout, les groupes de lignes proches, la provenance des ingrédients et les actions de nettoyage. Il garde l'ordre des rayons, qui est l'ordre du parcours, et le total restant, qui dit s'il faut encore avancer.
+
+Une ligne cochée **quitte l'écran** : c'est ce qui fait avancer la liste sous les yeux. Elle reste consultable d'un dépli, sinon décocher une erreur demanderait de quitter le mode. Toute la ligne est la cible, pas seulement la case : viser une case de 20 px en marchant est le geste que ce mode existe pour supprimer. La ligne fait 60 px de haut, la case 30 px.
+
+Le rendu est dans `js/vue-magasin.js` : c'est **le premier écran sorti de `app.js`**, qui portait les cinq vues dans un fichier de 3 700 lignes. Le contrat est étroit : le module ne connaît ni le routage, ni l'en-tête, ni les boîtes modales ; il reçoit ses outils de rendu en paramètre et rend un fragment. Les autres écrans suivront le jour où ils changeront.
 
 ## Liste de courses commune
 
@@ -252,7 +291,7 @@ Le projet `cahier-de-cuisine-88` est configuré : base Firestore créée, connex
 
 **Le passage à plusieurs plats par repas ne demande pas de republier les règles.** La clé d'un plat passe de 18 à 35 caractères (`2026-08-03::dejeuner::k3f9za`), la borne de la règle est de 100. Conclusion tirée de la lecture de `firestore.rules` ; le contrôle qui la prouve contre le vrai projet fait partie de `tests/verifier-firebase.js --reel`.
 
-**Le semainier et les photos demandent une republication des règles.** `firestore.rules` couvre désormais quatre collections : `listes/{id}/articles`, `recettes`, `semainiers/{id}/creneaux` et `photos`. Les deux dernières sont nouvelles : tant que les règles publiées ne les contiennent pas, Firestore refuse l'accès, le semainier reste bloqué sur « Hors ligne » et aucune photo ne s'enregistre. Coller `firestore.rules` dans la console Firebase (*Firestore Database* → *Règles* → *Publier*), puis relancer `node tests/verifier-firebase.js --reel`.
+**Le semainier, les photos et le placard demandent une republication des règles.** `firestore.rules` couvre désormais cinq collections : `listes/{id}/articles`, `recettes`, `semainiers/{id}/creneaux`, `placard` et `photos`. `placard` est la plus récente, ajoutée le 9 août 2026 : tant que les règles publiées ne la contiennent pas, le placard reste vide, aucun ingrédient n'est écarté des courses, et la boîte du placard affiche « Accès refusé par la base ». Le reste du carnet fonctionne. De même pour `semainiers` et `photos` : sans elles, le semainier reste bloqué sur « Hors ligne » et aucune photo ne s'enregistre. Coller `firestore.rules` dans la console Firebase (*Firestore Database* → *Règles* → *Publier*), puis relancer `node tests/verifier-firebase.js --reel`.
 
 Ce contrôle ne vérifie pas seulement que l'écriture passe : il vérifie aussi qu'un repas accepte bien deux plats en deux documents distincts, et que les règles **refusent** ce qu'elles doivent refuser, un créneau au moment inconnu et une photo hors borne de taille. Si ces deux contrôles-là échouent, les règles publiées ne sont pas celles du dépôt même si le reste fonctionne.
 
@@ -315,13 +354,21 @@ Il distingue **trois causes d'échec**, qui n'appellent pas les mêmes actions :
 Confondre les trois était le vrai défaut de la version précédente : elle annonçait « Hors ligne » pour un quota épuisé.
 - **Aucun test ne touche votre projet réel.** L'émulation locale sert à tout vérifier. Le revers est que le comportement contre le vrai Firestore n'est pas prouvé : c'est le premier point à confirmer après la configuration.
 
+## Accessibilité
+
+Trois points traités, chacun parce qu'il était cassé et non par principe :
+
+- **Une zone d'annonce dédiée.** `aria-live` enveloppait `#vue`, c'est-à-dire l'écran entier : un lecteur d'écran relisait toute la page à chaque navigation. L'annonce passe par `#annonce`, invisible à l'œil (`clip-path` et non `display: none`, qui supprimerait aussi l'annonce), où l'on écrit une phrase par écran : « Liste de courses, 14 articles ». La zone est vidée puis réécrite au tour de boucle suivant, sinon un même texte affiché deux fois de suite ne serait pas relu.
+- **Un piège de focus dans les boîtes.** `aria-modal` dit aux technologies d'assistance d'ignorer le reste de la page, mais aucun navigateur n'empêche la tabulation d'en sortir : au clavier, on parcourait un écran masqué par le voile, sans rien voir bouger. La boîte retient désormais le focus, en excluant les éléments désactivés ou repliés, qui feraient une étape morte dans le cycle.
+- **Les cibles tactiles.** 44 px pour les boutons du bloc du jour, 60 px de haut pour une ligne du mode magasin, toute la ligne étant cliquable et pas seulement la case.
+
 ## Tests
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 112 tests de la logique métier
-node tests/run-sync-tests.js      # 105 tests de la synchronisation
-node tests/run-browser-tests.js   # 326 vérifications dans un vrai Chromium
+node tests/run-tests.js           # 114 tests de la logique métier
+node tests/run-sync-tests.js      # 115 tests de la synchronisation
+node tests/run-browser-tests.js   # 343 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

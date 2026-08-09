@@ -341,7 +341,15 @@
    * deja en liste, pour que l'ecran puisse le dire plutot que de laisser croire que
    * rien ne s'est passe.
    */
-  function addRecipesToList(recettes) {
+  /**
+   * Ajoute plusieurs recettes d'un coup.
+   *
+   * `estExclu(nom)` est optionnel : quand il rend vrai, l'ingredient n'est pas ajoute.
+   * C'est ce qui laisse le placard hors des courses sans que ce module ait a le
+   * connaitre. Les exclus sont comptes a part pour que l'ecran puisse le dire.
+   */
+  function addRecipesToList(recettes, estExclu) {
+    var exclure = typeof estExclu === 'function' ? estExclu : null;
     var articles = getShoppingList();
     var presents = {};
     articles.forEach(function (a) {
@@ -350,11 +358,16 @@
 
     var ajoutes = [];
     var deja = 0;
+    var exclus = 0;
 
     (recettes || []).forEach(function (recette) {
       if (!recette || !recette.id) return;
       (recette.ingredients || []).forEach(function (groupe) {
         (groupe.items || []).forEach(function (item) {
+          if (exclure && exclure(item.nom)) {
+            exclus += 1;
+            return;
+          }
           var cle = cleArticle(recette.id, item.nom);
           if (presents[cle]) {
             deja += 1;
@@ -378,7 +391,7 @@
     });
 
     if (ajoutes.length === 0) {
-      return Promise.resolve({ articles: articles, ajoutes: 0, deja: deja });
+      return Promise.resolve({ articles: articles, ajoutes: 0, deja: deja, exclus: exclus });
     }
 
     return appliquer(
@@ -387,7 +400,7 @@
         return { type: 'ecrire', article: article };
       })
     ).then(function (apres) {
-      return { articles: apres, ajoutes: ajoutes.length, deja: deja };
+      return { articles: apres, ajoutes: ajoutes.length, deja: deja, exclus: exclus };
     });
   }
 

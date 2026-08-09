@@ -1,0 +1,20 @@
+{
+  "name": "Miam miam !",
+  "short_name": "Miam miam",
+  "description": "Le carnet de cuisine de la maison : les repas de la semaine, le livre de recettes et la liste de courses commune.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5ead8",
+  "theme_color": "#c67139",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

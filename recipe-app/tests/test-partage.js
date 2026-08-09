@@ -353,6 +353,113 @@ async function attendreTexte(page, motif, limite = 8000) {
   );
   verifier('le second appareil reste fonctionnel', disparuChezB);
 
+  // --- 7 bis. Le placard ------------------------------------------------------
+  //
+  // Ce qu'on a toujours ne doit pas repartir en courses. Le placard est partage :
+  // ce que l'un y pose, l'autre doit en tenir compte.
+
+  await pageA.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
+  await attendre(900);
+  verifier('la liste propose le placard', (await pageA.locator('#ouvrir-placard').count()) === 1);
+  await pageA.locator('#ouvrir-placard').click();
+  await attendre(400);
+  verifier('la boite du placard s ouvre', (await pageA.locator('#voile').count()) === 1);
+  verifier(
+    'le placard part vide',
+    /Le placard est vide/.test(await texteDe(pageA)),
+    (await texteDe(pageA)).slice(0, 300)
+  );
+
+  await pageA.locator('#recherche-placard').fill('huile');
+  await attendre(400);
+  const candidats = await pageA.locator('[data-candidat-placard]').count();
+  verifier('la recherche propose les ingredients du carnet', candidats >= 1, `${candidats} candidats`);
+  await pageA.locator('[data-candidat-placard]').first().click();
+  await attendre(800);
+  verifier('l ingredient rejoint le placard', (await pageA.locator('[data-placard]').count()) === 1);
+
+  let etatPlacard = await etatStub(pageA);
+  verifier('le placard est ecrit en base', etatPlacard.nbPlacard === 1, `${etatPlacard.nbPlacard} documents`);
+
+  // Le meme ingredient, saisi autrement, ne doit pas creer un doublon.
+  const nomPose = await pageA.locator('[data-placard] span').first().textContent();
+  await pageA.locator('#fermer-boite').click();
+  await attendre(300);
+
+  // Le second appareil voit le placard apres rechargement : il est partage.
+  await pageB.reload({ waitUntil: 'networkidle' });
+  await attendre(1200);
+  await pageB.locator('#ouvrir-placard').click();
+  await attendre(500);
+  verifier(
+    'le second appareil voit le placard du premier',
+    (await pageB.locator('[data-placard]').count()) === 1,
+    await pageB.locator('#voile').textContent()
+  );
+  await pageB.locator('#fermer-boite').click();
+  await attendre(300);
+
+  // Et l'entree se retire.
+  await pageA.locator('#ouvrir-placard').click();
+  await attendre(400);
+  await pageA.locator('[data-placard]').first().click();
+  await attendre(800);
+  verifier(
+    'une entree du placard se retire',
+    (await pageA.locator('[data-placard]').count()) === 0,
+    `restait : ${nomPose}`
+  );
+  etatPlacard = await etatStub(pageA);
+  verifier('le retrait supprime le document', etatPlacard.nbPlacard === 0, `${etatPlacard.nbPlacard} documents`);
+  await pageA.locator('#fermer-boite').click();
+  await attendre(300);
+
+  // --- 7 ter. Mode « En magasin » ---------------------------------------------
+
+  await pageA.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
+  await attendre(900);
+  const lignesAvant = await pageA.locator('.liste-courses li').count();
+
+  verifier('la liste propose le mode magasin', (await pageA.locator('#aller-magasin').count()) === 1);
+  await pageA.locator('#aller-magasin').click();
+  await attendre(700);
+  verifier('le mode magasin s ouvre', (await pageA.locator('#magasin-compteur').count()) === 1, pageA.url());
+  verifier(
+    'le mode magasin n affiche que ce qui reste a prendre',
+    (await pageA.locator('.magasin__ligne').count()) <= lignesAvant,
+    `${await pageA.locator('.magasin__ligne').count()} lignes pour ${lignesAvant} au total`
+  );
+  // Le geste du magasin : une case de 30 px dans une ligne de 56 px au moins.
+  const cible = await pageA.evaluate(() => {
+    const n = document.querySelector('.magasin__label');
+    if (!n) return null;
+    const r = n.getBoundingClientRect();
+    return { h: Math.round(r.height) };
+  });
+  verifier('la ligne du magasin est une cible large', cible && cible.h >= 56, JSON.stringify(cible));
+
+  const avantCochage = await pageA.locator('.magasin__ligne').count();
+  if (avantCochage > 0) {
+    // `click` et non `check` : `check` attend que la case reste cochee pour conclure,
+    // or une ligne cochee quitte l'ecran par conception. Playwright reessaierait alors
+    // indefiniment sur la ligne suivante.
+    await pageA.locator('.magasin__case').first().click();
+    await attendre(900);
+    verifier(
+      'cocher retire la ligne de l ecran',
+      (await pageA.locator('.magasin__ligne').count()) === avantCochage - 1,
+      `${await pageA.locator('.magasin__ligne').count()} au lieu de ${avantCochage - 1}`
+    );
+    verifier('les lignes prises restent consultables', (await pageA.locator('#voir-coches').count()) === 1);
+    await pageA.locator('#voir-coches').click();
+    await attendre(400);
+    verifier('le depli montre les lignes prises', (await pageA.locator('#lignes-coches').count()) === 1);
+  }
+
+  await pageA.locator('#quitter-magasin').click();
+  await attendre(600);
+  verifier('quitter ramene a la liste complete', pageA.url().endsWith('#/liste-de-courses'), pageA.url());
+
   // --- 8. Aucune erreur JavaScript -------------------------------------------
 
   verifier('aucune erreur JavaScript sur les deux appareils', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
