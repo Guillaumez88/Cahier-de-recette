@@ -29,7 +29,8 @@
    Portée : ce fichier est servi depuis la racine du site, il contrôle donc toute
    l'application. Sur GitHub Pages, cette racine est /Cahier-de-recette/. */
 
-var VERSION = 'v1';
+// v2 : l'ecran de demarrage, les icones et le manifeste rejoignent la coquille.
+var VERSION = 'v2';
 var CACHE = 'carnet-' + VERSION;
 
 // La coquille de l'application : tout ce qu'il faut pour afficher un écran. Cette
@@ -39,6 +40,12 @@ var COQUILLE = [
   './',
   './index.html',
   './favicon.svg',
+  './manifest.webmanifest',
+  './icones/icone-192.png',
+  './icones/icone-512.png',
+  './icones/icone-192-maskable.png',
+  './icones/icone-512-maskable.png',
+  './icones/apple-touch-icon.png',
   './css/style.css',
   './js/firebase-config.js',
   './js/logic.js',

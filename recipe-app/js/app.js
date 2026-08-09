@@ -370,11 +370,32 @@
     });
   }
 
+  /**
+   * Retire l'ecran de demarrage, une fois.
+   *
+   * Appele au premier montage d'ecran : c'est le seul moment ou l'on sait que la page
+   * a quelque chose a montrer. La feuille de style le retire de toute facon au bout de
+   * quatre secondes, meme si aucun script ne tourne.
+   */
+  var demarrageRetire = false;
+  function retirerDemarrage() {
+    if (demarrageRetire) return;
+    demarrageRetire = true;
+    var ecran = document.getElementById('demarrage');
+    if (ecran) ecran.classList.add('demarrage--parti');
+  }
+
   function monter(noeud) {
     var vue = document.getElementById('vue');
     vue.textContent = '';
     vue.appendChild(noeud);
+    // Une classe posee puis retiree au tour suivant : elle rejoue l'entree de l'ecran
+    // a chaque navigation, ce qu'une animation CSS seule ne ferait qu'au chargement.
+    vue.classList.remove('vue--entre');
+    void vue.offsetWidth;
+    vue.classList.add('vue--entre');
     majChrome();
+    retirerDemarrage();
   }
 
   // Le badge et l'ecran de liste sont rafraichis par surChangementListe(),
@@ -758,7 +779,7 @@
       contenu.push(el('span', { class: 'creneau__vide creneau__vide--ajout' }, [icone('plus', { taille: 14 })]));
     }
 
-    var classes = ['creneau', 'creneau--' + moment.taille];
+    var classes = ['creneau', 'creneau--' + moment.taille, 'creneau--' + moment.cle];
     if (plats.length > 0) classes.push('creneau--rempli');
     if (plats.length > 1) classes.push('creneau--multiple');
     if (jour.estPasse) classes.push('creneau--passe');
@@ -821,30 +842,43 @@
   }
 
   /**
-   * Les creneaux a afficher pour une semaine.
+   * Le petit-dejeuner est-il masque, pour cette semaine et ce jour ?
    *
-   * Le petit-dejeuner est masque tant qu'il ne porte rien : c'est le repas le moins
-   * souvent prevu, et sept cases vides en haut de la grille repoussaient le dejeuner
-   * et le diner, qui sont ce qu'on vient lire. Il reparait en mode Modifier, ou il
-   * faut bien pouvoir en poser un.
+   * C'est le repas le moins souvent prevu, et des cases vides en tete de grille
+   * repoussaient le dejeuner et le diner, qui sont ce qu'on vient lire. Il reparait
+   * en mode Modifier, ou il faut bien pouvoir en poser un, et le jour ou il porte
+   * quelque chose.
    *
-   * La decision se prend pour toute la semaine, pas jour par jour : sur la grille de
-   * bureau, chaque jour est une colonne, et masquer la case du lundi seul decalerait
-   * son dejeuner d'une ligne par rapport a celui du mardi.
+   * La decision se prend **jour par jour**. Sur la grille de bureau, chaque jour est
+   * une colonne : masquer la case du lundi seul decalerait son dejeuner d'une ligne
+   * par rapport a celui du mardi. La feuille de style l'evite en donnant a chaque
+   * creneau sa ligne fixe (classe `creneau--<moment>`), si bien qu'une case absente
+   * laisse sa place vide au lieu de tirer les suivantes vers le haut.
+   *
+   * La ligne entiere disparait quand aucun jour de la semaine ne porte de
+   * petit-dejeuner : sans cela, une bande vide subsisterait en haut de la grille.
    */
-  function momentsDeLaSemaine(sem, index, editable) {
+  function ligneMatinVisible(sem, index, editable) {
+    if (editable) return true;
+    return (sem.jours || []).some(function (jour) {
+      return (index[Sem.cleCreneau(jour.cle, 'petit-dejeuner')] || []).length > 0;
+    });
+  }
+
+  /** Les creneaux a afficher pour un jour donne. */
+  function momentsDuJour(jour, index, editable, ligneMatin) {
     return Sem.MOMENTS.filter(function (moment) {
-      if (moment.cle !== 'petit-dejeuner' || editable) return true;
-      return (sem.jours || []).some(function (jour) {
-        return (index[Sem.cleCreneau(jour.cle, moment.cle)] || []).length > 0;
-      });
+      if (moment.cle !== 'petit-dejeuner') return true;
+      if (editable) return true;
+      if (!ligneMatin) return false;
+      return (index[Sem.cleCreneau(jour.cle, moment.cle)] || []).length > 0;
     });
   }
 
   function blocSemaine(sem, estCourante) {
     var index = Sm.parCreneau();
     var editable = Boolean(etat.modeEdition);
-    var moments = momentsDeLaSemaine(sem, index, editable);
+    var ligneMatin = ligneMatinVisible(sem, index, editable);
 
     return el('section', { class: 'semaine' + (estCourante ? ' semaine--courante' : ''), 'data-semaine': sem.cle }, [
       el('header', { class: 'semaine__entete' }, [
@@ -882,7 +916,7 @@
       ]),
       el(
         'div',
-        { class: 'grille-semaine' },
+        { class: 'grille-semaine' + (ligneMatin ? '' : ' grille-semaine--sans-matin') },
         sem.jours.map(function (jour) {
           return el(
             'div',
@@ -894,7 +928,7 @@
                 jour.estAujourdhui ? el('span', { class: 'jour__marque', texte: 'aujourd’hui' }) : null,
               ]),
             ].concat(
-              moments.map(function (moment) {
+              momentsDuJour(jour, index, editable, ligneMatin).map(function (moment) {
                 return celluleCreneau(jour, moment, index[Sem.cleCreneau(jour.cle, moment.cle)] || [], editable);
               })
             )
@@ -1074,6 +1108,79 @@
    * demandee, et sur telephone elle etait auparavant sous un titre, un resume, deux
    * cartes d'acces, trois onglets, une phrase d'aide et un bandeau d'etat.
    */
+  /** Icone du moment de la journee, pour l'entete d'une carte. */
+  var ICONE_MOMENT = { 'petit-dejeuner': 'petit-dejeuner', dejeuner: 'dejeuner', diner: 'diner' };
+
+  /**
+   * Un plat, tel qu'il apparait dans le bloc du jour.
+   * `grand` distingue les cartes du dejeuner et du diner de la ligne du matin.
+   */
+  function platDuJour(jour, moment, plat, grand) {
+    var recette = plat.type === Sm.TYPE_RECETTE ? Rc.parId(plat.recetteId) : null;
+
+    var marque = recette
+      ? vignetteOuMarque(recette, grand ? 'vignette--repas' : 'vignette--creneau', grand ? 22 : 15)
+      : el('span', { class: classeCategorie('marque-plat', 'Plat') }, [
+          icone(iconeRepasLibre(plat.titre), { taille: grand ? 22 : 15 }),
+        ]);
+
+    var titre = recette
+      ? el('a', { class: 'repas-jour__lien', href: '#/recette/' + recette.id, texte: recette.titre })
+      : el('span', { texte: plat.titre });
+
+    // La meta ne s'affiche que sur les cartes : sur la ligne du matin elle prendrait
+    // plus de place que le nom du plat.
+    var meta =
+      grand && recette
+        ? el('span', { class: 'repas-carte__meta', texte: recette.temps.total + ' · ' + recette.portions })
+        : null;
+
+    var croix = el('button', {
+      type: 'button',
+      class: 'bouton-icone bouton-icone--discret',
+      'data-retirer-jour': plat.cle,
+      'aria-label': 'Retirer ' + plat.titre + ' du ' + moment.libelle,
+      onclick: function () {
+        retirerPlat(plat);
+      },
+    }, [icone('croix', { taille: 15 })]);
+
+    // Sur une carte, la photo est un bandeau au-dessus, et le nom occupe sa propre
+    // ligne : marque, nom et croix sur une seule ligne obligeaient le nom a passer
+    // dessous des qu'il depassait, ce qui laissait le pictogramme seul en tete.
+    if (grand) {
+      var photo = recette ? vignetteRecette(recette, 'vignette--repas') : null;
+      return el('div', { class: 'repas-jour__titre', 'data-plat-jour': plat.cle }, [
+        photo,
+        el('div', { class: 'repas-carte__ligne' }, [
+          recette
+            ? el('span', { class: classeCategorie('marque-plat', recette.categorie) }, [
+                icone(Ic.pourCategorie(recette.categorie), { taille: 16 }),
+              ])
+            : el('span', { class: classeCategorie('marque-plat', 'Plat') }, [
+                icone(iconeRepasLibre(plat.titre), { taille: 16 }),
+              ]),
+          el('span', { class: 'repas-jour__texte' }, [titre, meta]),
+          croix,
+        ]),
+      ]);
+    }
+
+    return el('div', { class: 'repas-jour__titre', 'data-plat-jour': plat.cle }, [
+      marque,
+      el('span', { class: 'repas-jour__texte' }, [titre, meta]),
+      croix,
+    ]);
+  }
+
+  /**
+   * Bloc « Aujourd'hui », les repas du jour.
+   *
+   * Le dejeuner et le diner sont deux cartes, cote a cote sur grand ecran : ce sont
+   * les repas qu'on cuisine, et une liste de trois lignes identiques ne disait pas
+   * lequel demandait de s'y mettre. Le petit-dejeuner reste une ligne d'appoint, et
+   * disparait quand il ne porte rien, comme dans la grille.
+   */
   function blocAujourdhui(sem) {
     var jour = null;
     (sem.jours || []).forEach(function (j) {
@@ -1083,65 +1190,64 @@
 
     var index = Sm.parCreneau();
 
+    function carte(moment) {
+      var plats = index[Sem.cleCreneau(jour.cle, moment.cle)] || [];
+      var grand = moment.taille === 'haute';
+
+      var contenu =
+        plats.length === 0
+          ? [el('span', { class: 'repas-jour__vide', texte: 'Rien de prévu' })]
+          : plats.map(function (plat) {
+              return platDuJour(jour, moment, plat, grand);
+            });
+
+      var ajout = el('button', {
+        type: 'button',
+        class: 'bouton-icone',
+        'data-modifier-jour': moment.cle,
+        'aria-label': 'Ajouter un plat au ' + moment.libelle + ' du ' + jour.libelle,
+        onclick: function () {
+          ouvrirSelecteurCreneau(jour, moment);
+        },
+      }, [icone('plus', { taille: 18 })]);
+
+      var classes = ['repas-jour', grand ? 'repas-carte' : 'repas-ligne'];
+      if (plats.length === 0) classes.push('repas-jour--vide');
+
+      if (!grand) {
+        return el('div', { class: classes.join(' '), 'data-repas-jour': moment.cle }, [
+          el('span', { class: 'repas-jour__moment' }, [
+            icone(ICONE_MOMENT[moment.cle] || 'marmite', { taille: 15 }),
+            el('span', { texte: moment.libelle }),
+          ]),
+          el('span', { class: 'repas-jour__plats' }, contenu),
+          ajout,
+        ]);
+      }
+
+      return el('div', { class: classes.join(' '), 'data-repas-jour': moment.cle }, [
+        el('div', { class: 'repas-carte__entete' }, [
+          el('span', { class: 'repas-carte__moment' }, [
+            icone(ICONE_MOMENT[moment.cle] || 'marmite', { taille: 16 }),
+            el('span', { texte: moment.libelle }),
+          ]),
+          ajout,
+        ]),
+        el('div', { class: 'repas-carte__corps' }, contenu),
+      ]);
+    }
+
+    var moments = Sem.MOMENTS.filter(function (moment) {
+      if (moment.cle !== 'petit-dejeuner' || etat.modeEdition) return true;
+      return (index[Sem.cleCreneau(jour.cle, moment.cle)] || []).length > 0;
+    });
+
     return el('section', { class: 'aujourdhui', id: 'aujourdhui' }, [
       el('header', { class: 'aujourdhui__entete' }, [
         el('h2', { class: 'aujourdhui__titre', texte: 'Aujourd’hui' }),
         el('span', { class: 'aujourdhui__date', texte: jour.libelle }),
       ]),
-      el(
-        'div',
-        { class: 'aujourdhui__repas' },
-        // Meme regle que la grille, mais decidee pour le seul jour affiche : ces trois
-        // lignes s'empilent, en masquer une ne decale rien.
-        Sem.MOMENTS.filter(function (moment) {
-          if (moment.cle !== 'petit-dejeuner' || etat.modeEdition) return true;
-          return (index[Sem.cleCreneau(jour.cle, moment.cle)] || []).length > 0;
-        }).map(function (moment) {
-          var plats = index[Sem.cleCreneau(jour.cle, moment.cle)] || [];
-
-          // Un repas peut porter un plat et un dessert : chaque plat a sa ligne et
-          // sa croix, le « + » du repas reste a droite pour en ajouter un autre.
-          var contenu =
-            plats.length === 0
-              ? [el('span', { class: 'repas-jour__vide', texte: 'Rien de prévu' })]
-              : plats.map(function (plat) {
-                  var recette = plat.type === Sm.TYPE_RECETTE ? Rc.parId(plat.recetteId) : null;
-                  return el('span', { class: 'repas-jour__titre', 'data-plat-jour': plat.cle }, [
-                    el('span', { class: classeCategorie('marque-plat', recette ? recette.categorie : 'Plat') }, [
-                      icone(recette ? Ic.pourCategorie(recette.categorie) : iconeRepasLibre(plat.titre), {
-                        taille: 15,
-                      }),
-                    ]),
-                    recette
-                      ? el('a', { class: 'repas-jour__lien', href: '#/recette/' + recette.id, texte: recette.titre })
-                      : el('span', { texte: plat.titre }),
-                    el('button', {
-                      type: 'button',
-                      class: 'bouton-icone bouton-icone--discret',
-                      'data-retirer-jour': plat.cle,
-                      'aria-label': 'Retirer ' + plat.titre + ' du ' + moment.libelle,
-                      onclick: function () {
-                        retirerPlat(plat);
-                      },
-                    }, [icone('croix', { taille: 15 })]),
-                  ]);
-                });
-
-          return el('div', { class: 'repas-jour', 'data-repas-jour': moment.cle }, [
-            el('span', { class: 'repas-jour__moment', texte: moment.libelle }),
-            el('span', { class: 'repas-jour__plats' }, contenu),
-            el('button', {
-              type: 'button',
-              class: 'bouton-icone',
-              'data-modifier-jour': moment.cle,
-              'aria-label': 'Ajouter un plat au ' + moment.libelle + ' du ' + jour.libelle,
-              onclick: function () {
-                ouvrirSelecteurCreneau(jour, moment);
-              },
-            }, [icone('plus', { taille: 18 })]),
-          ]);
-        })
-      ),
+      el('div', { class: 'aujourdhui__repas' }, moments.map(carte)),
     ]);
   }
 
@@ -3845,6 +3951,7 @@
   /* --- démarrage ----------------------------------------------------------- */
 
   function afficherErreurChargement(message) {
+    retirerDemarrage();
     var vue = document.getElementById('vue');
     vue.textContent = '';
     vue.appendChild(

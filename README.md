@@ -14,8 +14,9 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
 ├── firestore.rules                      Règles de sécurité de la liste commune
 └── recipe-app/
     ├── index.html               Structure de la page, un seul point de montage
-    ├── manifest.webmanifest     Nom, icône et couleurs pour « Ajouter à l'écran d'accueil »
+    ├── manifest.webmanifest     Nom, icônes et couleurs pour « Ajouter à l'écran d'accueil »
     ├── sw.js                    Service worker : le carnet s'ouvre sans réseau
+    ├── icones/                  Icônes d'application en PNG, rastérisées depuis favicon.svg
     ├── css/style.css            Thème « carnet de cuisine chaleureux », responsive, impression
     ├── js/
     │   ├── firebase-config.js   Configuration Firebase (publique) et réglages de sync
@@ -39,7 +40,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js           114 tests de la logique métier
+        ├── run-tests.js           116 tests de la logique métier
         ├── run-sync-tests.js      115 tests de la synchronisation
         ├── test-web.js             88 vérifications navigateur, parcours général
         ├── test-partage.js         57 vérifications navigateur, partage, placard, magasin
@@ -92,9 +93,11 @@ La page d'accueil répond à une seule question : qu'est-ce qu'on mange. Elle mo
 
 ### Comment on l'utilise
 
-- **Le bloc « Aujourd'hui » est la première chose de la page**, avec les trois repas du jour, un bouton « + » de 44 px par ligne pour en ajouter un et une croix par plat pour le retirer. Sur téléphone, cette information était auparavant sous un titre, un résumé, deux cartes d'accès, trois onglets, une phrase d'aide et un bandeau d'état : il fallait faire défiler pour savoir ce qu'on mange le soir. Un test vérifie que ce bloc tient dans la hauteur d'un écran de 390 × 850 px.
+- **Le bloc « Aujourd'hui » est la première chose de la page.** Le déjeuner et le dîner y sont deux **cartes**, côte à côte sur grand écran et empilées sous 560 px : ce sont les repas qu'on cuisine, et une liste de trois lignes identiques ne disait pas lequel demandait de s'y mettre. Chaque carte porte le pictogramme du moment, la photo du plat quand il y en a une, son nom en grand, le temps et le nombre de parts. Le petit-déjeuner reste une ligne d'appoint. Un bouton « + » de 44 px par repas, une croix par plat. Sur téléphone, cette information était auparavant sous un titre, un résumé, deux cartes d'accès, trois onglets, une phrase d'aide et un bandeau d'état : il fallait faire défiler pour savoir ce qu'on mange le soir. Un test vérifie que ce bloc tient dans la hauteur d'un écran de 390 × 850 px.
 - **La semaine commence le lundi** et finit le dimanche. Trois créneaux par jour : petit-déjeuner, déjeuner, dîner, nommés de la même façon dans la grille et dans le récapitulatif du jour.
-- **Le petit-déjeuner est masqué tant qu'il ne porte rien.** C'est le repas le moins souvent prévu, et sept cases vides en tête de grille repoussaient le déjeuner et le dîner, qui sont ce qu'on vient lire. Il reparaît dès qu'un petit-déjeuner est prévu, et en mode Modifier, où il faut bien pouvoir en poser un. La décision se prend pour toute la semaine et non jour par jour : chaque jour est une colonne, et masquer la case du lundi seul décalerait son déjeuner d'une ligne par rapport à celui du mardi. Le déjeuner et le dîner ont plus de hauteur que le petit-déjeuner, parce que ce sont les repas qu'on cuisine.
+- **Le petit-déjeuner est masqué tant qu'il ne porte rien**, jour par jour. C'est le repas le moins souvent prévu, et des cases vides en tête de grille repoussaient le déjeuner et le dîner, qui sont ce qu'on vient lire. Il reparaît le jour où il porte quelque chose, et en mode Modifier, où il faut bien pouvoir en poser un.
+
+  L'alignement des colonnes est tenu par la feuille de style et non par le rendu : chaque créneau a sa **ligne fixe** dans la grille du jour (`grid-row` par moment), si bien qu'un petit-déjeuner absent le lundi laisse sa place vide au lieu de tirer le déjeuner d'une ligne vers le haut et de le désaligner de celui du mardi. Sur trois colonnes, c'est la colonne qui devient fixe. La ligne entière disparaît quand aucun jour de la semaine n'en porte, sinon une bande vide subsisterait. Le déjeuner et le dîner ont plus de hauteur que le petit-déjeuner, parce que ce sont les repas qu'on cuisine.
 - **Une semaine vide est repliée en un bandeau** d'une ligne, dépliable d'un clic. La semaine suivante est presque toujours entièrement vide et occupait la moitié de la hauteur de page pour vingt-et-une cases à remplir. La semaine en cours est toujours dépliée, et une semaine qui porte des plats ne se replie pas.
 - **Jamais de semaine passée** : un repas déjà mangé ne sert ni aux courses ni à la cuisine.
 - **L'accueil s'ouvre en lecture.** La grille montre le menu : pas de « + » dans les cases, pas de réserve de plats à glisser. Le bouton « Modifier », à côté de « Ajouter aux courses », fait apparaître les deux. Le « + » du bloc « Aujourd'hui » reste là en permanence : c'est le geste du jour même, celui qu'on fait le plus.
@@ -356,6 +359,41 @@ Il distingue **trois causes d'échec**, qui n'appellent pas les mêmes actions :
 Confondre les trois était le vrai défaut de la version précédente : elle annonçait « Hors ligne » pour un quota épuisé.
 - **Aucun test ne touche votre projet réel.** L'émulation locale sert à tout vérifier. Le revers est que le comportement contre le vrai Firestore n'est pas prouvé : c'est le premier point à confirmer après la configuration.
 
+## Écran de démarrage, icônes et animations
+
+### L'écran de démarrage
+
+Il est écrit dans `index.html` et non construit par `app.js` : il doit être peint au tout premier rendu, avant que le moindre script ne tourne, sinon il arriverait après ce qu'il est censé couvrir. Il remplace l'écran blanc puis le texte « Chargement des recettes… » quand on lance l'application depuis l'écran d'accueil du téléphone.
+
+**Il ne peut pas rester coincé**, et c'est la seule chose qui compte vraiment : un écran de démarrage bloqué vaut moins que pas d'écran du tout. Trois sorties, indépendantes :
+
+1. `app.js` le retire dès le premier écran monté ;
+2. il le retire aussi quand le chargement échoue, pour laisser voir le message d'erreur ;
+3. une animation CSS le fait disparaître au bout de 4 secondes, **sans aucun JavaScript**, y compris sous `prefers-reduced-motion`, où l'animation générale est neutralisée mais celle-ci explicitement conservée.
+
+Un test vérifie ces quatre points sur les fichiers eux-mêmes.
+
+### Les icônes d'application
+
+`favicon.svg` est rastérisé en PNG par Chromium (script hors application, joué une fois), dans `icones/` :
+
+| Fichier | Usage |
+|---|---|
+| `icone-192.png`, `icone-512.png` | Écran d'accueil, et l'écran de démarrage qu'Android génère depuis le manifeste |
+| `icone-192-maskable.png`, `icone-512-maskable.png` | Android rogne un cercle de 80 % dans le carré : le dessin y est réduit de 14 % et posé sur un aplat plein bord, sinon les coins sont coupés |
+| `apple-touch-icon.png` | iOS, qui ignore le manifeste pour l'icône |
+
+Un SVG seul ne suffit pas : les deux systèmes demandent du PNG pour l'écran d'accueil, et sans le 512 px Android ne propose pas d'écran de démarrage. Des tests vérifient que ces tailles existent, qu'une icône `maskable` est déclarée, que chaque fichier est présent, et que toutes sont dans la coquille du service worker, sans quoi l'application installée perdrait son icône dès que le réseau manque.
+
+### Les animations
+
+Deux règles, tenues partout :
+
+1. **Rien ne bouge sans raison.** Chaque animation dit quelque chose : l'écran qui arrive, la carte qui apparaît, la case visée pendant un glissement, la ligne qui part au panier, le bouton de rafraîchissement qui tourne pendant qu'il travaille. Une décoration qui ne dit rien ajoute de l'attente.
+2. **Tout s'arrête sous `prefers-reduced-motion`.** Ce réglage n'est pas une préférence esthétique : le mouvement déclenche des nausées et des migraines chez une partie des gens. Un bloc final ramène toutes les durées à 0,001 ms, sans exception, et seule la sortie de l'écran de démarrage est réécrite pour continuer de fonctionner.
+
+Les entrées d'écran durent 200 ms : au-delà, une transition de page se ressent comme une lenteur et non comme une réponse.
+
 ## Accessibilité
 
 Trois points traités, chacun parce qu'il était cassé et non par principe :
@@ -368,7 +406,7 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 114 tests de la logique métier
+node tests/run-tests.js           # 116 tests de la logique métier
 node tests/run-sync-tests.js      # 115 tests de la synchronisation
 node tests/run-browser-tests.js   # 343 vérifications dans un vrai Chromium
 ```

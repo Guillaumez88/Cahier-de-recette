@@ -10,12 +10,30 @@
     />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icones/apple-touch-icon.png" />
     <meta name="theme-color" content="#c67139" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Miam miam" />
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
+    <!-- Ecran de demarrage. Il est dans le HTML et non construit par app.js : il doit
+         etre peint au tout premier rendu, avant que le moindre script ne tourne, sinon
+         il arriverait apres ce qu'il est cense couvrir.
+
+         Il ne peut pas rester coince : app.js le retire des le premier ecran monte, et
+         une animation CSS le fait disparaitre au bout de 4 secondes meme si aucun
+         script ne tourne. Un ecran de demarrage qui bloque vaut moins que pas d'ecran
+         du tout. -->
+    <div class="demarrage" id="demarrage" role="status" aria-label="Chargement de Miam miam !">
+      <div class="demarrage__marque">
+        <img class="demarrage__logo" src="favicon.svg" alt="" width="96" height="96" />
+        <p class="demarrage__nom">Miam miam !</p>
+        <p class="demarrage__note">Le carnet de la maison</p>
+      </div>
+      <div class="demarrage__jauge" aria-hidden="true"><span></span></div>
+    </div>
+
     <a class="lien-evitement" href="#contenu">Aller au contenu</a>
 
     <header class="entete">

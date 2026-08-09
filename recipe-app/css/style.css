@@ -1595,11 +1595,38 @@ textarea.champ-edition {
   gap: 8px;
 }
 
+/* Une grille et non une pile : chaque créneau occupe une ligne fixe, si bien qu'un
+   petit-déjeuner masqué pour le lundi laisse sa place vide au lieu de tirer le
+   déjeuner d'une ligne vers le haut et de le désaligner de celui du mardi.
+   `grille-semaine--sans-matin` retire la ligne quand aucun jour n'en porte, sinon
+   une bande vide subsisterait en tête de grille. */
 .jour {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto auto auto auto;
   gap: 6px;
   min-width: 0;
+}
+.grille-semaine--sans-matin .jour {
+  grid-template-rows: auto auto auto;
+}
+
+.jour__entete {
+  grid-row: 1;
+}
+.creneau--petit-dejeuner {
+  grid-row: 2;
+}
+.creneau--dejeuner {
+  grid-row: 3;
+}
+.creneau--diner {
+  grid-row: 4;
+}
+.grille-semaine--sans-matin .creneau--dejeuner {
+  grid-row: 2;
+}
+.grille-semaine--sans-matin .creneau--diner {
+  grid-row: 3;
 }
 
 .jour__entete {
@@ -2278,10 +2305,37 @@ a.creneau__plat:hover .creneau__titre {
   .jour {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: auto auto;
     gap: 8px;
   }
+  .grille-semaine--sans-matin .jour {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .jour__entete {
+    grid-row: 1;
     grid-column: 1 / -1;
+  }
+  /* Les trois repas sont cote a cote : c'est la colonne qui devient fixe, pour que
+     le dejeuner du lundi reste sous le dejeuner du mardi. */
+  .creneau--petit-dejeuner,
+  .creneau--dejeuner,
+  .creneau--diner {
+    grid-row: 2;
+  }
+  .creneau--petit-dejeuner {
+    grid-column: 1;
+  }
+  .creneau--dejeuner {
+    grid-column: 2;
+  }
+  .creneau--diner {
+    grid-column: 3;
+  }
+  .grille-semaine--sans-matin .creneau--dejeuner {
+    grid-column: 1;
+  }
+  .grille-semaine--sans-matin .creneau--diner {
+    grid-column: 2;
   }
   .creneau--courte {
     min-height: 72px;
@@ -2303,8 +2357,21 @@ a.creneau__plat:hover .creneau__titre {
   .semaine {
     padding: 12px;
   }
-  .jour {
+  /* Un jour par ligne : les creneaux s'empilent, aucun alignement a tenir entre les
+     jours, on rend donc leur placement automatique. */
+  .jour,
+  .grille-semaine--sans-matin .jour {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
+  }
+  .jour__entete,
+  .creneau--petit-dejeuner,
+  .creneau--dejeuner,
+  .creneau--diner,
+  .grille-semaine--sans-matin .creneau--dejeuner,
+  .grille-semaine--sans-matin .creneau--diner {
+    grid-row: auto;
+    grid-column: auto;
   }
   .creneau {
     flex-direction: row;
@@ -2602,20 +2669,145 @@ a.creneau__plat:hover .creneau__titre {
   color: var(--texte-doux);
 }
 
+/* Le déjeuner et le dîner sont deux cartes côte à côte, le petit-déjeuner une
+   ligne pleine largeur au-dessus. Une liste de trois lignes identiques ne disait
+   pas lequel des trois repas demandait de s'y mettre. */
 .aujourdhui__repas {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.repas-ligne {
+  grid-column: 1 / -1;
 }
 
-.repas-jour {
+/* Sous 560 px, deux cartes côte à côte laissent moins de 160 px par titre : « Lasagnes
+   bolognaise : la meilleure recette » s'y coupait en quatre lignes. Elles s'empilent. */
+@media (max-width: 560px) {
+  .aujourdhui__repas {
+    grid-template-columns: 1fr;
+  }
+  .repas-carte .vignette--repas {
+    height: 120px;
+  }
+}
+
+/* La ligne du matin : discrète, c'est un repas d'appoint. */
+.repas-ligne {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 0;
-  border-top: 1px solid var(--bordure);
+  padding: 8px 14px;
+  background: var(--surface-creuse);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-md);
 }
-.repas-jour:first-child {
-  border-top: 0;
+
+/* La carte d'un repas qu'on cuisine. */
+.repas-carte {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 14px 16px 16px;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-lg);
+  box-shadow: 0 1px 2px rgba(32, 30, 29, 0.05);
+}
+/* Un repas non prévu ne doit pas peser autant qu'un repas décidé : bordure en
+   pointillés, comme les cases vides de la grille, et fond en retrait. */
+.repas-carte.repas-jour--vide {
+  background: transparent;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.repas-carte__entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--bordure);
+}
+
+.repas-carte__moment,
+.repas-ligne .repas-jour__moment {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: system-ui, sans-serif;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--texte-faible);
+}
+.repas-carte__moment .icone {
+  color: var(--terracotta);
+}
+
+.repas-carte__corps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.repas-carte__meta {
+  display: block;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-doux);
+}
+
+/* Une photo de plat, en bandeau : c'est ce qui rend la carte reconnaissable d'un
+   coup d'œil, plus qu'un nom. */
+.vignette--repas {
+  width: 100%;
+  height: 92px;
+  margin-bottom: 8px;
+  border-radius: var(--rayon-md);
+  overflow: hidden;
+}
+.vignette--repas .vignette__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Dans une carte : la photo en bandeau, puis une ligne « marque, nom, croix ». Le nom
+   s'étale sur plusieurs lignes sans jamais renvoyer la marque ni la croix ailleurs. */
+.repas-carte .repas-jour__titre {
+  display: block;
+  min-width: 0;
+}
+.repas-carte__ligne {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.repas-carte .repas-jour__texte {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.repas-carte .repas-jour__lien,
+.repas-carte .repas-jour__texte > span:first-child {
+  font-family: var(--police-titre);
+  font-size: 20px;
+  line-height: 1.22;
+  overflow-wrap: anywhere;
+}
+.repas-carte .marque-plat,
+.repas-carte .bouton-icone--discret {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.repas-jour__texte {
+  min-width: 0;
 }
 
 .repas-jour__moment {
@@ -3500,4 +3692,331 @@ a.creneau__plat:hover .creneau__titre {
 }
 .pastille--placard .icone {
   opacity: 0.7;
+}
+
+/* --- Écran de démarrage ----------------------------------------------------
+   Peint au premier rendu, avant tout script : c'est ce qui remplace l'écran
+   blanc puis le texte « Chargement des recettes… » quand on lance l'application
+   depuis l'écran d'accueil du téléphone.
+
+   `demarrage--parti` est posée par app.js dès le premier écran monté. L'animation
+   `demarrage-secours` fait le même travail au bout de 4 secondes, sans JavaScript :
+   un écran de démarrage qui reste coincé vaut moins que pas d'écran du tout. */
+
+.demarrage {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  background: var(--organic-fond);
+  animation: demarrage-secours 0.4s ease-out 4s forwards;
+}
+.demarrage--parti {
+  animation: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(1.04);
+  transition: opacity 0.34s ease-out, transform 0.34s ease-out, visibility 0s linear 0.34s;
+}
+
+@keyframes demarrage-secours {
+  to {
+    opacity: 0;
+    visibility: hidden;
+    transform: scale(1.04);
+  }
+}
+
+.demarrage__marque {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.demarrage__logo {
+  width: 96px;
+  height: 96px;
+  border-radius: 22px;
+  box-shadow: 0 10px 28px rgba(32, 30, 29, 0.14);
+  animation: demarrage-logo 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+@keyframes demarrage-logo {
+  from {
+    opacity: 0;
+    transform: scale(0.7) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.demarrage__nom {
+  margin: 6px 0 0;
+  font-family: var(--police-titre);
+  font-size: 32px;
+  color: var(--organic-encre);
+  animation: demarrage-monte 0.5s ease-out 0.14s both;
+}
+
+.demarrage__note {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--texte-doux);
+  animation: demarrage-monte 0.5s ease-out 0.22s both;
+}
+
+@keyframes demarrage-monte {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Une jauge qui avance sans prétendre mesurer quoi que ce soit : elle dit « ça
+   travaille », ce qui est la seule chose vraie à ce moment-là. */
+.demarrage__jauge {
+  width: 132px;
+  height: 4px;
+  overflow: hidden;
+  background: var(--organic-creux);
+  border-radius: var(--rayon-pilule);
+}
+.demarrage__jauge span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--terracotta);
+  border-radius: inherit;
+  animation: demarrage-jauge 1.15s ease-in-out infinite;
+}
+
+@keyframes demarrage-jauge {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(360%);
+  }
+}
+
+/* --- Animations ------------------------------------------------------------
+   Deux règles tenues partout ici :
+
+   1. **Rien ne bouge sans raison.** Chaque animation dit quelque chose : l'écran
+      qui arrive, la carte qui apparaît, la ligne qui part au panier, le bouton
+      qui travaille. Une décoration qui ne dit rien ajoute de l'attente.
+
+   2. **Tout s'arrête sous `prefers-reduced-motion`.** Ce réglage n'est pas une
+      préférence esthétique : le mouvement déclenche des nausées et des migraines
+      chez une partie des gens. Le bloc final le respecte sans exception. */
+
+/* L'écran qui arrive, à chaque navigation. Très court : au-delà de 200 ms, une
+   transition de page se ressent comme une lenteur et non comme une réponse. */
+.vue--entre {
+  animation: vue-entre 0.2s ease-out both;
+}
+
+@keyframes vue-entre {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Les cartes du jour et les cases de la semaine apparaissent l'une après l'autre.
+   Le décalage est appliqué par rang via `nth-child` plutôt que par du style en
+   ligne : le rendu reste du DOM pur, sans calcul de délai en JavaScript. */
+.repas-carte,
+.repas-ligne {
+  animation: carte-entre 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.05) both;
+}
+.aujourdhui__repas > *:nth-child(2) {
+  animation-delay: 0.05s;
+}
+.aujourdhui__repas > *:nth-child(3) {
+  animation-delay: 0.1s;
+}
+
+@keyframes carte-entre {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* La carte se soulève au survol : elle est cliquable, il faut que cela se voie
+   avant le clic et non après. */
+.repas-carte:not(.repas-jour--vide) {
+  transition: transform 0.18s ease-out, box-shadow 0.18s ease-out;
+}
+.repas-carte:not(.repas-jour--vide):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(32, 30, 29, 0.1);
+}
+
+/* Le bouton de rafraîchissement tourne pendant qu'il travaille : c'est la seule
+   chose qui distingue « je n'ai pas appuyé assez fort » de « ça charge ». */
+.bouton-rafraichir[disabled] .icone {
+  animation: tourne 0.9s linear infinite;
+}
+
+@keyframes tourne {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Un plat posé dans la semaine : la case le signale, sinon un glisser-déposer
+   réussi et un glisser-déposer raté se ressemblent. */
+.creneau__plat {
+  animation: plat-pose 0.3s ease-out both;
+}
+
+@keyframes plat-pose {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* La case visée pendant un glissement respire, au lieu de changer de couleur d'un
+   coup : on voit qu'elle est prête à recevoir. */
+.creneau--cible {
+  animation: cible-respire 0.9s ease-in-out infinite;
+}
+
+@keyframes cible-respire {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+/* En magasin, une ligne cochée quitte l'écran. Sans ce mouvement, elle disparaît
+   d'un coup et l'on doute d'avoir coché la bonne. */
+.magasin__ligne {
+  animation: ligne-magasin 0.26s ease-out both;
+}
+
+@keyframes ligne-magasin {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.magasin__label {
+  transition: background 0.15s ease-out;
+}
+.magasin__label:active {
+  background: var(--terracotta-clair);
+}
+
+/* Les pastilles de la réserve et du placard : un retour au survol et à l'appui,
+   pour un geste qui se fait à la souris comme au doigt. */
+.pastille {
+  transition: transform 0.14s ease-out, background 0.14s ease-out, border-color 0.14s ease-out;
+}
+.pastille:hover {
+  transform: translateY(-1px);
+}
+.pastille:active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* La boîte modale monte du bas sur mobile, apparaît au centre sur grand écran :
+   c'est ce que fait le système d'exploitation, autant s'y conformer. */
+.voile {
+  animation: voile-entre 0.18s ease-out both;
+}
+.boite {
+  animation: boite-entre 0.26s cubic-bezier(0.2, 0.9, 0.3, 1.05) both;
+}
+
+@keyframes voile-entre {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes boite-entre {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Le compteur du mode magasin : il change quand on coche, et le voir bouger vaut
+   confirmation. */
+.magasin__compteur strong {
+  display: inline-block;
+  animation: compteur-change 0.3s ease-out both;
+}
+
+@keyframes compteur-change {
+  from {
+    transform: scale(1.25);
+    color: var(--sauge-600);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* Réglage système : plus aucun mouvement. Les états restent lisibles, seules les
+   transitions disparaissent. `!important` est nécessaire, il faut battre toutes
+   les règles ci-dessus sans les énumérer. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* L'écran de démarrage disparaît quand même : sans animation, sa règle de secours
+     ne s'exécuterait pas et il resterait à l'écran. */
+  .demarrage {
+    animation: demarrage-secours 0.001ms linear 2s forwards !important;
+  }
 }

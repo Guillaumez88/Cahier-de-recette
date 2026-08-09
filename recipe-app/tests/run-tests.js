@@ -738,9 +738,18 @@ test('la coquille du service worker couvre tous les fichiers de la page', () => 
     assert.ok(sw.includes(`'${f}'`), `${f} est dans index.html mais absent de la coquille de sw.js`);
   });
 
-  // Et les autres fichiers servis, qui ne sont pas des scripts.
-  ['./index.html', './favicon.svg', './css/style.css', './data/recipes.json'].forEach((f) => {
+  // Et les autres fichiers servis, qui ne sont pas des scripts. Les icônes en font
+  // partie : sans elles, l'application installée sur un téléphone perdrait son icône
+  // dès que le réseau manque.
+  ['./index.html', './favicon.svg', './css/style.css', './data/recipes.json',
+   './manifest.webmanifest', './icones/apple-touch-icon.png'].forEach((f) => {
     assert.ok(sw.includes(`'${f}'`), `${f} est absent de la coquille de sw.js`);
+  });
+
+  // Toute icône déclarée par le manifeste doit être dans la coquille.
+  const manifeste = JSON.parse(fs.readFileSync(path.join(racine, 'manifest.webmanifest'), 'utf8'));
+  manifeste.icons.forEach((i) => {
+    assert.ok(sw.includes(`'./${i.src}'`), `${i.src} est déclarée au manifeste mais absente de la coquille`);
   });
 
   // Chaque entree de la coquille doit exister sur le disque, sinon `cache.addAll`
@@ -749,6 +758,51 @@ test('la coquille du service worker couvre tous les fichiers de la page', () => 
   coquille.forEach((f) => {
     assert.ok(fs.existsSync(path.join(racine, f.slice(2))), `${f} est dans la coquille mais absent du dépôt`);
   });
+});
+
+test('le manifeste porte des icones matricielles, dont une maskable', () => {
+  const manifeste = JSON.parse(fs.readFileSync(path.join(racine, 'manifest.webmanifest'), 'utf8'));
+
+  // Un SVG seul ne suffit pas : Android et iOS demandent du PNG pour l'écran
+  // d'accueil, et sans 512 px l'écran de démarrage généré n'est pas proposé.
+  const png = manifeste.icons.filter((i) => i.type === 'image/png');
+  assert.ok(png.length >= 2, 'il faut au moins deux tailles PNG');
+  assert.ok(png.some((i) => i.sizes === '512x512'), 'la taille 512 manque');
+  assert.ok(png.some((i) => i.sizes === '192x192'), 'la taille 192 manque');
+
+  // « maskable » : Android rogne un cercle dans le carré. Sans une icône prévue pour,
+  // le dessin est coupé sur les bords.
+  assert.ok(
+    manifeste.icons.some((i) => i.purpose === 'maskable'),
+    'aucune icône maskable : Android rognerait le dessin'
+  );
+
+  manifeste.icons.forEach((i) => {
+    assert.ok(fs.existsSync(path.join(racine, i.src)), `icône absente : ${i.src}`);
+  });
+
+  // L'écran de démarrage généré par Android reprend le fond du manifeste : il doit
+  // être celui de l'application, sinon le lancement passe par un aplat étranger.
+  assert.strictEqual(manifeste.background_color, '#f5ead8');
+});
+
+test('l ecran de demarrage ne peut pas rester coince', () => {
+  // Il est dans le HTML pour être peint avant tout script. La contrepartie est qu'il
+  // recouvre la page : il lui faut donc une sortie qui ne dépende pas de JavaScript.
+  const html = fs.readFileSync(path.join(racine, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(racine, 'css/style.css'), 'utf8');
+  const app = fs.readFileSync(path.join(racine, 'js/app.js'), 'utf8');
+
+  assert.ok(/id="demarrage"/.test(html), 'l écran de démarrage est absent de index.html');
+  assert.ok(/animation: demarrage-secours/.test(css), 'la sortie de secours CSS est absente');
+  assert.ok(/@keyframes demarrage-secours/.test(css), 'l animation de secours n est pas définie');
+  assert.ok(/demarrage--parti/.test(app), 'app.js ne retire jamais l écran de démarrage');
+  // Y compris quand le mouvement est désactivé : sans cette règle, l'animation de
+  // secours ne s exécuterait pas et l écran resterait affiché.
+  assert.ok(
+    /prefers-reduced-motion[\s\S]*demarrage-secours/.test(css),
+    'sous prefers-reduced-motion, l écran de démarrage n a plus de sortie'
+  );
 });
 
 test('le manifeste decrit une application installable', () => {
