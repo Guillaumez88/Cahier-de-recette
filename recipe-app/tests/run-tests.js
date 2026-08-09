@@ -338,6 +338,21 @@ test('analyser conserve le texte residuel au lieu de le perdre', () => {
   assert.strictEqual(q.reste, 'plus pour le moule');
 });
 
+test('une fourchette est conservee mot pour mot et jamais multipliee', () => {
+  // « 6 à 8 c. à c. » porte deux nombres, pas un : multiplier reviendrait a choisir
+  // lequel compte. Sans cette regle, doubler donnait « 12, à 8 c. à c. ».
+  ['6 à 8 c. à c.', '2-3 gousses', '1 à 2 pincées', '10 – 12 min'].forEach((t) => {
+    assert.strictEqual(Q.analyser(t).lisible, false, `${t} devrait etre intouchable`);
+    assert.strictEqual(Q.echelonner(t, 2), t, `${t} ne doit pas bouger`);
+  });
+  // Une fraction reste une fraction : « 1/2 sachet » n'est pas une fourchette, et
+  // « 6/8 » est indistinguable de six-huitiemes. Une source qui ecrit « 6/8 » pour
+  // « 6 a 8 » doit etre transcrite « 6 à 8 » dans la donnee.
+  assert.strictEqual(Q.analyser('1/2 sachet').lisible, true);
+  assert.strictEqual(Q.echelonner('1/2 sachet', 2), '1 sachet');
+  assert.strictEqual(Q.estFourchette('6/8 c. à c.'), false);
+});
+
 test('analyser signale une quantite sans nombre', () => {
   ['Selon goût', 'Pour le plat', 'Quelques pincées', ''].forEach((t) => {
     assert.strictEqual(Q.analyser(t).lisible, false, `${t} devrait etre illisible`);
@@ -356,7 +371,8 @@ test('les 209 quantites du carnet sont analysees sans lever', () => {
     )
   );
   // Le reste est du texte libre (« Selon goût »), conserve tel quel.
-  assert.strictEqual(lisibles, 184, `${lisibles} quantites lisibles au lieu de 184`);
+  // 183 et non 184 : « 6 à 8 c. à c. » est une fourchette, donc intouchable.
+  assert.strictEqual(lisibles, 183, `${lisibles} quantites lisibles au lieu de 183`);
 });
 
 // --- quantites.js : addition -------------------------------------------------

@@ -35,7 +35,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js           111 tests de la logique métier
+        ├── run-tests.js           112 tests de la logique métier
         ├── run-sync-tests.js      105 tests de la synchronisation
         ├── test-web.js             88 vérifications navigateur, parcours général
         ├── test-partage.js         40 vérifications navigateur, partage et hors ligne
@@ -223,6 +223,7 @@ Le classement se fait par mots-clés dans `js/rayons.js`, et les 133 ingrédient
 Deux garde-fous délibérés :
 
 - **Rien n'est perdu.** Une quantité non chiffrable (« Selon goût », « Pour le moule ») est conservée mot pour mot, et un commentaire attaché à un nombre (« 130 g, plus pour le moule ») n'est jamais fondu dans un total, ce qui l'effacerait.
+- **Une fourchette est intouchable.** « 6 à 8 c. à c. », « 2-3 gousses » portent deux nombres et non un : multiplier reviendrait à choisir lequel compte, additionner à sommer une valeur qui n'existe pas. Elles sont donc traitées comme « Selon goût ». Sans cette règle, doubler la recette donnait « 12, à 8 c. à c. ». La forme `6/8` n'est **pas** reconnue comme une fourchette : elle est indistinguable de la fraction six-huitièmes, et « 1/2 sachet » doit rester une demie. Une source qui écrit « 6/8 » pour « 6 à 8 » doit être transcrite « 6 à 8 » dans la donnée, sans quoi le calcul lit 0,75.
 - **La fusion ne rapproche que des noms identiques**, à la casse, aux accents, à la ligature et au pluriel près : « Œufs » rejoint « Œuf », mais « Sucre glace » n'est pas confondu avec « Sucre en poudre », ni « Beurre » avec « Beurre mou ». Additionner sur une ressemblance approximative donnerait une liste fausse. Pour regrouper deux libellés voisins, renommez l'un des deux dans la recette.
 
 ### Les lignes très proches sont encadrées, jamais fusionnées
@@ -318,7 +319,7 @@ Confondre les trois était le vrai défaut de la version précédente : elle ann
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 111 tests de la logique métier
+node tests/run-tests.js           # 112 tests de la logique métier
 node tests/run-sync-tests.js      # 105 tests de la synchronisation
 node tests/run-browser-tests.js   # 326 vérifications dans un vrai Chromium
 ```

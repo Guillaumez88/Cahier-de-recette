@@ -134,6 +134,24 @@
 
   // --- Lecture d'une quantite -------------------------------------------------
 
+  // Une fourchette : « 6 à 8 c. à c. », « 2-3 gousses ». Elle porte deux nombres, pas
+  // un : la multiplier reviendrait a choisir lequel des deux compte, et la sommer a
+  // additionner une valeur qui n'existe pas. Elle est donc traitee comme « Selon
+  // goût » : conservee mot pour mot, jamais touchee.
+  //
+  // Sans cette regle, « 6 à 8 c. à c. » double en « 12, à 8 c. à c. », ce qui est
+  // visiblement casse, et surtout personne ne s'en rend compte tant qu'on ne double
+  // pas la recette.
+  //
+  // La forme « 6/8 » n'est volontairement pas reconnue comme une fourchette : elle est
+  // indistinguable de la fraction six-huitiemes, et « 1/2 sachet » doit rester une
+  // demie. Une source qui ecrit « 6/8 » pour « 6 a 8 » doit etre transcrite « 6 à 8 ».
+  var FOURCHETTE = /^\d+(?:[.,]\d+)?\s*(?:à|a|-|–)\s*\d+(?:[.,]\d+)?(?:\s|$)/i;
+
+  function estFourchette(texte) {
+    return FOURCHETTE.test(String(texte || '').trim());
+  }
+
   /**
    * Analyse une quantite ecrite.
    * Retourne { valeur, unite, famille, base, reste, brut, lisible }.
@@ -146,6 +164,7 @@
     var texte = String(brut === null || brut === undefined ? '' : brut).trim();
     var vide = { valeur: null, unite: null, famille: null, base: 1, reste: texte, brut: texte, lisible: false };
     if (texte === '') return vide;
+    if (estFourchette(texte)) return vide;
 
     // Nombre en tete : entier, decimal ou fraction.
     var tete = texte.match(/^(\d+\s*\/\s*\d+|\d+(?:[.,]\d+)?)\s*(.*)$/);
@@ -372,6 +391,7 @@
     lireNombre: lireNombre,
     formatNombre: formatNombre,
     analyser: analyser,
+    estFourchette: estFourchette,
     ecrire: ecrire,
     pluriel: pluriel,
     additionner: additionner,
