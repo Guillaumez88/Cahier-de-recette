@@ -41,6 +41,7 @@ const Sync = require(path.join(racine, 'js/sync.js'));
 const Storage = require(path.join(racine, 'js/storage.js'));
 const Semainier = require(path.join(racine, 'js/semainier.js'));
 const Photos = require(path.join(racine, 'js/photos.js'));
+const Placard = require(path.join(racine, 'js/placard.js'));
 
 const RECETTE = {
   id: '__verification__',
@@ -75,6 +76,11 @@ async function test(nom, fn) {
 // pas faire apparaître un plat fantôme dans le semainier de la maison.
 const JOUR_TEST = '2099-12-28';
 
+// Nom d'entrée de placard réservé à ce contrôle. Improbable dans une vraie maison :
+// ce script écrit dans la base réelle, il ne doit pas pouvoir effacer une entrée
+// posée par quelqu'un, ni laisser croire qu'il en a posé une.
+const NOM_PLACARD_TEST = 'Vérification technique du placard';
+
 /** Supprime tout ce que ce contrôle a pu laisser derrière lui. */
 async function nettoyer() {
   const distants = await Sync.lireArticles();
@@ -96,6 +102,15 @@ async function nettoyer() {
     for (const c of creneaux.filter((c) => c.jour === JOUR_TEST)) {
       await Sync.supprimerCreneau(c.cle);
     }
+  } catch (erreur) {
+    /* collection refusee ou deja propre */
+  }
+  try {
+    const entrees = await Sync.lirePlacard();
+    for (const e of entrees.filter((e) => e.nom === NOM_PLACARD_TEST || e.cle === 'verification-sans-nom')) {
+      await Sync.supprimerPlacard(e.cle);
+    }
+    await Sync.supprimerPlacard('verification-sans-nom');
   } catch (erreur) {
     /* collection refusee ou deja propre */
   }
@@ -367,6 +382,56 @@ async function nettoyer() {
       await Sync.supprimerPhoto('__verification__');
     }
     assert.ok(refuse, 'une photo hors borne a été acceptée : les règles publiées ne sont pas celles du dépôt');
+  });
+
+  // --- Placard ---------------------------------------------------------------
+  //
+  // C'est la cinquième collection, ajoutée le 9 août 2026. Ces contrôles sont les
+  // seuls qui prouvent que `firestore.rules` a bien été republié avec elle : sans
+  // eux, un placard qui reste vide passerait pour un placard qu'on n'a pas rempli.
+
+  await test('le placard est écrit, relu par un second appareil, puis vidé', async () => {
+    await Placard.rafraichir();
+    assert.strictEqual(
+      Placard.etatSync().enLigne,
+      true,
+      `lecture refusée : ${Placard.etatSync().erreur}. La collection « placard » de ` +
+        'firestore.rules doit être publiée.'
+    );
+
+    await Placard.ajouter(NOM_PLACARD_TEST);
+    assert.strictEqual(
+      Placard.etatSync().enLigne,
+      true,
+      `écriture refusée : ${Placard.etatSync().erreur}`
+    );
+    assert.strictEqual(Placard.etatSync().enAttente, 0, 'la file du placard n a pas été vidée');
+
+    // Relu depuis le serveur et non depuis le cache local : c'est ce qui prouve que
+    // le placard est bien partagé entre les appareils.
+    const distants = await Sync.lirePlacard();
+    const mien = distants.find((e) => e.nom === NOM_PLACARD_TEST);
+    assert.ok(mien, 'entrée introuvable côté serveur');
+    assert.strictEqual(mien.cle, Placard.cle(NOM_PLACARD_TEST));
+
+    await Placard.retirer(NOM_PLACARD_TEST);
+    const apres = await Sync.lirePlacard();
+    assert.ok(!apres.find((e) => e.nom === NOM_PLACARD_TEST), 'l entrée de vérification n a pas été supprimée');
+  });
+
+  await test('les règles refusent une entrée de placard sans nom', async () => {
+    // Contrôle de la règle elle-même : `nom` doit exister et ne pas être vide. Si ce
+    // contrôle passe, les règles publiées ne sont pas celles du dépôt.
+    let refuse = false;
+    try {
+      await Sync.ecrirePlacard({ cle: 'verification-sans-nom', nom: '' });
+    } catch (erreur) {
+      refuse = true;
+    }
+    if (!refuse) {
+      await Sync.supprimerPlacard('verification-sans-nom');
+    }
+    assert.ok(refuse, 'une entrée sans nom a été acceptée : les règles publiées ne sont pas celles du dépôt');
   });
 
   // Filet de sécurité : quoi qu'il se soit passé, on ne laisse rien.
