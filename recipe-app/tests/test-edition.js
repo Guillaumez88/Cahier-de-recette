@@ -319,7 +319,46 @@ async function attendreTexte(page, motif, limite = 8000) {
   const titreConserve = await pageA.locator('.ligne-edition .champ-edition').first().inputValue();
   verifier('la saisie n est pas perdue', titreConserve === 'Titre qui ne passera pas', titreConserve);
 
+  // Le retablissement de l'originale passe par le meme chemin que l'enregistrement :
+  // il applique en local puis tente l'envoi, sans rejeter si l'envoi echoue. Sans
+  // verification, il annoncait une remise a zero que le serveur n'avait pas enregistree,
+  // et la version modifiee revenait au rafraichissement suivant.
   await pageA.request.post(new URL('__stub/refuser-recettes', BASE).href, { data: { refuser: false } });
+  await pageA.goto(`${BASE}#/recette/${ID}/modifier`, { waitUntil: 'networkidle' });
+  await attendre(900);
+  await ouvrirSection(pageA, 'fiche');
+  await pageA.locator('.ligne-edition .champ-edition').first().fill('Titre a retablir ensuite');
+  await pageA.locator('#enregistrer').click();
+  await attendre(1200);
+
+  await pageA.request.post(new URL('__stub/refuser-recettes', BASE).href, { data: { refuser: true } });
+  await pageA.goto(`${BASE}#/recette/${ID}/modifier`, { waitUntil: 'networkidle' });
+  await attendre(900);
+  verifier(
+    'le bouton de retablissement est propose sur une recette modifiee',
+    (await pageA.locator('#reinitialiser').count()) === 1
+  );
+  await pageA.locator('#reinitialiser').click();
+  await attendre(1200);
+  verifier(
+    'un retablissement refuse ne fait pas croire a une remise a zero',
+    pageA.url().includes('/modifier'),
+    pageA.url()
+  );
+  verifier(
+    'le retablissement refuse est explique',
+    /n’a pas pu être supprimée du serveur/.test(await texteDe(pageA)),
+    (await texteDe(pageA)).slice(0, 400)
+  );
+
+  await pageA.request.post(new URL('__stub/refuser-recettes', BASE).href, { data: { refuser: false } });
+  // On retablit reellement, pour que la suite du parcours parte d'une recette intacte.
+  await pageA.goto(`${BASE}#/recette/${ID}/modifier`, { waitUntil: 'networkidle' });
+  await attendre(900);
+  if ((await pageA.locator('#reinitialiser').count()) === 1) {
+    await pageA.locator('#reinitialiser').click();
+    await attendre(1200);
+  }
 
   // --- 11. Deroule reconstitue sur une recette sans tableau fourni ------------
 

@@ -861,6 +861,31 @@ test('une page sans recette est refusee avec une raison', () => {
   assert.ok(/ingrédient/.test(sansIngredient.erreur), sansIngredient.erreur);
 });
 
+test('un contenu hostile ne peut ni s executer ni salir la fiche', () => {
+  // Deux garanties distinctes, et il faut les deux :
+  //   - rien ne s'execute, parce que `el()` de app.js ne pose que du texte, jamais
+  //     du HTML. Un test navigateur le verifie sur la page reelle ;
+  //   - rien ne salit la fiche : les balises sont retirees ici, sinon un titre
+  //     ressortirait en « <img src=x onerror=…>Tarte » dans le livre.
+  const hostile = JSON.stringify({
+    '@type': 'Recipe',
+    name: '<img src=x onerror=alert(1)>Piège',
+    url: 'javascript:alert(1)',
+    recipeIngredient: ['200 g de <script>alert(1)</script>poivre'],
+    recipeInstructions: [{ '@type': 'HowToStep', text: '<b>Gras</b> et <script>alert(1)</script> fin' }],
+  });
+  const r = Im.importer(hostile);
+  assert.strictEqual(r.recette.titre, 'Piège');
+  assert.strictEqual(r.recette.ingredients[0].items[0].nom, 'Poivre');
+  assert.strictEqual(r.recette.instructions[0].texte, 'Gras et fin');
+  // Une URL `javascript:` n'est jamais retenue : elle deviendrait un lien piege sur
+  // la fiche. Seuls http et https passent.
+  assert.strictEqual(r.recette.source.url, '');
+  ['<', '>', 'onerror', 'script'].forEach((motif) => {
+    assert.ok(!JSON.stringify(r.recette).includes(motif), `« ${motif} » a survécu à l import`);
+  });
+});
+
 test('la recette importee respecte le schema du carnet', () => {
   // Une recette importée doit passer les mêmes contrôles qu'une recette du fichier :
   // sinon elle casserait un écran une fois enregistrée.

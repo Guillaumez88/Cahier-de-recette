@@ -717,6 +717,46 @@ const PNG_ROUGE =
   verifier('un contenu sans recette est refuse', (await pageA.locator('#erreur-import').count()) === 1);
   verifier('aucun apercu n est propose apres un refus', (await pageA.locator('#apercu-import').count()) === 0);
 
+  // Une page hostile : rien ne doit s'executer, et rien ne doit ressortir en balise.
+  // `el()` ne pose que du texte, jamais du HTML : ce test le prouve sur la page reelle
+  // plutot que sur lecture du code.
+  const nbErreursAvant = erreurs.length;
+  let alerte = false;
+  pageA.on('dialog', async (d) => {
+    alerte = true;
+    await d.dismiss();
+  });
+  // La charge n'embarque pas de `</script>` litteral : une page reelle l'echappe
+  // obligatoirement, sinon son propre bloc JSON-LD serait coupe par le navigateur.
+  // Ce qui est teste ici, c'est le HTML dans les valeurs, pas un HTML mal forme.
+  await pageA.locator('#contenu-importe').fill(
+    '<html><body>' +
+      '<script type="application/ld+json">' +
+      JSON.stringify({
+        '@type': 'Recipe',
+        name: '<img src=x onerror=alert(1)>Piege',
+        url: 'javascript:alert(1)',
+        recipeIngredient: ['200 g de <b onmouseover=alert(1)>poivre</b>'],
+        recipeInstructions: [{ '@type': 'HowToStep', text: '<iframe src=javascript:alert(1)></iframe> Melanger.' }],
+      }) +
+      '</' + 'script></body></html>'
+  );
+  await attendre(200);
+  await pageA.locator('#analyser-import').click();
+  await attendre(700);
+  verifier('un contenu hostile ne declenche aucune alerte', alerte === false);
+  verifier(
+    'un contenu hostile n injecte aucun element',
+    (await pageA.locator('#apercu-import img, #apercu-import script').count()) === 0
+  );
+  verifier(
+    'un contenu hostile n ajoute aucune erreur JavaScript',
+    erreurs.length === nbErreursAvant,
+    erreurs.slice(nbErreursAvant).join(' | ')
+  );
+  const apercuHostile = (await pageA.locator('#apercu-import').textContent()) || '';
+  verifier('les balises sont retirees du titre', /Piege/.test(apercuHostile) && !/img src/.test(apercuHostile), apercuHostile);
+
   await pageA.locator('#contenu-importe').fill(PAGE_RECETTE);
   await attendre(200);
   await pageA.locator('#analyser-import').click();

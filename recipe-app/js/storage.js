@@ -66,14 +66,28 @@
 
   // --- Cache local ------------------------------------------------------------
 
+  // Analyse memorisee, validee sur la chaine brute.
+  //
+  // Un rendu d'accueil appelle quatre fois la lecture du cache, et chaque appel
+  // reanalysait tout le JSON : 56 Ko et 5 ms pour quatre mois d'historique, et cela
+  // grossit avec lui. Relire la chaine reste bon marche, c'est l'analyse qui coute.
+  //
+  // La validation porte sur la chaine et non sur un drapeau interne : une ecriture
+  // faite en dehors du module (un test, un autre onglet) reste donc detectee, ce
+  // qu'un simple drapeau invalide manquerait.
+  var memo = {};
+
   function lireJson(cle, defaut) {
     try {
       var brut = global.localStorage && global.localStorage.getItem(cle);
       if (!brut) return defaut;
+      var connu = memo[cle];
+      if (connu && connu.brut === brut) return connu.valeur;
       var valeur = JSON.parse(brut);
-      return Array.isArray(valeur) ? valeur : defaut;
+      if (!Array.isArray(valeur)) return defaut;
+      memo[cle] = { brut: brut, valeur: valeur };
+      return valeur;
     } catch (erreur) {
-      // Stockage illisible ou corrompu : on repart proprement.
       return defaut;
     }
   }

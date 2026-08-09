@@ -63,12 +63,27 @@
 
   // --- Cache local ------------------------------------------------------------
 
+  // Analyse memorisee, validee sur la chaine brute.
+  //
+  // Un rendu d'accueil appelle quatre fois la lecture du cache, et chaque appel
+  // reanalysait tout le JSON : 56 Ko et 5 ms pour quatre mois d'historique, et cela
+  // grossit avec lui. Relire la chaine reste bon marche, c'est l'analyse qui coute.
+  //
+  // La validation porte sur la chaine et non sur un drapeau interne : une ecriture
+  // faite en dehors du module (un test, un autre onglet) reste donc detectee, ce
+  // qu'un simple drapeau invalide manquerait.
+  var memo = {};
+
   function lireJson(cle, defaut) {
     try {
       var brut = global.localStorage && global.localStorage.getItem(cle);
       if (!brut) return defaut;
+      var connu = memo[cle];
+      if (connu && connu.brut === brut) return connu.valeur;
       var valeur = JSON.parse(brut);
-      return Array.isArray(valeur) ? valeur : defaut;
+      if (!Array.isArray(valeur)) return defaut;
+      memo[cle] = { brut: brut, valeur: valeur };
+      return valeur;
     } catch (erreur) {
       return defaut;
     }
@@ -269,7 +284,11 @@
     return liste.length > 0 ? liste[0] : null;
   }
 
-  /** Index cle de plat -> plat. Une cle de plat est unique, elle designe un document. */
+  /**
+   * Index cle de plat -> plat. Une cle de plat est unique, elle designe un document.
+   * Interne : le rendu passe par `parCreneau()`, qui groupe par repas. Cette table-ci
+   * ne sert qu'a retrouver un plat par sa cle lors d'un deplacement.
+   */
   function parCle() {
     var index = {};
     tous().forEach(function (c) {
@@ -278,18 +297,34 @@
     return index;
   }
 
+  // L'index est memorise sur l'identite du tableau rendu par `tous()`, qui est lui
+  // meme memorise sur la chaine du cache. Tant que le cache n'a pas change, c'est
+  // exactement le meme tableau, donc l'index reste valide.
+  //
+  // Un rendu d'accueil construit cet index trois fois : pour le resume, pour savoir
+  // si une semaine est vide, et pour la grille. A 400 creneaux cela coutait 1,2 ms
+  // par rendu, et le semainier grossit d'environ 1 100 creneaux par an.
+  var indexMemorise = null;
+
   /**
    * Index cle de repas -> liste de plats. C'est cet index que le rendu utilise :
    * une case de la grille affiche tous les plats de son repas, pas seulement le premier.
+   *
+   * Le tableau rendu pour un repas ne doit pas etre modifie par l'appelant : il est
+   * partage entre tous les appels tant que le cache ne change pas.
    */
   function parCreneau() {
+    var creneaux = tous();
+    if (indexMemorise && indexMemorise.source === creneaux) return indexMemorise.index;
+
     var index = {};
-    tous().forEach(function (c) {
+    creneaux.forEach(function (c) {
       var decoupe = Semaine.decouperCreneau(c.cle);
       var cle = decoupe ? decoupe.cleCreneau : Semaine.cleCreneau(c.jour, c.moment);
       if (!index[cle]) index[cle] = [];
       index[cle].push(c);
     });
+    indexMemorise = { source: creneaux, index: index };
     return index;
   }
 
@@ -611,7 +646,6 @@
     tous: tous,
     creneau: creneau,
     creneaux: creneaux,
-    parCle: parCle,
     parCreneau: parCreneau,
     platsDeLaSemaine: platsDeLaSemaine,
 

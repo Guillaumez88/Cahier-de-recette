@@ -256,14 +256,30 @@
     return valeur === undefined || valeur === null || valeur === '' ? null : valeur;
   }
 
+  /**
+   * Retire les balises d'un texte venu d'une page etrangere.
+   *
+   * Ce n'est pas une protection : `el()` ne pose que du texte, jamais du HTML, donc
+   * une balise laissee dans un nom s'afficherait telle quelle sans jamais s'executer.
+   * C'est une question de proprete : un titre ne doit pas ressortir en
+   * « <img src=x onerror=...>Tarte » dans le livre.
+   */
+  function sansBalises(texte) {
+    return String(texte || '')
+      .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   function texteDe(valeur) {
     var v = premier(valeur);
     if (v === null) return null;
     if (typeof v === 'object') {
       var interne = v.name || v.text || v['@value'] || v.url;
-      return interne ? decoderEntites(String(interne)).trim() : null;
+      return interne ? sansBalises(decoderEntites(String(interne))) || null : null;
     }
-    return decoderEntites(String(v)).replace(/\s+/g, ' ').trim() || null;
+    return sansBalises(decoderEntites(String(v))) || null;
   }
 
   /**
@@ -275,7 +291,7 @@
    * deviné. « Selon goût » ou « Sel » n'ont pas de quantité, et c'est correct.
    */
   function decouperIngredient(ligne) {
-    var texte = decoderEntites(String(ligne || '')).replace(/\s+/g, ' ').trim();
+    var texte = sansBalises(decoderEntites(String(ligne || '')));
     if (texte === '') return null;
 
     var lu = Quantites.analyser(texte);
@@ -315,9 +331,7 @@
     ajouter(valeur);
 
     return lignes
-      .map(function (l) {
-        return String(l).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      })
+      .map(sansBalises)
       .filter(function (l) {
         return l !== '';
       })
@@ -531,6 +545,7 @@
     recetteJsonLd: recetteJsonLd,
     microdonnees: microdonnees,
     decoderEntites: decoderEntites,
+    sansBalises: sansBalises,
     dureeIso: dureeIso,
     decouperIngredient: decouperIngredient,
     etapesDe: etapesDe,

@@ -2792,6 +2792,23 @@
     ]);
   }
 
+  /**
+   * Ce qui a empeche la derniere ecriture de recette d'aboutir, ou null.
+   *
+   * `recettes.js` applique la modification en local puis tente l'envoi, et **ne rejette
+   * pas** quand l'envoi echoue : il enregistre l'erreur dans son etat. C'est voulu, la
+   * modification reste visible et la file repartira. Mais cela veut dire qu'une
+   * promesse tenue ne prouve rien : sans cette verification, un enregistrement, une
+   * creation ou une suppression qui n'ont jamais atteint le serveur sont annonces
+   * comme reussis, et disparaissent au prochain rafraichissement.
+   *
+   * Tout appel a `Rc.creer`, `Rc.enregistrer`, `Rc.supprimer` ou `Rc.reinitialiser`
+   * doit donc passer par ici avant d'annoncer quoi que ce soit.
+   */
+  function erreurEcritureRecette() {
+    return Rc.etatChargement().erreur || null;
+  }
+
   /* --- import d'une recette depuis un site ---------------------------------- */
 
   // Le marque-page. Depose dans la barre de favoris, il s'execute **dans la page de
@@ -2838,6 +2855,15 @@
       if (!resultat) return;
       Rc.creer(resultat).then(
         function (creee) {
+          // La promesse tenue ne prouve pas l'envoi : voir erreurEcritureRecette().
+          var echec = erreurEcritureRecette();
+          if (echec) {
+            erreur =
+              'La recette n’a pas pu être envoyée : ' + echec +
+              ' Elle est visible ici, mais elle disparaîtra à la prochaine mise à jour. Réessayez une fois le réseau revenu.';
+            rendreCorpsVoile(corps());
+            return;
+          }
           fermerVoile();
           window.location.hash = '#/recette/' + creee.id;
         },
@@ -3818,6 +3844,13 @@
                         onclick: function () {
                           Rc.supprimer(id)
                             .then(function () {
+                              var echec = erreurEcritureRecette();
+                              if (echec) {
+                                throw new Error(
+                                  'La suppression n’a pas atteint le serveur : ' + echec +
+                                    ' La recette reviendra à la prochaine mise à jour.'
+                                );
+                              }
                               return Sm.retirerRecette(id);
                             })
                             .then(function () {
@@ -3847,6 +3880,16 @@
               texte: 'Rétablir l’originale',
               onclick: function () {
                 Rc.reinitialiser(id).then(function () {
+                  var echec = erreurEcritureRecette();
+                  if (echec) {
+                    // Le retablissement n'a pas atteint le serveur : la version
+                    // modifiee y est toujours et reviendra au prochain rafraichissement.
+                    erreurEditeur =
+                      'La version modifiée n’a pas pu être supprimée du serveur : ' + echec +
+                      ' Elle reviendra à la prochaine mise à jour. Réessayez une fois le réseau revenu.';
+                    monter(vueEditeur(id));
+                    return;
+                  }
                   brouillon = null;
                   window.location.hash = '#/recette/' + id;
                 });

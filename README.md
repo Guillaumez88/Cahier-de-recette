@@ -41,12 +41,12 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js           127 tests de la logique métier
+        ├── run-tests.js           128 tests de la logique métier
         ├── run-sync-tests.js      115 tests de la synchronisation
         ├── test-web.js             88 vérifications navigateur, parcours général
         ├── test-partage.js         57 vérifications navigateur, partage, placard, magasin
-        ├── test-edition.js         69 vérifications navigateur, modification, parts, accordéon
-        ├── test-semainier.js      146 vérifications navigateur, semainier, photos, import
+        ├── test-edition.js         72 vérifications navigateur, modification, parts, accordéon
+        ├── test-semainier.js      150 vérifications navigateur, semainier, photos, import
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -407,9 +407,9 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 127 tests de la logique métier
+node tests/run-tests.js           # 128 tests de la logique métier
 node tests/run-sync-tests.js      # 115 tests de la synchronisation
-node tests/run-browser-tests.js   # 360 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 367 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.
