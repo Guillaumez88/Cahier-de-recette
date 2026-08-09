@@ -315,7 +315,7 @@ node tests/verifier-firebase.js --reel
 
 Les contrôles portent sur : la session anonyme, l'écriture d'un document par article, la conservation des accents et des quantités à l'aller-retour, le cochage n'écrivant que le champ concerné, la relecture depuis un cache local vide (le cas du second appareil), l'article libre, le retrait des cochés, la suppression, l'intégrité des articles préexistants, l'accès à la collection des recettes et le cycle complet d'une recette modifiée, le semainier (un plat écrit, relu et vidé, deux plats dans un même repas en deux documents distincts, le refus d'un moment inconnu), les photos, et le placard (une entrée écrite, relue depuis le serveur et non depuis le cache, puis supprimée, et le refus d'une entrée sans nom).
 
-Au 9 août 2026, **les 16 contrôles alors présents passent** contre le vrai projet, règles republiées. Les deux contrôles du placard ont été ajoutés après cette exécution : ils restent à jouer une fois, ce qui portera le total à 18.
+Au 9 août 2026, **les 18 contrôles passent** contre le vrai projet, règles republiées. Les cinq collections sont couvertes : articles, recettes, créneaux, photos et placard.
 
 Ces contrôles sont les seuls qui prouvent qu'une republication de règles a bien eu lieu. Une collection oubliée dans les règles ne casse rien de visible : le placard reste simplement vide, ce qui passe pour un placard qu'on n'a pas rempli. En cas d'échec sur la collection des recettes, le message nomme précisément l'action à faire.
 
