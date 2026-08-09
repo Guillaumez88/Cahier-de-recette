@@ -29,8 +29,8 @@
    Portée : ce fichier est servi depuis la racine du site, il contrôle donc toute
    l'application. Sur GitHub Pages, cette racine est /Cahier-de-recette/. */
 
-// v2 : l'ecran de demarrage, les icones et le manifeste rejoignent la coquille.
-var VERSION = 'v2';
+// v3 : le module d'import rejoint la coquille.
+var VERSION = 'v3';
 var CACHE = 'carnet-' + VERSION;
 
 // La coquille de l'application : tout ce qu'il faut pour afficher un écran. Cette
@@ -61,6 +61,7 @@ var COQUILLE = [
   './js/placard.js',
   './js/photos.js',
   './js/cuisson.js',
+  './js/import-recette.js',
   './js/vue-magasin.js',
   './js/app.js',
   './data/recipes.json',

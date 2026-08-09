@@ -1,0 +1,51 @@
+<!-- Page de test. Elle imite ce que publient les sites de cuisine francais : un
+     JSON-LD schema.org dans un @graph, des etapes en HowToStep, des durees ISO 8601.
+     Ecrite a partir de la specification schema.org/Recipe, et non capturee sur un
+     site reel : l'environnement de developpement n'a pas acces a internet. -->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Tarte aux pommes de mamie</title>
+<script type="application/ld+json">
+{ "@context": "https://schema.org", "@type": "Organization", "name": "Le site" }
+</script>
+<script type="application/ld+json">{ ceci n'est pas du JSON }</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "WebSite", "name": "Le site de cuisine" },
+    {
+      "@type": ["Recipe", "NewsArticle"],
+      "name": "Tarte aux pommes de mamie",
+      "author": { "@type": "Person", "name": "Mamie Jeanne" },
+      "url": "https://exemple.test/recettes/tarte-aux-pommes",
+      "recipeCategory": "Dessert",
+      "recipeCuisine": "Française",
+      "recipeYield": "6",
+      "prepTime": "PT25M",
+      "cookTime": "PT40M",
+      "totalTime": "PT1H5M",
+      "nutrition": { "@type": "NutritionInformation", "calories": "320 kcal" },
+      "recipeIngredient": [
+        "1 p&acirc;te bris&eacute;e",
+        "6 pommes",
+        "80 g de sucre",
+        "50 g de beurre",
+        "1 sachet de sucre vanill&eacute;",
+        "Cannelle"
+      ],
+      "recipeInstructions": [
+        { "@type": "HowToStep", "text": "Pr&eacute;chauffer le four &agrave; 180 &deg;C." },
+        { "@type": "HowToStep", "text": "&Eacute;plucher et couper les pommes en lamelles." },
+        { "@type": "HowToStep", "text": "&Eacute;taler la p&acirc;te, disposer les pommes, saupoudrer de sucre." },
+        { "@type": "HowToStep", "text": "Parsemer de beurre et enfourner 40 minutes." }
+      ]
+    }
+  ]
+}
+</script>
+</head>
+<body><h1>Tarte aux pommes de mamie</h1></body>
+</html>

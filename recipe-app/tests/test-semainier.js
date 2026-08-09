@@ -670,6 +670,98 @@ const PNG_ROUGE =
   etat = await etatStub();
   verifier('le document photo a ete supprime', etat.nbPhotos === 0, `${etat.nbPhotos} documents`);
 
+  // --- 12 bis. Importer une recette depuis un site ---------------------------
+  //
+  // Le carnet ne peut pas aller lire une page d'un autre domaine, le navigateur
+  // l'interdit. On lui apporte donc la page collee, comme le ferait l'utilisateur
+  // apres un Ctrl+A / Ctrl+C.
+
+  const PAGE_RECETTE = `<!doctype html><html><head>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[
+ {"@type":"WebSite","name":"Site"},
+ {"@type":"Recipe","name":"Gratin de courge test","url":"https://exemple.test/gratin",
+  "recipeCategory":"Plat","recipeYield":"4","prepTime":"PT20M","cookTime":"PT35M",
+  "recipeIngredient":["1 kg de courge","20 cl de cr&egrave;me fra&icirc;che","100 g de comt&eacute;","Sel"],
+  "recipeInstructions":[{"@type":"HowToStep","text":"&Eacute;plucher la courge."},
+   {"@type":"HowToStep","text":"Cuire 35 minutes au four."}]}]}
+</` + `script></head><body></body></html>`;
+
+  const nbAvantImport = await (async () => {
+    await pageA.goto(`${BASE}#/livre`, { waitUntil: 'networkidle' });
+    await attendre(700);
+    return pageA.locator('.carte').count();
+  })();
+
+  verifier('le livre propose l import depuis un site', (await pageA.locator('#importer-recette').count()) === 1);
+  await pageA.locator('#importer-recette').click();
+  await attendre(500);
+  verifier('la boite d import s ouvre', (await pageA.locator('#contenu-importe').count()) === 1);
+  // La contrainte est dite, pas cachee : c'est elle qui explique le copier-coller.
+  verifier(
+    'la boite explique pourquoi un lien seul ne suffit pas',
+    /le navigateur l’interdit/.test(await texteDe(pageA)),
+    (await texteDe(pageA)).slice(0, 400)
+  );
+  verifier('un marque-page est propose', (await pageA.locator('#marque-page-import').count()) === 1);
+  verifier(
+    'le bouton de lecture est desactive tant que rien n est colle',
+    await pageA.locator('#analyser-import').isDisabled()
+  );
+
+  // Un contenu qui n'est pas une recette est refuse, avec une raison.
+  await pageA.locator('#contenu-importe').fill('<html><body><h1>Bonjour</h1></body></html>');
+  await attendre(200);
+  await pageA.locator('#analyser-import').click();
+  await attendre(400);
+  verifier('un contenu sans recette est refuse', (await pageA.locator('#erreur-import').count()) === 1);
+  verifier('aucun apercu n est propose apres un refus', (await pageA.locator('#apercu-import').count()) === 0);
+
+  await pageA.locator('#contenu-importe').fill(PAGE_RECETTE);
+  await attendre(200);
+  await pageA.locator('#analyser-import').click();
+  await attendre(600);
+
+  verifier('la recette est lue et resumee', (await pageA.locator('#apercu-import').count()) === 1);
+  const apercu = await pageA.locator('#apercu-import').textContent();
+  verifier('le titre est repris', /Gratin de courge test/.test(apercu), apercu);
+  verifier('les entites HTML sont decodees', !/&eacute;|&Eacute;|&egrave;/.test(apercu), apercu);
+  verifier('le decompte des ingredients et des etapes est juste', /4 ingrédients · 2 étapes/.test(apercu), apercu);
+  // Ce que la source ne donne pas est dit avant d'enregistrer, pas apres.
+  verifier(
+    'ce que la source ne donne pas est annonce avant l enregistrement',
+    /Ce que la source ne donne pas/.test(apercu),
+    apercu
+  );
+
+  await pageA.locator('#valider-import').click();
+  await attendre(1200);
+  verifier(
+    'l import ouvre la fiche de la recette creee',
+    pageA.url().includes('#/recette/gratin-de-courge-test'),
+    pageA.url()
+  );
+  const fiche = await texteDe(pageA);
+  verifier('la fiche importee porte ses ingredients', /Courge/.test(fiche) && /Comté/.test(fiche), fiche.slice(0, 400));
+  verifier('la fiche importee porte ses etapes', /Éplucher la courge/.test(fiche), fiche.slice(0, 600));
+  verifier('la fiche importee cite sa source', /exemple\.test/.test(fiche), fiche.slice(0, 800));
+
+  await pageA.goto(`${BASE}#/livre`, { waitUntil: 'networkidle' });
+  await attendre(700);
+  verifier(
+    'le livre compte la recette importee',
+    (await pageA.locator('.carte').count()) === nbAvantImport + 1,
+    `${await pageA.locator('.carte').count()} au lieu de ${nbAvantImport + 1}`
+  );
+
+  // Nettoyage : la suite du parcours compte les recettes.
+  await pageA.goto(`${BASE}#/recette/gratin-de-courge-test/modifier`, { waitUntil: 'networkidle' });
+  await attendre(700);
+  await pageA.locator('#supprimer-recette').click();
+  await attendre(400);
+  await pageA.locator('#confirmer-suppression').click();
+  await attendre(1200);
+
   // --- 13. Ajouter une recette depuis le livre --------------------------------
 
   await pageA.goto(`${BASE}#/livre`, { waitUntil: 'networkidle' });

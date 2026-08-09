@@ -22,6 +22,7 @@
   var Cu = window.CarnetCuisson;
   var Mg = window.CarnetVueMagasin;
   var Pl = window.CarnetPlacard;
+  var Imp = window.CarnetImport;
 
   var criteresVides = L.criteresVides;
   var origineCourte = L.origineCourte;
@@ -1777,9 +1778,17 @@
               ' recettes rassemblées, avec leurs astuces, leurs variantes et ce que leur source ne dit pas.',
           }),
         ]),
-        el('a', { class: 'bouton', id: 'ajouter-recette', href: '#/recette/nouvelle' }, [
-          icone('plus', { taille: 18 }),
-          el('span', { texte: 'Ajouter une recette' }),
+        el('div', { class: 'livre__actions' }, [
+          el('button', {
+            type: 'button',
+            class: 'bouton bouton--sobre',
+            id: 'importer-recette',
+            onclick: ouvrirImport,
+          }, [icone('fleche', { taille: 16 }), el('span', { texte: 'Importer depuis un site' })]),
+          el('a', { class: 'bouton', id: 'ajouter-recette', href: '#/recette/nouvelle' }, [
+            icone('plus', { taille: 18 }),
+            el('span', { texte: 'Ajouter une recette' }),
+          ]),
         ]),
       ])
     );
@@ -2781,6 +2790,175 @@
         },
       }),
     ]);
+  }
+
+  /* --- import d'une recette depuis un site ---------------------------------- */
+
+  // Le marque-page. Depose dans la barre de favoris, il s'execute **dans la page de
+  // la recette** : il y lit le schema.org, qui est du meme domaine, donc sans le
+  // moindre probleme d'origine croisee, et le met dans le presse-papiers.
+  //
+  // C'est ce qui rend l'import possible depuis un site statique : le carnet ne peut
+  // pas aller chercher marmiton.org, mais un bout de code lance depuis marmiton.org
+  // le peut. Repli sur le code source complet de la page quand aucun schema.org n'y
+  // figure : la boite d'import sait lire les deux.
+  var MARQUE_PAGE =
+    "javascript:(function(){" +
+    "var b=[].slice.call(document.querySelectorAll('script[type=\"application/ld+json\"]'))" +
+    ".map(function(s){return s.textContent}).join('\\n');" +
+    "var t=b||document.documentElement.outerHTML;" +
+    "function f(){window.prompt('Copiez ceci (Ctrl+C), puis collez-le dans Miam miam :',t)}" +
+    "if(navigator.clipboard&&navigator.clipboard.writeText){" +
+    "navigator.clipboard.writeText(t).then(function(){alert('Recette copiee. Collez-la dans Miam miam.')},f)}" +
+    "else{f()}})();";
+
+  /**
+   * Boite d'import d'une recette trouvee sur internet.
+   *
+   * Elle ne va rien chercher elle-meme, et la boite le dit : un site statique ne peut
+   * pas lire une page d'un autre domaine, le navigateur l'interdit. Deux chemins sont
+   * donc proposes, du plus rapide au plus universel : le marque-page, puis le
+   * copier-coller de la page entiere.
+   */
+  function ouvrirImport() {
+    var colle = '';
+    var resultat = null;
+    var erreur = null;
+
+    function analyser() {
+      resultat = null;
+      erreur = null;
+      var lu = Imp.importer(colle);
+      if (lu.erreur) erreur = lu.erreur;
+      else resultat = lu.recette;
+      rendreCorpsVoile(corps());
+    }
+
+    function enregistrer() {
+      if (!resultat) return;
+      Rc.creer(resultat).then(
+        function (creee) {
+          fermerVoile();
+          window.location.hash = '#/recette/' + creee.id;
+        },
+        function (e) {
+          erreur = e.message;
+          rendreCorpsVoile(corps());
+        }
+      );
+    }
+
+    function corps() {
+      var champ = el('textarea', {
+        class: 'champ-import',
+        id: 'contenu-importe',
+        rows: 5,
+        placeholder: 'Collez ici le contenu de la page de la recette…',
+        'aria-label': 'Contenu de la page à importer',
+        oninput: function (evenement) {
+          colle = evenement.target.value;
+          // Le bouton est active ici et non par un re-rendu : re-rendre la boite a
+          // chaque frappe sortirait le curseur de la zone de texte.
+          var bouton = document.getElementById('analyser-import');
+          if (bouton) bouton.disabled = colle.trim() === '';
+        },
+      });
+      champ.value = colle;
+
+      var apercu = [];
+      if (erreur) {
+        apercu.push(
+          el('div', { class: 'sync sync--config', id: 'erreur-import' }, [
+            el('span', { class: 'sync__etat', texte: 'Import impossible' }),
+            el('p', { class: 'sync__erreur', texte: erreur }),
+          ])
+        );
+      } else if (resultat) {
+        apercu.push(
+          el('div', { class: 'apercu-import', id: 'apercu-import' }, [
+            el('h3', { class: 'apercu-import__titre', texte: resultat.titre }),
+            el('p', { class: 'apercu-import__meta', texte: [
+              resultat.categorie,
+              resultat.origine,
+              resultat.portions,
+              resultat.temps.total,
+            ].join(' · ') }),
+            el('p', { class: 'apercu-import__compte', texte:
+              resultat.ingredients[0].items.length + ' ingrédients · ' +
+              resultat.instructions.length + ' étapes' }),
+            // Ce que la source ne donne pas, dit avant d'enregistrer et non apres :
+            // c'est le moment ou l'on peut encore aller chercher l'information.
+            resultat.manquants.length > 0
+              ? el('div', { class: 'apercu-import__manquants' }, [
+                  el('p', { class: 'apercu-import__manquants-titre', texte:
+                    'Ce que la source ne donne pas (' + resultat.manquants.length + ')' }),
+                  el('ul', {}, resultat.manquants.map(function (m) {
+                    return el('li', { texte: m });
+                  })),
+                ])
+              : null,
+            el('div', { class: 'boite__actions' }, [
+              el('button', {
+                type: 'button',
+                class: 'bouton',
+                id: 'valider-import',
+                onclick: enregistrer,
+              }, [icone('coche', { taille: 16 }), el('span', { texte: 'Ajouter au livre' })]),
+            ]),
+            el('p', { class: 'apercu-import__note', texte:
+              'La fiche s’ouvrira dans l’éditeur du carnet : tout y est modifiable, rien n’est figé.' }),
+          ])
+        );
+      }
+
+      return [
+        el('p', { class: 'accroche', texte:
+          'Le carnet ne peut pas aller lire une page d’un autre site : le navigateur l’interdit, ' +
+          'et c’est cette règle qui empêche n’importe quel site de lire le contenu d’un autre en votre nom. ' +
+          'Il faut donc lui apporter la page. Deux façons, de la plus rapide à la plus sûre.' }),
+
+        el('h3', { class: 'boite__section', texte: '1. Le marque-page, en un clic' }),
+        el('p', { class: 'apercu-import__note', texte:
+          'Glissez ce bouton dans votre barre de favoris. Sur une page de recette, cliquez-le : ' +
+          'il copie la recette, il ne reste qu’à la coller ci-dessous.' }),
+        el('p', {}, [
+          el('a', {
+            class: 'bouton bouton--sobre',
+            id: 'marque-page-import',
+            href: MARQUE_PAGE,
+            texte: '🍲 Recette vers Miam miam',
+            onclick: function (evenement) {
+              // Cliquer le lien depuis cette boite ne servirait a rien : il doit etre
+              // lance depuis la page de la recette. On le dit plutot que de ne rien faire.
+              evenement.preventDefault();
+              erreur =
+                'Ce bouton est à glisser dans votre barre de favoris, puis à cliquer depuis la page ' +
+                'de la recette. Lancé ici, il ne trouverait que le carnet.';
+              rendreCorpsVoile(corps());
+            },
+          }),
+        ]),
+
+        el('h3', { class: 'boite__section', texte: '2. Ou copiez la page entière' }),
+        el('p', { class: 'apercu-import__note', texte:
+          'Sur la page de la recette : Ctrl+A pour tout sélectionner, Ctrl+C pour copier, ' +
+          'puis Ctrl+V ici. Sur téléphone, « Partager » puis « Copier ».' }),
+        champ,
+        el('div', { class: 'boite__actions' }, [
+          el('button', {
+            type: 'button',
+            class: 'bouton bouton--secondaire',
+            id: 'analyser-import',
+            disabled: colle.trim() === '' ? true : null,
+            onclick: analyser,
+          }, [icone('recherche', { taille: 16 }), el('span', { texte: 'Lire la recette' })]),
+        ]),
+      ].concat(apercu);
+    }
+
+    ouvrirVoile('Importer une recette', function () {
+      return corps();
+    }, { large: true });
   }
 
   /* --- le placard ---------------------------------------------------------- */

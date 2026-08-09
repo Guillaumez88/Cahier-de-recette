@@ -14,6 +14,7 @@ const Ry = require(path.join(racine, 'js/rayons.js'));
 const Fx = require(path.join(racine, 'js/flux.js'));
 const Sn = require(path.join(racine, 'js/semaine.js'));
 const Ic = require(path.join(racine, 'js/icones.js'));
+const Im = require(path.join(racine, 'js/import-recette.js'));
 
 const recettes = JSON.parse(fs.readFileSync(path.join(racine, 'data/recipes.json'), 'utf8'));
 
@@ -725,6 +726,161 @@ test('echelonnerCellule laisse une cellule sans quantite intacte', () => {
 });
 
 // --- Integrite du jeu de donnees ---------------------------------------------
+
+/* --- import d'une recette depuis une page web ------------------------------ */
+//
+// Les deux pages de test sont écrites à partir de la spécification schema.org et
+// non capturées sur un site réel : l'environnement de développement n'a pas accès
+// à internet. Elles reproduisent les formes que les sites emploient réellement
+// (un @graph, des HowToStep, des durées ISO 8601, des entités HTML), mais aucun
+// import contre un vrai site n'a été joué. C'est la limite de cette couverture.
+
+const PAGE_JSONLD = fs.readFileSync(path.join(racine, 'tests/pages/recette-jsonld.html'), 'utf8');
+const PAGE_MICRO = fs.readFileSync(path.join(racine, 'tests/pages/recette-microdonnees.html'), 'utf8');
+
+test('une page JSON-LD donne une recette complete', () => {
+  const r = Im.importer(PAGE_JSONLD);
+  assert.ok(!r.erreur, r.erreur);
+  assert.strictEqual(r.recette.titre, 'Tarte aux pommes de mamie');
+  assert.strictEqual(r.recette.categorie, 'Dessert');
+  assert.strictEqual(r.recette.origine, 'Française');
+  assert.strictEqual(r.recette.portions, '6 personnes');
+  assert.strictEqual(r.recette.calories, 320);
+  assert.strictEqual(r.recette.source.url, 'https://exemple.test/recettes/tarte-aux-pommes');
+  assert.strictEqual(r.recette.instructions.length, 4);
+  assert.strictEqual(r.recette.ingredients[0].items.length, 6);
+});
+
+test('l import trouve la recette au fond d un @graph, malgre un bloc casse', () => {
+  // Les pages portent souvent plusieurs blocs JSON-LD, dont un mal formé. Un seul
+  // bloc cassé ne doit pas faire échouer l'import.
+  assert.strictEqual(Im.blocsJsonLd(PAGE_JSONLD).length, 2, 'le bloc cassé aurait dû être ignoré');
+  assert.ok(Im.recetteJsonLd(PAGE_JSONLD), 'la recette du @graph n a pas été trouvée');
+});
+
+test('les durees ISO deviennent le format du carnet', () => {
+  assert.strictEqual(Im.dureeIso('PT25M'), '25 min');
+  assert.strictEqual(Im.dureeIso('PT1H5M'), '1 h 05');
+  assert.strictEqual(Im.dureeIso('PT2H'), '2 h');
+  // Une durée nulle ou illisible ne devient pas « 0 min » : ce serait une durée
+  // mesurée là où la source ne dit rien.
+  assert.strictEqual(Im.dureeIso('PT0S'), null);
+  assert.strictEqual(Im.dureeIso('bientôt'), null);
+  assert.strictEqual(Im.dureeIso(''), null);
+  // Et le format produit doit être relisible par le carnet lui-même.
+  assert.strictEqual(L.parseMinutes(Im.dureeIso('PT1H5M')), 65);
+});
+
+test('les quantites sont separees du nom sans etre inventees', () => {
+  assert.deepStrictEqual(Im.decouperIngredient('200 g d’olives noires'), {
+    nom: 'Olives noires',
+    quantite: '200 g',
+  });
+  assert.deepStrictEqual(Im.decouperIngredient('1 gousse d’ail'), { nom: 'Ail', quantite: '1 gousse' });
+  // Sans nombre, tout le texte reste le nom : deviner « 1 » serait une invention.
+  assert.deepStrictEqual(Im.decouperIngredient('Sel'), { nom: 'Sel', quantite: '' });
+  assert.deepStrictEqual(Im.decouperIngredient('Selon goût'), { nom: 'Selon goût', quantite: '' });
+  assert.strictEqual(Im.decouperIngredient(''), null);
+});
+
+test('les entites HTML sont decodees en respectant la casse', () => {
+  // `&Eacute;` est un E majuscule : le confondre avec `&eacute;` mettait « éplucher »
+  // en tête d'étape.
+  assert.strictEqual(Im.decoderEntites('&Eacute;plucher'), 'Éplucher');
+  assert.strictEqual(Im.decoderEntites('&eacute;plucher'), 'éplucher');
+  assert.strictEqual(Im.decoderEntites('180 &deg;C'), '180 °C');
+  assert.strictEqual(Im.decoderEntites('l&rsquo;ail &amp; le sel'), 'l’ail & le sel');
+  assert.strictEqual(Im.decoderEntites('&oelig;ufs'), 'œufs');
+  // Une entité inconnue est laissée telle quelle plutôt que supprimée.
+  assert.strictEqual(Im.decoderEntites('&inconnue;'), '&inconnue;');
+});
+
+test('l import declare ce que la source ne donne pas', () => {
+  // C'est la règle du projet : un trou se déclare, il ne se comble pas.
+  const r = Im.importer(PAGE_JSONLD);
+  assert.ok(r.recette.manquants.length > 0, 'aucun manquant relevé');
+  assert.ok(
+    r.recette.manquants.some((m) => /quantité lisible/.test(m)),
+    'la cannelle sans quantité n a pas été signalée'
+  );
+  assert.strictEqual(r.recette.temps.repos, 'Non indiqué');
+});
+
+test('une source sans duree ni categorie le declare au lieu de deviner', () => {
+  const r = Im.importer(
+    JSON.stringify({ '@type': 'Recipe', name: 'Truc', recipeIngredient: ['2 œufs'] })
+  );
+  assert.ok(!r.erreur, r.erreur);
+  assert.strictEqual(r.recette.temps.total, 'Non indiqué');
+  assert.strictEqual(r.recette.portions, 'Non indiqué');
+  // « Plat » est un défaut, pas une donnée : il doit être annoncé comme tel.
+  assert.strictEqual(r.recette.categorie, 'Plat');
+  assert.ok(
+    r.recette.manquants.some((m) => /catégorie/.test(m) && /défaut/.test(m)),
+    'le défaut de catégorie n est pas déclaré'
+  );
+  assert.ok(r.recette.manquants.some((m) => /aucune durée/.test(m)));
+  assert.ok(r.recette.manquants.some((m) => /nombre de parts/.test(m)));
+});
+
+test('le temps total n est jamais calcule a partir des autres', () => {
+  // Additionner préparation et cuisson supposerait qu'elles ne se chevauchent pas,
+  // ce que la source ne dit pas.
+  const r = Im.importer(
+    JSON.stringify({
+      '@type': 'Recipe',
+      name: 'Truc',
+      recipeIngredient: ['2 œufs'],
+      prepTime: 'PT20M',
+      cookTime: 'PT30M',
+    })
+  );
+  assert.strictEqual(r.recette.temps.total, 'Non indiqué');
+  assert.ok(r.recette.manquants.some((m) => /temps total/.test(m)));
+});
+
+test('une page en microdonnees est importee aussi', () => {
+  const r = Im.importer(PAGE_MICRO);
+  assert.ok(!r.erreur, r.erreur);
+  assert.strictEqual(r.recette.titre, 'Soupe de potiron');
+  assert.strictEqual(r.recette.categorie, 'Entrée');
+  assert.strictEqual(r.recette.portions, '4 personnes');
+  assert.strictEqual(r.recette.temps.preparation, '15 min');
+  assert.strictEqual(r.recette.ingredients[0].items.length, 4);
+  assert.strictEqual(r.recette.instructions.length, 3);
+});
+
+test('une page sans recette est refusee avec une raison', () => {
+  const r = Im.importer('<html><body><h1>Bonjour</h1></body></html>');
+  assert.ok(r.erreur, 'une page quelconque a été acceptée comme recette');
+  assert.ok(/schema.org|copie/.test(r.erreur), r.erreur);
+  assert.strictEqual(Im.importer('').erreur, 'rien n’a été collé');
+
+  // Un schema.org sans ingrédient n'est pas une recette exploitable.
+  const sansIngredient = Im.importer(JSON.stringify({ '@type': 'Recipe', name: 'Truc' }));
+  assert.ok(/ingrédient/.test(sansIngredient.erreur), sansIngredient.erreur);
+});
+
+test('la recette importee respecte le schema du carnet', () => {
+  // Une recette importée doit passer les mêmes contrôles qu'une recette du fichier :
+  // sinon elle casserait un écran une fois enregistrée.
+  const r = Im.importer(PAGE_JSONLD).recette;
+  ['id', 'titre', 'categorie', 'origine', 'difficulte', 'portions', 'temps', 'calories', 'source',
+   'ingredients', 'instructions', 'astuces', 'variantes', 'manquants', 'flowTable'].forEach((champ) => {
+    assert.ok(champ in r, `champ manquant : ${champ}`);
+  });
+  assert.ok(['Entrée', 'Plat', 'Dessert'].includes(r.categorie));
+  assert.ok(r.source.url === '' || /^https?:\/\//.test(r.source.url));
+  ['preparation', 'cuisson', 'repos', 'total'].forEach((c) => assert.ok(c in r.temps));
+  r.instructions.forEach((e) => {
+    assert.strictEqual(typeof e.numero, 'number');
+    assert.ok(typeof e.texte === 'string' && e.texte.length > 0);
+  });
+  // Et les ingrédients importés doivent tous se ranger dans un rayon.
+  r.ingredients[0].items.forEach((i) => {
+    assert.notStrictEqual(Ry.rayonDe(i.nom), Ry.RAYON_DEFAUT, `sans rayon : ${i.nom}`);
+  });
+});
 
 test('la coquille du service worker couvre tous les fichiers de la page', () => {
   // Un module ajoute a index.html et oublie dans sw.js casserait le hors ligne en

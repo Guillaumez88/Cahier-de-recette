@@ -33,6 +33,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
     │   ├── placard.js           Ce qu'on a toujours et qu'il ne faut pas racheter
     │   ├── photos.js            Photos : redimensionnement, deux tailles, cache IndexedDB
     │   ├── cuisson.js           Où l'on en est dans une recette, en local
+    │   ├── import-recette.js    Lecture d'une recette schema.org trouvée sur un site
     │   ├── vue-magasin.js       L'écran « En magasin », premier écran sorti de app.js
     │   └── app.js               Rendu DOM et routage par ancre
     ├── data/recipes.json        Les 21 recettes
@@ -40,12 +41,12 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js           116 tests de la logique métier
+        ├── run-tests.js           127 tests de la logique métier
         ├── run-sync-tests.js      115 tests de la synchronisation
         ├── test-web.js             88 vérifications navigateur, parcours général
         ├── test-partage.js         57 vérifications navigateur, partage, placard, magasin
         ├── test-edition.js         69 vérifications navigateur, modification, parts, accordéon
-        ├── test-semainier.js      129 vérifications navigateur, semainier, photos, compteur
+        ├── test-semainier.js      146 vérifications navigateur, semainier, photos, import
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -53,7 +54,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
         └── serveur.js              Serveur statique sans dépendance
 ```
 
-Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `recettes.js`, `storage.js`, `semainier.js`, `placard.js`, `photos.js`, `cuisson.js`, `vue-magasin.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
+Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `recettes.js`, `storage.js`, `semainier.js`, `placard.js`, `photos.js`, `cuisson.js`, `import-recette.js`, `vue-magasin.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
 
 `app.js` ne parle jamais au réseau ni au stockage : il passe par `storage.js`, `semainier.js`, `placard.js`, `recettes.js` et `photos.js`, seuls endroits décidant où sont rangées les données.
 
@@ -406,9 +407,9 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 116 tests de la logique métier
+node tests/run-tests.js           # 127 tests de la logique métier
 node tests/run-sync-tests.js      # 115 tests de la synchronisation
-node tests/run-browser-tests.js   # 343 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 360 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.
@@ -508,6 +509,42 @@ Si le nombre de parts ne commence pas par un nombre, le recalcul automatique est
 `origine` et `difficulte` sont du texte libre : les filtres travaillent sur des étiquettes courtes dérivées par mots-clés (`origineCourte`, `difficulteCourte` dans `js/logic.js`), le texte intégral restant affiché sur la fiche. Les 21 recettes sont toutes classées ; une source formulée autrement retomberait sur « Autre », et un test le signalerait. La règle « Maghrébine » passe avant « Française » : l'ordre des règles est significatif, sans quoi « Maghrébine, version familiale française » ressortait « Française ».
 
 Pour ajouter une recette : modifier `data/recipes.json`, puis `node tests/run-tests.js`, qui contrôle le schéma, l'unicité des identifiants et la validité des URL de source.
+
+## Importer une recette trouvée sur internet
+
+### Pourquoi un lien seul ne peut pas suffire
+
+Le carnet est un site statique : aucun serveur ne peut aller chercher la page à sa place. Et un `fetch` direct depuis le navigateur vers `marmiton.org` est **bloqué par le navigateur lui-même**. Sans en-tête `Access-Control-Allow-Origin`, la réponse n'est jamais lisible, et aucun site de cuisine ne l'assouplit.
+
+Ce n'est pas un défaut à corriger : c'est la règle qui empêche n'importe quel site de lire le contenu d'un autre en votre nom. Les contournements existent et ont tous été écartés :
+
+| Contournement | Pourquoi non |
+|---|---|
+| Un relais CORS public | Une dépendance à un service tiers qui voit chaque adresse consultée, peut disparaître du jour au lendemain et limite le débit. Le projet n'a aucune dépendance externe, c'est ce qui fait qu'il ne casse pas en cuisine. |
+| Une fonction serveur (Firebase Functions) | Demande le plan facturé, et un serveur à maintenir pour un carnet de famille. |
+| Un analyseur par site | Casse à chaque refonte du site en question, et il en faudrait un par site. |
+
+### Ce qui est fait à la place
+
+`js/import-recette.js` lit **`schema.org/Recipe`**, la norme que la quasi-totalité des sites de cuisine publient dans une balise `<script type="application/ld+json">`. Lire une norme donne un import qui marche partout, au lieu d'un analyseur par site. Un repli lit les microdonnées (`itemprop="recipeIngredient"`), forme plus ancienne encore employée.
+
+Le module ne va jamais rien chercher : il reçoit du texte déjà obtenu. Deux façons de le lui apporter, proposées dans la boîte « Importer depuis un site » de l'écran Le livre :
+
+1. **Le marque-page**, en un clic. On le glisse dans la barre de favoris ; cliqué depuis la page d'une recette, il s'exécute **dans cette page**, y lit le `schema.org` qui est du même domaine, et le met dans le presse-papiers. C'est ce qui rend l'import possible depuis un site statique : le carnet ne peut pas aller lire `marmiton.org`, mais un bout de code lancé depuis `marmiton.org` le peut.
+2. **Le copier-coller de la page entière** (Ctrl+A, Ctrl+C, Ctrl+V). Plus long d'un geste, mais sans aucune condition.
+
+### Ce que l'import n'invente jamais
+
+La règle du projet s'applique telle quelle : **un trou se déclare, il ne se comble pas.**
+
+- Un temps absent reste « Non indiqué », et la fiche l'écrit dans `manquants`.
+- **Le temps total n'est jamais calculé** à partir de la préparation et de la cuisson : les additionner supposerait qu'elles ne se chevauchent pas, ce que la source ne dit pas.
+- Une quantité illisible reste dans le nom de l'ingrédient, mot pour mot. « Sel » n'a pas de quantité, et c'est correct.
+- Une catégorie inconnue tombe sur « Plat » **et le déclare**, plutôt que de se faire passer pour une donnée de la source.
+
+Tout cela est affiché **avant d'enregistrer**, dans l'aperçu : c'est le moment où l'on peut encore aller chercher l'information sur la page. La fiche créée est ensuite modifiable comme n'importe quelle autre.
+
+**Limite de la couverture** : les deux pages de test sont écrites à partir de la spécification schema.org, pas capturées sur un site réel, l'environnement de développement n'ayant pas accès à internet. Elles reproduisent les formes réellement employées (un `@graph`, des `HowToStep`, des durées ISO 8601, des entités HTML, un bloc JSON cassé parmi d'autres), mais **aucun import contre un vrai site n'a été joué**. C'est le premier point à vérifier à l'usage.
 
 ## Importer une extraction
 

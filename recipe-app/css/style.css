@@ -4020,3 +4020,90 @@ a.creneau__plat:hover .creneau__titre {
     animation: demarrage-secours 0.001ms linear 2s forwards !important;
   }
 }
+
+/* --- Import d'une recette --------------------------------------------------- */
+
+.livre__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.champ-import {
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--texte);
+  background: var(--surface);
+  border: 1px solid var(--bordure-forte);
+  border-radius: var(--rayon-md);
+  resize: vertical;
+}
+.champ-import:focus {
+  outline: 2px solid var(--terracotta);
+  outline-offset: 1px;
+}
+
+/* Le marque-page est un lien qu'on glisse, pas qu'on clique : le curseur le dit. */
+#marque-page-import {
+  cursor: grab;
+}
+
+.apercu-import {
+  margin-top: 18px;
+  padding: 16px 18px;
+  background: var(--surface-creuse);
+  border: 1px solid var(--bordure);
+  border-left: 3px solid var(--sauge-600);
+  border-radius: var(--rayon-md);
+}
+
+.apercu-import__titre {
+  margin: 0 0 4px;
+  font-family: var(--police-titre);
+  font-size: 21px;
+}
+
+.apercu-import__meta,
+.apercu-import__compte {
+  margin: 0 0 4px;
+  font-family: system-ui, sans-serif;
+  font-size: 13.5px;
+  color: var(--texte-doux);
+}
+
+.apercu-import__note {
+  margin: 10px 0 0;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-doux);
+}
+
+/* Ce que la source ne donne pas, avant d'enregistrer et non après : c'est le
+   moment où l'on peut encore aller chercher l'information. */
+.apercu-import__manquants {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--bordure);
+}
+.apercu-import__manquants-titre {
+  margin: 0 0 6px;
+  font-family: system-ui, sans-serif;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--texte-faible);
+}
+.apercu-import__manquants ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--texte-doux);
+}
+.apercu-import__manquants li {
+  margin-bottom: 4px;
+}
