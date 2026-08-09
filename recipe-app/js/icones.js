@@ -40,6 +40,14 @@
       ['circle', { cx: '11', cy: '11', r: '6' }],
       ['path', { d: 'M15.5 15.5 20 20' }],
     ],
+    // Deux arcs et deux pointes : la fleche circulaire de mise a jour. Les arcs sont
+    // ouverts en haut a droite et en bas a gauche, pour laisser la place aux pointes.
+    rafraichir: [
+      ['path', { d: 'M20 12a8 8 0 0 1-13.7 5.6' }],
+      ['path', { d: 'M4 12a8 8 0 0 1 13.7-5.6' }],
+      ['path', { d: 'M17.7 3.2v3.3h-3.3' }],
+      ['path', { d: 'M6.3 20.8v-3.3h3.3' }],
+    ],
     plus: [['path', { d: 'M12 5.5v13M5.5 12h13' }]],
     croix: [['path', { d: 'M6.5 6.5l11 11M17.5 6.5l-11 11' }]],
     crayon: [

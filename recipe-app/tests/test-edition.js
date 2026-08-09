@@ -207,7 +207,7 @@ async function attendreTexte(page, motif, limite = 8000) {
   await pageA.goto(`${BASE}#/livre`, { waitUntil: 'networkidle' });
   await attendre(1000);
   verifier("le livre affiche le nouveau titre", /Lasagnes pour douze/.test(await texteDe(pageA)));
-  verifier('le carnet compte toujours 20 recettes', (await pageA.locator('.carte').count()) === 20);
+  verifier('le carnet compte toujours 21 recettes', (await pageA.locator('.carte').count()) === 21);
 
   // --- 5. La modification est partagee ----------------------------------------
 

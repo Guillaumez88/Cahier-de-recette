@@ -41,6 +41,7 @@
   var REGLES_ORIGINE = [
     [/itali/i, 'Italienne'],
     [/améric|americ|anglais/i, 'Américaine'],
+    [/maghr[ée]b|marocain|alg[ée]rien|tunisien/i, 'Maghrébine'],
     [/provenç|provenc/i, 'Provençale'],
     [/savoyard/i, 'Savoyarde'],
     [/méditerran|mediterran/i, 'Méditerranéenne'],

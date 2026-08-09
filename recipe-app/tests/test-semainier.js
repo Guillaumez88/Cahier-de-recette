@@ -78,8 +78,12 @@ const PNG_ROUGE =
 
 (async () => {
   const navigateur = await chromium.launch(OPTIONS_LANCEMENT);
-  const contexteA = await navigateur.newContext({ viewport: { width: 1280, height: 950 } });
-  const contexteB = await navigateur.newContext({ viewport: { width: 1280, height: 950 } });
+  // 1400 px de haut : la reserve est en tete de page et la grille dessous. Sur une
+  // fenetre plus courte, Playwright doit faire defiler pendant un glisser-deposer, ce
+  // qui annule le geste sans lever d'erreur et ferait echouer le test pour une raison
+  // qui n'a rien a voir avec le produit.
+  const contexteA = await navigateur.newContext({ viewport: { width: 1280, height: 1400 } });
+  const contexteB = await navigateur.newContext({ viewport: { width: 1280, height: 1400 } });
   const pageA = await contexteA.newPage();
   const pageB = await contexteB.newPage();
 
@@ -106,6 +110,22 @@ const PNG_ROUGE =
   const LUNDI = JOURS[0];
   const MARDI = JOURS[1];
   const creneau = (page, jour, moment) => page.locator(`[data-creneau="${jour}::${moment}"]`);
+
+  /**
+   * Glisse une pastille de la reserve dans une case.
+   *
+   * La case est amenee a l'ecran avant de commencer : la reserve est en haut de page
+   * et la grille dessous, si bien que Playwright fait defiler la page pendant le
+   * glissement, ce qui annule le geste sans lever d'erreur. Un utilisateur, lui, voit
+   * sa cible avant de partir.
+   */
+  const glisserDeLaReserve = async (page, cleReserve, jour, moment) => {
+    const cible = creneau(page, jour, moment);
+    await cible.scrollIntoViewIfNeeded();
+    await attendre(200);
+    await page.locator(`[data-reserve="${cleReserve}"]`).dragTo(cible);
+    await attendre(900);
+  };
 
   /**
    * Bascule l'accueil en mode edition si ce n'est pas deja fait.
@@ -140,26 +160,23 @@ const PNG_ROUGE =
   await attendre(500);
   verifier('la semaine suivante se deplie d un clic', (await pageA.locator('.semaine').count()) === 2);
   verifier('chaque semaine a sept jours', (await pageA.locator('.semaine').first().locator('.jour').count()) === 7);
+  // Quatorze cases et non vingt-et-une : le petit-dejeuner est masque tant qu il ne
+  // porte rien, c'est le repas le moins souvent prevu et sept cases vides en tete de
+  // grille repoussaient le dejeuner et le diner.
   verifier(
-    'chaque semaine a vingt-et-un creneaux',
-    (await pageA.locator('.semaine').first().locator('.creneau').count()) === 21
+    'une semaine vide n affiche que le dejeuner et le diner',
+    (await pageA.locator('.semaine').first().locator('.creneau').count()) === 14,
+    String(await pageA.locator('.semaine').first().locator('.creneau').count())
+  );
+  verifier(
+    'le petit-dejeuner est masque tant qu il est vide',
+    (await creneau(pageA, LUNDI, 'petit-dejeuner').count()) === 0
   );
   verifier('le creneau du lundi midi existe', (await creneau(pageA, LUNDI, 'dejeuner').count()) === 1);
   verifier('aucun repas n est prevu au depart', /aucun repas encore prévu/.test(await texteDe(pageA)));
 
   // Le jour courant est marque : sans repere, on pose un plat au mauvais jour.
   verifier('le jour courant est marque', (await pageA.locator('.jour--aujourdhui').count()) === 1);
-
-  // Le dejeuner et le diner ont plus de place que le petit-dejeuner.
-  const hauteurs = await pageA.evaluate((lundi) => {
-    const h = (m) => document.querySelector(`[data-creneau="${lundi}::${m}"]`).getBoundingClientRect().height;
-    return { matin: h('petit-dejeuner'), midi: h('dejeuner'), soir: h('diner') };
-  }, LUNDI);
-  verifier(
-    'le dejeuner et le diner sont plus hauts que le petit-dejeuner',
-    hauteurs.midi > hauteurs.matin && hauteurs.soir > hauteurs.matin,
-    JSON.stringify(hauteurs)
-  );
 
   // --- 1 bis. L accueil s ouvre en lecture ------------------------------------
   //
@@ -176,8 +193,29 @@ const PNG_ROUGE =
   verifier('le bouton Modifier est propose', (await pageA.locator('#modifier-semaine').count()) === 1);
 
   await passerEnEdition(pageA);
+  verifier(
+    'en edition, le petit-dejeuner reparait',
+    (await creneau(pageA, LUNDI, 'petit-dejeuner').count()) === 1
+  );
+  verifier(
+    'en edition, chaque semaine a vingt-et-un creneaux',
+    (await pageA.locator('.semaine').first().locator('.creneau').count()) === 21,
+    String(await pageA.locator('.semaine').first().locator('.creneau').count())
+  );
   verifier('en edition, chaque case vide porte un « + »', (await pageA.locator('.creneau__vide').count()) === 42);
   verifier('en edition, la reserve de plats apparait', (await pageA.locator('#reserve').count()) === 1);
+
+  // Le dejeuner et le diner ont plus de place que le petit-dejeuner. Mesure en mode
+  // edition, seul mode ou les trois cases coexistent sur une semaine vide.
+  const hauteurs = await pageA.evaluate((lundi) => {
+    const h = (m) => document.querySelector(`[data-creneau="${lundi}::${m}"]`).getBoundingClientRect().height;
+    return { matin: h('petit-dejeuner'), midi: h('dejeuner'), soir: h('diner') };
+  }, LUNDI);
+  verifier(
+    'le dejeuner et le diner sont plus hauts que le petit-dejeuner',
+    hauteurs.midi > hauteurs.matin && hauteurs.soir > hauteurs.matin,
+    JSON.stringify(hauteurs)
+  );
 
   // --- 2. Poser un plat du livre ----------------------------------------------
 
@@ -361,8 +399,7 @@ const PNG_ROUGE =
   );
 
   // Un repas hors carnet se glisse comme un plat du livre.
-  await pageA.locator('[data-reserve="Japonais"]').dragTo(creneau(pageA, JOURS[3], 'diner'));
-  await attendre(900);
+  await glisserDeLaReserve(pageA, 'Japonais', JOURS[3], 'diner');
   verifier(
     'un repas hors carnet se glisse depuis la reserve',
     /Japonais/.test(await creneau(pageA, JOURS[3], 'diner').textContent()),
@@ -377,8 +414,7 @@ const PNG_ROUGE =
   await attendre(400);
   await pageA.locator('#recherche-reserve').fill('anchoiade');
   await attendre(400);
-  await pageA.locator('[data-reserve="anchoiade"]').dragTo(creneau(pageA, JOURS[2], 'diner'));
-  await attendre(900);
+  await glisserDeLaReserve(pageA, 'anchoiade', JOURS[2], 'diner');
   verifier(
     'un plat de la reserve se glisse dans une case',
     /Anchoïade/.test(await creneau(pageA, JOURS[2], 'diner').textContent()),
@@ -601,7 +637,7 @@ const PNG_ROUGE =
   // vingt, et la pastille de categorie porte deja la couleur.
   verifier(
     'chaque carte porte sa pastille de categorie',
-    (await pageA.locator('.carte .etiquette').count()) === 20,
+    (await pageA.locator('.carte .etiquette').count()) === 21,
     String(await pageA.locator('.carte .etiquette').count())
   );
   verifier(
@@ -683,8 +719,8 @@ const PNG_ROUGE =
 
   await pageA.goto(`${BASE}#/livre`, { waitUntil: 'networkidle' });
   await attendre(800);
-  verifier('le livre compte une recette de plus', (await pageA.locator('.carte').count()) === 21);
-  verifier('le livre annonce 21 recettes', /21 recettes rassemblées/.test(await texteDe(pageA)));
+  verifier('le livre compte une recette de plus', (await pageA.locator('.carte').count()) === 22);
+  verifier('le livre annonce 22 recettes', /22 recettes rassemblées/.test(await texteDe(pageA)));
 
   // --- 14. Supprimer une recette ajoutee --------------------------------------
 
@@ -711,7 +747,7 @@ const PNG_ROUGE =
   await pageA.locator('#confirmer-suppression').click();
   await attendre(1200);
   verifier('la suppression ramene au livre', pageA.url().includes('#/livre'), pageA.url());
-  verifier('le livre revient a vingt recettes', (await pageA.locator('.carte').count()) === 20);
+  verifier('le livre revient a vingt-et-une recettes', (await pageA.locator('.carte').count()) === 21);
 
   // --- 15. Poser un repas hors ligne ------------------------------------------
 
@@ -738,7 +774,13 @@ const PNG_ROUGE =
   // Le rafraichissement est desormais unique, dans l'en-tete : il relit la liste et
   // les menus d'un seul geste.
   await pageA.locator('#rafraichir').click();
-  verifier('le repas part au retour du reseau', await attendreTexte(pageA, /Menus partagés à la maison, à jour/, 10000));
+  // Le bandeau d'etat disparait quand tout va bien : la preuve du retour du reseau
+  // est donc l'absence de « Hors ligne », et non la presence d'un libelle.
+  verifier(
+    'le repas part au retour du reseau',
+    await attendreTexte(pageA, /^(?![\s\S]*Hors ligne)[\s\S]*Japonais/, 10000),
+    (await texteDe(pageA)).slice(0, 300)
+  );
   etat = await etatStub();
   verifier(
     'le repas pose hors ligne est bien arrive en base',
@@ -756,11 +798,11 @@ const PNG_ROUGE =
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth
   );
   verifier('aucun debordement horizontal en 360 px', debordement <= 1, `${debordement} px`);
-  // Vingt-et-une cases et non quarante-deux : la semaine suivante est vide, donc
-  // repliee, sur un ecran neuf qui n'a pas demande a la voir.
+  // Quatorze cases : la semaine suivante est vide donc repliee sur un ecran neuf, et
+  // le petit-dejeuner de la semaine en cours est masque, aucun n'etant prevu.
   verifier(
     'le semainier reste utilisable sur telephone',
-    (await telephone.locator('.creneau').count()) === 21,
+    (await telephone.locator('.creneau').count()) === 14,
     String(await telephone.locator('.creneau').count())
   );
   verifier(
@@ -844,7 +886,7 @@ const PNG_ROUGE =
   );
   verifier(
     'les plats jamais faits sont signales',
-    (await pageA.locator('.carte__realisations--jamais').count()) === 18,
+    (await pageA.locator('.carte__realisations--jamais').count()) === 19,
     String(await pageA.locator('.carte__realisations--jamais').count())
   );
 
@@ -857,7 +899,7 @@ const PNG_ROUGE =
   await attendre(500);
   verifier(
     'le filtre « jamais fait » ecarte les plats deja faits',
-    (await pageA.locator('.carte').count()) === 18,
+    (await pageA.locator('.carte').count()) === 19,
     String(await pageA.locator('.carte').count())
   );
   await pageA.locator('[data-filtre="realisations:deja"]').click();

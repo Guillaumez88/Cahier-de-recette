@@ -192,8 +192,8 @@
         rafraichirTout();
       },
     }, [
-      icone('fleche', { taille: 18 }),
-      el('span', { class: 'bouton-rafraichir__age', texte: age === null ? '' : depuisQuand(age) }),
+      icone('rafraichir', { taille: 17 }),
+      el('span', { class: 'bouton-rafraichir__age', texte: age === null ? '' : depuisQuandCourt(age) }),
     ]);
 
     return bouton;
@@ -224,10 +224,11 @@
     var e = S.etatSync();
     var age = S.ageDonnees();
     if (e.enCours || age === null) return;
-    var libelle = depuisQuand(age);
-    bouton.querySelector('.bouton-rafraichir__age').textContent = libelle;
-    bouton.title = 'À jour ' + libelle;
-    bouton.setAttribute('aria-label', 'Rafraîchir, à jour ' + libelle);
+    // Le titre garde la forme longue : c'est ce qu'on lit quand on s'arrete sur le
+    // bouton, et « 2j » seul y serait sec.
+    bouton.querySelector('.bouton-rafraichir__age').textContent = depuisQuandCourt(age);
+    bouton.title = 'À jour ' + depuisQuand(age);
+    bouton.setAttribute('aria-label', 'Rafraîchir, à jour ' + depuisQuand(age));
     bouton.classList.toggle('bouton-rafraichir--vieux', age > window.CarnetConfig.seuilDonneesAgees);
   }
 
@@ -432,21 +433,47 @@
     var minutes = Math.round(secondes / 60);
     if (minutes < 60) return 'il y a ' + minutes + (minutes > 1 ? ' minutes' : ' minute');
     var heures = Math.round(minutes / 60);
-    return 'il y a ' + heures + (heures > 1 ? ' heures' : ' heure');
+    if (heures < 24) return 'il y a ' + heures + (heures > 1 ? ' heures' : ' heure');
+    var jours = Math.round(heures / 24);
+    return 'il y a ' + jours + (jours > 1 ? ' jours' : ' jour');
   }
 
   /**
-   * Bandeau d'etat. `sujet` est le module concerne (S ou Sm), `libelleOk` la phrase
-   * affichee quand tout va bien, accordee par l'appelant.
+   * Meme age, en trois caracteres : « 4min », « 3h », « 2j ».
    *
-   * L'age de la donnee y est affiche, et signale au-dela d'un seuil. Ce n'est pas
-   * decoratif : depuis la suppression du sondage automatique, c'est la seule chose
-   * qui empeche de cocher dans une liste vieille d'une heure sans le savoir.
+   * C'est la forme portee par le bouton de l'en-tete, a cote des liens. Elle doit
+   * tenir sans pousser « Liste de courses » hors de la barre : la forme longue y
+   * occupait la largeur d'un troisieme lien.
+   */
+  function depuisQuandCourt(age) {
+    var secondes = Math.round(age / 1000);
+    if (secondes < 45) return 'à jour';
+    var minutes = Math.round(secondes / 60);
+    if (minutes < 60) return minutes + 'min';
+    var heures = Math.round(minutes / 60);
+    if (heures < 24) return heures + 'h';
+    return Math.round(heures / 24) + 'j';
+  }
+
+  /**
+   * Bandeau d'etat. `sujet` est le module concerne (S ou Sm).
+   *
+   * **Rend null quand tout va bien.** L'age de la donnee est desormais porte par le
+   * bouton de l'en-tete, sous sa forme courte (« 4min », « 2j »), visible depuis
+   * n'importe quel ecran. Le bandeau ne repetait donc plus qu'une information deja
+   * affichee, en occupant une ligne pleine.
+   *
+   * Il reste indispensable dans les autres cas : hors ligne, quota epuise, regles non
+   * publiees, modifications en attente. Ces etats appellent chacun une action
+   * differente, que ni un pictogramme ni un age ne peuvent porter. Voir
+   * `diagnostiquer()`, qui distingue les trois causes d'echec.
    */
   function barreEtat(sujet, libelleOk, apresRafraichissement, identifiantBouton) {
     var e = sujet.etatSync();
-    var age = sujet.ageDonnees();
     var probleme = diagnostiquer(e);
+
+    // Nominal : en ligne, a jour, rien en attente. Le bouton de l'en-tete suffit.
+    if (!e.enCours && !probleme && e.enLigne === true && e.enAttente === 0) return null;
 
     var libelle;
     var classe = 'sync';
@@ -460,40 +487,20 @@
       }
       classe += ' ' + probleme.classe;
     } else if (e.enLigne === true) {
-      libelle = libelleOk + ', à jour ' + depuisQuand(age === null ? 0 : age);
-      classe += age !== null && age > window.CarnetConfig.seuilDonneesAgees ? ' sync--age' : ' sync--ok';
+      libelle =
+        libelleOk + ', ' + e.enAttente + ' modification' + (e.enAttente > 1 ? 's' : '') + ' en cours d’envoi';
+      classe += ' sync--ok';
     } else {
       libelle = 'Connexion…';
     }
 
     // Seules les erreurs gardent une explication : elles appellent une action
     // differente selon la cause, et la cause n'est pas devinable.
-    var bandeau = el('div', { class: classe, 'data-bandeau': identifiantBouton }, [
+    return el('div', { class: classe, 'data-bandeau': identifiantBouton }, [
       el('span', { class: 'sync__etat', texte: libelle }),
       probleme ? el('p', { class: 'sync__erreur', texte: probleme.explication }) : null,
       probleme ? el('p', { class: 'url-source', texte: e.erreur }) : null,
     ]);
-
-    // Le libelle porte un age (« à jour il y a 3 minutes ») qui doit vieillir tout
-    // seul. Sans sondage reseau, rien ne re-rend l'ecran : ce minuteur ne touche donc
-    // que ce texte et cette classe, sans aucune lecture Firestore. C'est ce qui evite
-    // de cocher dans une liste vieille d'une heure en croyant qu'elle est fraiche.
-    bandeau.__minuteurAge = setInterval(function () {
-      if (!bandeau.isConnected) {
-        clearInterval(bandeau.__minuteurAge);
-        return;
-      }
-      var courant = sujet.etatSync();
-      var ageCourant = sujet.ageDonnees();
-      if (courant.enCours || diagnostiquer(courant) || courant.enLigne !== true || ageCourant === null) return;
-
-      var vieillissant = ageCourant > window.CarnetConfig.seuilDonneesAgees;
-      bandeau.querySelector('.sync__etat').textContent = libelleOk + ', à jour ' + depuisQuand(ageCourant);
-      bandeau.classList.toggle('sync--age', vieillissant);
-      bandeau.classList.toggle('sync--ok', !vieillissant);
-    }, INTERVALLE_AGE);
-
-    return bandeau;
   }
 
   /* --- vue : accueil, le semainier ----------------------------------------- */
@@ -697,9 +704,31 @@
     return trouve || 'libre';
   }
 
+  /**
+   * Les creneaux a afficher pour une semaine.
+   *
+   * Le petit-dejeuner est masque tant qu'il ne porte rien : c'est le repas le moins
+   * souvent prevu, et sept cases vides en haut de la grille repoussaient le dejeuner
+   * et le diner, qui sont ce qu'on vient lire. Il reparait en mode Modifier, ou il
+   * faut bien pouvoir en poser un.
+   *
+   * La decision se prend pour toute la semaine, pas jour par jour : sur la grille de
+   * bureau, chaque jour est une colonne, et masquer la case du lundi seul decalerait
+   * son dejeuner d'une ligne par rapport a celui du mardi.
+   */
+  function momentsDeLaSemaine(sem, index, editable) {
+    return Sem.MOMENTS.filter(function (moment) {
+      if (moment.cle !== 'petit-dejeuner' || editable) return true;
+      return (sem.jours || []).some(function (jour) {
+        return (index[Sem.cleCreneau(jour.cle, moment.cle)] || []).length > 0;
+      });
+    });
+  }
+
   function blocSemaine(sem, estCourante) {
     var index = Sm.parCreneau();
     var editable = Boolean(etat.modeEdition);
+    var moments = momentsDeLaSemaine(sem, index, editable);
 
     return el('section', { class: 'semaine' + (estCourante ? ' semaine--courante' : ''), 'data-semaine': sem.cle }, [
       el('header', { class: 'semaine__entete' }, [
@@ -749,7 +778,7 @@
                 jour.estAujourdhui ? el('span', { class: 'jour__marque', texte: 'aujourd’hui' }) : null,
               ]),
             ].concat(
-              Sem.MOMENTS.map(function (moment) {
+              moments.map(function (moment) {
                 return celluleCreneau(jour, moment, index[Sem.cleCreneau(jour.cle, moment.cle)] || [], editable);
               })
             )
@@ -946,7 +975,12 @@
       el(
         'div',
         { class: 'aujourdhui__repas' },
-        Sem.MOMENTS.map(function (moment) {
+        // Meme regle que la grille, mais decidee pour le seul jour affiche : ces trois
+        // lignes s'empilent, en masquer une ne decale rien.
+        Sem.MOMENTS.filter(function (moment) {
+          if (moment.cle !== 'petit-dejeuner' || etat.modeEdition) return true;
+          return (index[Sem.cleCreneau(jour.cle, moment.cle)] || []).length > 0;
+        }).map(function (moment) {
           var plats = index[Sem.cleCreneau(jour.cle, moment.cle)] || [];
 
           // Un repas peut porter un plat et un dessert : chaque plat a sa ligne et
@@ -1041,6 +1075,9 @@
 
     // La question, puis tout de suite la reponse : les repas du jour. L'etat de
     // partage se tient a droite du titre, ou il est visible sans occuper une ligne.
+    // Le bandeau d'etat n'apparait que s'il a quelque chose a dire : hors ligne, quota
+    // epuise, envoi en attente. En marche normale, l'age est porte par le bouton de
+    // l'en-tete et le bandeau n'aurait fait que le repeter sur une ligne pleine.
     fragment.appendChild(
       el('section', { class: 'entree' }, [
         el('div', { class: 'entree__texte' }, [
@@ -2326,18 +2363,25 @@
       );
     }
 
+    // Toute recette cite sa source, mais toutes n'ont pas de lien : une page de livre
+    // photographiee n'a pas d'URL. Le nom de la source est alors affiche seul, plutot
+    // qu'un lien mort ou qu'une section escamotee.
     contexte.appendChild(
       section('Source', null, [
         el('p', {}, [
-          el('a', {
-            class: 'lien-source',
-            href: recette.source.url,
-            target: '_blank',
-            rel: 'noopener noreferrer',
-            texte: recette.source.label,
-          }),
+          recette.source.url
+            ? el('a', {
+                class: 'lien-source',
+                href: recette.source.url,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+                texte: recette.source.label,
+              })
+            : el('span', { class: 'lien-source lien-source--hors-ligne', texte: recette.source.label }),
         ]),
-        el('p', { class: 'url-source', texte: recette.source.url }),
+        recette.source.url
+          ? el('p', { class: 'url-source', texte: recette.source.url })
+          : el('p', { class: 'url-source', texte: 'Aucune adresse : source hors ligne.' }),
       ])
     );
 
@@ -2496,7 +2540,10 @@
       })
     );
 
-    fragment.appendChild(barreSync());
+    // Null en marche normale : le bandeau ne s'affiche que s'il a quelque chose a
+    // dire. L'age de la liste est porte par le bouton de l'en-tete.
+    var etatListe = barreSync();
+    if (etatListe) fragment.appendChild(etatListe);
     fragment.appendChild(formulaireAjoutLibre());
 
     if (articles.length === 0) {

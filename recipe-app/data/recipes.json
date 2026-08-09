@@ -6429,5 +6429,122 @@
       "headers": [],
       "rows": []
     }
+  },
+  {
+    "id": "couscous-poulet-merguez",
+    "titre": "Couscous poulet merguez",
+    "categorie": "Plat",
+    "origine": "Maghrébine, couscous servi ici dans une version familiale au poulet et aux merguez",
+    "difficulte": "Non indiquée par la source",
+    "portions": "4 personnes",
+    "temps": {
+      "preparation": "Non indiqué",
+      "cuisson": "1 h 20 min",
+      "repos": "Non indiqué",
+      "total": "1 h 20 min minimum"
+    },
+    "calories": null,
+    "source": {
+      "label": "Page de livre de cuisine transmise le 9 août 2026, sans éditeur ni auteur mentionné",
+      "url": null
+    },
+    "ingredients": [
+      {
+        "groupe": null,
+        "items": [
+          {
+            "nom": "Cuisses de poulet",
+            "quantite": "4"
+          },
+          {
+            "nom": "Merguez",
+            "quantite": "6"
+          },
+          {
+            "nom": "Patates",
+            "quantite": "6"
+          },
+          {
+            "nom": "Courgettes",
+            "quantite": "2"
+          },
+          {
+            "nom": "Carottes",
+            "quantite": "4"
+          },
+          {
+            "nom": "Oignon",
+            "quantite": "1"
+          },
+          {
+            "nom": "Concentré de tomates",
+            "quantite": "2 c. à c."
+          },
+          {
+            "nom": "4 épices",
+            "quantite": "6/8 c. à c."
+          },
+          {
+            "nom": "Cumin",
+            "quantite": "4 c. à c."
+          },
+          {
+            "nom": "Blette",
+            "quantite": "1"
+          },
+          {
+            "nom": "Huile d’olive",
+            "quantite": "Selon besoin"
+          }
+        ]
+      }
+    ],
+    "instructions": [
+      {
+        "numero": 1,
+        "texte": "Faites revenir les cuisses de poulet et les merguez dans un faitout avec un peu d’huile d’olive. Retirez les viandes et réservez.",
+        "astuce": null
+      },
+      {
+        "numero": 2,
+        "texte": "Faites revenir l’oignon émincé, ajoutez le concentré de tomates, puis versez 1 litre d’eau chaude avec 6/8 c. à c. de 4 épices et 1 c. à s. de cumin. Salez et poivrez.",
+        "astuce": null
+      },
+      {
+        "numero": 3,
+        "texte": "Remettez les viandes dans le faitout, ajoutez les patates, les carottes, puis laissez cuire 20 min.",
+        "astuce": null
+      },
+      {
+        "numero": 4,
+        "texte": "Ajoutez les courgettes, les feuilles de blette et les pois chiches. Laissez mijoter à feu doux pendant 1 heure.",
+        "astuce": null
+      },
+      {
+        "numero": 5,
+        "texte": "Préparez la semoule : placez la graine de couscous dans un saladier, arrosez avec quelques cuillères de bouillon chaud et égrenez la semoule.",
+        "astuce": null
+      }
+    ],
+    "astuces": {
+      "recette": [
+        "Laissez mijoter à feu doux et savourez."
+      ],
+      "commentaires": []
+    },
+    "variantes": {
+      "recette": [],
+      "associees": []
+    },
+    "manquants": [
+      "Les pois chiches sont employés à l’étape 4 et figurent sur l’illustration, mais ils sont absents de la liste des ingrédients : aucune quantité n’est donnée.",
+      "La graine de couscous est employée à l’étape 5, mais elle est absente de la liste des ingrédients : aucune quantité n’est donnée. C’est l’accompagnement du plat, il en faut.",
+      "Le cumin : la liste indique 4 c. à c., l’étape 2 indique 1 c. à s. La page ne dit pas laquelle des deux valeurs retenir. Les deux sont conservées telles quelles, aucune n’a été harmonisée.",
+      "Le sel et le poivre sont demandés à l’étape 2 mais ne figurent pas dans la liste des ingrédients.",
+      "« 1 blette » : la page ne précise pas s’il s’agit d’une feuille ou d’une botte. L’étape 4 parle des « feuilles de blette », au pluriel.",
+      "Aucun temps de préparation ni de repos n’est donné. Le temps de cuisson de 1 h 20 min est la somme des deux seules durées écrites dans les étapes (20 min à l’étape 3, 1 heure à l’étape 4) : il n’inclut ni le rissolage des étapes 1 et 2, qui n’est pas chronométré, ni la préparation.",
+      "Aucune difficulté, aucune valeur calorique et aucune source en ligne : la recette vient d’une page de livre de cuisine photographiée, sans éditeur ni auteur mentionné."
+    ],
+    "flowTable": null
   }
 ]

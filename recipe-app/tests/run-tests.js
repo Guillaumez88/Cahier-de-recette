@@ -69,7 +69,7 @@ test('stripTipPrefix retire les prefixes redondants', () => {
   assert.strictEqual(L.stripTipPrefix('Texte sans prefixe'), 'Texte sans prefixe');
 });
 
-test('origineCourte classe les 20 recettes sans reste', () => {
+test('origineCourte classe les 21 recettes sans reste', () => {
   const parOrigine = {};
   recettes.forEach((r) => {
     const o = L.origineCourte(r.origine);
@@ -78,10 +78,15 @@ test('origineCourte classe les 20 recettes sans reste', () => {
   assert.ok(!parOrigine.Autre, `origines non classees : ${JSON.stringify(parOrigine)}`);
   assert.strictEqual(
     Object.values(parOrigine).reduce((a, b) => a + b, 0),
-    20
+    21
   );
   assert.strictEqual(L.origineCourte('Italie (plat italien), version familiale française'), 'Italienne');
   assert.strictEqual(L.origineCourte('Provençale / française'), 'Provençale');
+  // La regle maghrebine passe avant la francaise : sans cela « Maghrébine, version
+  // familiale française » ressortait « Française », l'ordre des regles etant
+  // significatif.
+  assert.strictEqual(L.origineCourte('Maghrébine, version familiale française'), 'Maghrébine');
+  assert.strictEqual(L.origineCourte('Marocaine'), 'Maghrébine');
   assert.strictEqual(L.origineCourte('Américaine déduite du cheesecake, variante belge'), 'Américaine');
 });
 
@@ -90,9 +95,13 @@ test('difficulteCourte normalise les 4 formulations du jeu de donnees', () => {
   assert.strictEqual(L.difficulteCourte('Facile (mention explicite du site)'), 'Facile');
   assert.strictEqual(L.difficulteCourte('Facile, déduit du texte source'), 'Facile');
   assert.strictEqual(L.difficulteCourte('Technique / non indiquée explicitement'), 'Technique');
-  recettes.forEach((r) => {
-    assert.notStrictEqual(L.difficulteCourte(r.difficulte), 'Non indiquée', `non classee : ${r.difficulte}`);
-  });
+  // Une seule recette du carnet ne porte aucune difficulte : sa source est une page
+  // de livre photographiee, qui n'en donne pas. La liste est figee pour qu'une
+  // difficulte perdue ailleurs ressorte au lieu de passer pour normale.
+  const sansDifficulte = recettes
+    .filter((r) => L.difficulteCourte(r.difficulte) === 'Non indiquée')
+    .map((r) => r.id);
+  assert.deepStrictEqual(sansDifficulte, ['couscous-poulet-merguez']);
 });
 
 // --- Recherche et filtres ----------------------------------------------------
@@ -103,8 +112,8 @@ test('normaliser retire accents et apostrophes typographiques', () => {
 });
 
 test('sans critere, toutes les recettes ressortent', () => {
-  assert.strictEqual(L.filterRecipes(recettes, {}).length, 20);
-  assert.strictEqual(L.filterRecipes(recettes).length, 20);
+  assert.strictEqual(L.filterRecipes(recettes, {}).length, 21);
+  assert.strictEqual(L.filterRecipes(recettes).length, 21);
 });
 
 test('la recherche porte aussi sur les ingredients et les etapes', () => {
@@ -125,7 +134,7 @@ test('la recherche sans resultat retourne un tableau vide', () => {
 
 test('le filtre categorie respecte le decompte reel', () => {
   assert.strictEqual(L.filterRecipes(recettes, { categorie: 'Dessert' }).length, 10);
-  assert.strictEqual(L.filterRecipes(recettes, { categorie: 'Plat' }).length, 4);
+  assert.strictEqual(L.filterRecipes(recettes, { categorie: 'Plat' }).length, 5);
   assert.strictEqual(L.filterRecipes(recettes, { categorie: 'Entrée' }).length, 6);
 });
 
@@ -148,7 +157,11 @@ test('le filtre temps exclut les recettes sans duree exploitable', () => {
     0
   );
   const sansDuree = recettes.filter((r) => L.parseMinutes(r.temps.total) === null).length;
-  assert.strictEqual(toutesTranches + sansDuree, 20, 'des recettes sont perdues ou comptees deux fois');
+  assert.strictEqual(
+    toutesTranches + sansDuree,
+    recettes.length,
+    'des recettes sont perdues ou comptees deux fois'
+  );
 });
 
 test('optionsDisponibles ne propose que des valeurs presentes', () => {
@@ -195,6 +208,9 @@ const SANS_TABLEAU_FOURNI = [
   'gougeres-de-courgettes-et-comte',
   'mini-cakes-de-courgettes-au-fromage-et-tomates-confites',
   'focaccia-maison-moelleuse',
+  // Page de livre photographiee : elle ne porte aucun tableau, le deroule est
+  // reconstitue depuis les etapes.
+  'couscous-poulet-merguez',
 ];
 
 test('tout tableau de flux fourni a une largeur exploitable', () => {
@@ -328,7 +344,7 @@ test('analyser signale une quantite sans nombre', () => {
   });
 });
 
-test('les 198 quantites du carnet sont analysees sans lever', () => {
+test('les 209 quantites du carnet sont analysees sans lever', () => {
   let lisibles = 0;
   recettes.forEach((r) =>
     r.ingredients.forEach((g) =>
@@ -340,7 +356,7 @@ test('les 198 quantites du carnet sont analysees sans lever', () => {
     )
   );
   // Le reste est du texte libre (« Selon goût »), conserve tel quel.
-  assert.strictEqual(lisibles, 174, `${lisibles} quantites lisibles au lieu de 174`);
+  assert.strictEqual(lisibles, 184, `${lisibles} quantites lisibles au lieu de 184`);
 });
 
 // --- quantites.js : addition -------------------------------------------------
@@ -481,11 +497,11 @@ test('ecrirePortions est la reciproque', () => {
 
 // --- rayons.js ---------------------------------------------------------------
 
-test('les 126 ingredients du carnet sont tous classes', () => {
+test('les 133 ingredients du carnet sont tous classes', () => {
   const noms = [...new Set(recettes.flatMap((r) => r.ingredients.flatMap((g) => g.items.map((i) => i.nom))))];
   const nonClasses = noms.filter((n) => Ry.rayonDe(n) === Ry.RAYON_DEFAUT);
   assert.deepStrictEqual(nonClasses, [], `${nonClasses.length} ingredient(s) sans rayon`);
-  assert.strictEqual(noms.length, 126, `${noms.length} noms distincts au lieu de 126`);
+  assert.strictEqual(noms.length, 133, `${noms.length} noms distincts au lieu de 133`);
 });
 
 test('la ligature oe ne fait pas echouer le classement', () => {
@@ -568,10 +584,10 @@ test('la couverture globale reste au niveau mesure', () => {
     places += d.couverture.places;
     total += d.couverture.total;
   });
-  // 182/198 au moment de l ecriture. Le test protege contre une regression, pas
-  // contre une amelioration : on verifie un plancher.
-  assert.strictEqual(total, 198);
-  assert.ok(places >= 182, `couverture tombee a ${places}/198`);
+  // 193/209 au moment de l ecriture, soit 92 %. Le test protege contre une
+  // regression, pas contre une amelioration : on verifie un plancher.
+  assert.strictEqual(total, 209);
+  assert.ok(places >= 193, `couverture tombee a ${places}/209`);
 });
 
 test('un ingredient est place a la premiere etape qui le nomme', () => {
@@ -694,7 +710,7 @@ test('echelonnerCellule laisse une cellule sans quantite intacte', () => {
 
 // --- Integrite du jeu de donnees ---------------------------------------------
 
-test('les 20 recettes respectent le schema attendu', () => {
+test('les 21 recettes respectent le schema attendu', () => {
   const champs = [
     'id',
     'titre',
@@ -711,14 +727,24 @@ test('les 20 recettes respectent le schema attendu', () => {
     'manquants',
     'flowTable',
   ];
-  assert.strictEqual(recettes.length, 20);
+  assert.strictEqual(recettes.length, 21);
   const ids = new Set();
   recettes.forEach((r) => {
     champs.forEach((c) => assert.ok(c in r, `${r.id} : champ ${c} manquant`));
     assert.ok(!ids.has(r.id), `id en doublon : ${r.id}`);
     ids.add(r.id);
     assert.ok(['Entrée', 'Plat', 'Dessert'].includes(r.categorie), `${r.id} : categorie ${r.categorie}`);
-    assert.ok(/^https?:\/\//.test(r.source.url), `${r.id} : url source invalide`);
+    // La source est toujours nommee. L'adresse, elle, peut manquer : une page de
+    // livre photographiee n'a pas d'URL, et en inventer une serait pire que de ne
+    // rien mettre.
+    assert.ok(
+      typeof r.source.label === 'string' && r.source.label.length > 0,
+      `${r.id} : source sans intitule`
+    );
+    assert.ok(
+      r.source.url === null || /^https?:\/\//.test(r.source.url),
+      `${r.id} : url source invalide`
+    );
     ['preparation', 'cuisson', 'repos', 'total'].forEach((c) =>
       assert.ok(c in r.temps, `${r.id} : temps.${c} manquant`)
     );
@@ -1153,8 +1179,8 @@ test('le rappel d etape couvre la majorite des etapes du carnet', () => {
       if (L.ingredientsDeLEtape(recette, etape).length > 0) avecRappel += 1;
     });
   });
-  assert.strictEqual(total, 140, total + ' etapes au lieu de 140');
-  assert.ok(avecRappel >= 95, avecRappel + ' etapes sur ' + total + ' seulement portent un rappel');
+  assert.strictEqual(total, 145, total + ' etapes au lieu de 145');
+  assert.ok(avecRappel >= 105, avecRappel + ' etapes sur ' + total + ' seulement portent un rappel');
 });
 
 test('les cles de creneau se composent et se decoupent', () => {

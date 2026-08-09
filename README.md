@@ -1,6 +1,6 @@
 # Miam miam !
 
-Carnet de cuisine de la maison. Trois écrans : le **semainier** des repas de la semaine sur la page d'accueil, le **livre de cuisine** avec ses 20 recettes, et la **liste de courses commune**. Les trois sont partagés entre tous les appareils de la maison : ce que l'un pose, coche ou modifie, les autres le voient.
+Carnet de cuisine de la maison. Trois écrans : le **semainier** des repas de la semaine sur la page d'accueil, le **livre de cuisine** avec ses 21 recettes, et la **liste de courses commune**. Les trois sont partagés entre tous les appareils de la maison : ce que l'un pose, coche ou modifie, les autres le voient.
 
 En ligne : `https://guillaumez88.github.io/Cahier-de-recette/`
 
@@ -30,7 +30,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
     │   ├── photos.js            Photos : redimensionnement, deux tailles, cache
     │   ├── cuisson.js           Où l'on en est dans une recette, en local
     │   └── app.js               Rendu DOM et routage par ancre
-    ├── data/recipes.json        Les 20 recettes
+    ├── data/recipes.json        Les 21 recettes
     ├── favicon.svg
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
@@ -40,7 +40,7 @@ Aucune dépendance, aucune étape de construction, aucun framework : quatorze fi
         ├── test-web.js             88 vérifications navigateur, parcours général
         ├── test-partage.js         40 vérifications navigateur, partage et hors ligne
         ├── test-edition.js         69 vérifications navigateur, modification, parts, accordéon
-        ├── test-semainier.js      126 vérifications navigateur, semainier, photos, compteur
+        ├── test-semainier.js      129 vérifications navigateur, semainier, photos, compteur
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -76,7 +76,7 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 - **Déroulé des préparations** : le tableau fourni avec la recette quand il existe, reconstitué automatiquement sinon (voir plus bas).
 - **Liste de courses commune** (voir la section suivante) : partagée entre tous les appareils, rangée par rayon de magasin, avec addition des quantités d'un même ingrédient, sélection d'ingrédients à la carte, ajout d'articles libres, compteur dans l'en-tête et fonctionnement hors ligne.
 - **Modification des recettes** et **changement du nombre de parts** (voir plus bas).
-- **Navigation adaptée à l'écran.** Sur ordinateur, l'en-tête porte les liens « Le livre » et « Liste de courses », chacun avec son pictogramme, l'état actif visible, le compteur d'articles restants et le bouton de rafraîchissement. Sur téléphone, l'en-tête n'a plus de liens : une **barre d'onglets** en bas de l'écran (Semaine, Le livre, Courses) met les trois destinations sous le pouce, avec un retrait pour l'encoche du bas, et le rafraîchissement se fait en **tirant la page vers le bas**.
+- **Navigation adaptée à l'écran.** Sur ordinateur, l'en-tête porte les liens « Le livre » et « Liste de courses », chacun avec son pictogramme, l'état actif visible, le compteur d'articles restants et le bouton de rafraîchissement, qui affiche l'âge de la donnée en trois caractères (« 4min », « 3h », « 2j »). Sur téléphone, l'en-tête n'a plus de liens : une **barre d'onglets** en bas de l'écran (Semaine, Le livre, Courses) met les trois destinations sous le pouce, avec un retrait pour l'encoche du bas, et le rafraîchissement se fait en **tirant la page vers le bas**.
 - **Pictogrammes** en SVG écrit dans la page, dans `js/icones.js` : aucune police d'icônes ni CDN, donc rien à charger et rien qui casse en cuisine sans connexion. Ils se colorent par `currentColor` et suivent la palette sans code supplémentaire.
 - **Impression** (`@media print`) : la navigation, les filtres et les boutons disparaissent, le fond repasse en blanc, et les étapes comme les lignes du tableau ne sont pas coupées entre deux pages.
 
@@ -87,7 +87,8 @@ La page d'accueil répond à une seule question : qu'est-ce qu'on mange. Elle mo
 ### Comment on l'utilise
 
 - **Le bloc « Aujourd'hui » est la première chose de la page**, avec les trois repas du jour, un bouton « + » de 44 px par ligne pour en ajouter un et une croix par plat pour le retirer. Sur téléphone, cette information était auparavant sous un titre, un résumé, deux cartes d'accès, trois onglets, une phrase d'aide et un bandeau d'état : il fallait faire défiler pour savoir ce qu'on mange le soir. Un test vérifie que ce bloc tient dans la hauteur d'un écran de 390 × 850 px.
-- **La semaine commence le lundi** et finit le dimanche. Trois créneaux par jour : petit-déjeuner, déjeuner, dîner, nommés de la même façon dans la grille et dans le récapitulatif du jour. Le déjeuner et le dîner ont plus de hauteur que le petit-déjeuner, parce que ce sont les repas qu'on cuisine.
+- **La semaine commence le lundi** et finit le dimanche. Trois créneaux par jour : petit-déjeuner, déjeuner, dîner, nommés de la même façon dans la grille et dans le récapitulatif du jour.
+- **Le petit-déjeuner est masqué tant qu'il ne porte rien.** C'est le repas le moins souvent prévu, et sept cases vides en tête de grille repoussaient le déjeuner et le dîner, qui sont ce qu'on vient lire. Il reparaît dès qu'un petit-déjeuner est prévu, et en mode Modifier, où il faut bien pouvoir en poser un. La décision se prend pour toute la semaine et non jour par jour : chaque jour est une colonne, et masquer la case du lundi seul décalerait son déjeuner d'une ligne par rapport à celui du mardi. Le déjeuner et le dîner ont plus de hauteur que le petit-déjeuner, parce que ce sont les repas qu'on cuisine.
 - **Une semaine vide est repliée en un bandeau** d'une ligne, dépliable d'un clic. La semaine suivante est presque toujours entièrement vide et occupait la moitié de la hauteur de page pour vingt-et-une cases à remplir. La semaine en cours est toujours dépliée, et une semaine qui porte des plats ne se replie pas.
 - **Jamais de semaine passée** : un repas déjà mangé ne sert ni aux courses ni à la cuisine.
 - **L'accueil s'ouvre en lecture.** La grille montre le menu : pas de « + » dans les cases, pas de réserve de plats à glisser. Le bouton « Modifier », à côté de « Ajouter aux courses », fait apparaître les deux. Le « + » du bloc « Aujourd'hui » reste là en permanence : c'est le geste du jour même, celui qu'on fait le plus.
@@ -148,7 +149,7 @@ La fiche sert à deux choses qui n'ont ni la même posture ni le même besoin : 
 
 **Cuisiner.** Une étape à la fois, en 19 px, lisible à 60 cm d'une tablette posée sur le plan de travail. L'astuce de l'étape est mise en évidence, une barre de progression dit où l'on en est, et deux boutons de 52 px de haut passent d'une étape à l'autre. **Les ingrédients de l'étape en cours sont rappelés** sous l'étape, avec leurs quantités : en cuisine, ce qu'on veut savoir est quoi sortir du placard maintenant. La liste complète reste à portée dans un repli, elle n'est jamais remplacée.
 
-Ce rappel est déduit du texte de l'étape, rien n'est saisi recette par recette : une association tenue à la main sur vingt fiches ne resterait pas juste. Sur les 140 étapes du carnet, 103 portent un rappel. Les deux limites sont connues et assumées : une étape qui dit « la préparation » ou « le mélange » ne cite aucun ingrédient et n'affiche donc rien, plutôt que de deviner ; et deux ingrédients partageant un mot (« Sucre » et « Sucre glace ») remontent tous les deux, parce qu'un ingrédient de trop sous les yeux vaut mieux qu'un manquant.
+Ce rappel est déduit du texte de l'étape, rien n'est saisi recette par recette : une association tenue à la main sur vingt fiches ne resterait pas juste. Sur les 145 étapes du carnet, 107 portent un rappel. Les deux limites sont connues et assumées : une étape qui dit « la préparation » ou « le mélange » ne cite aucun ingrédient et n'affiche donc rien, plutôt que de deviner ; et deux ingrédients partageant un mot (« Sucre » et « Sucre glace ») remontent tous les deux, parce qu'un ingrédient de trop sous les yeux vaut mieux qu'un manquant.
 
 **L'étape en cours est retenue**, ainsi que le mode choisi, par recette et **en local** (`js/cuisson.js`). On repose l'appareil, on y revient, on retrouve où on en était. Volontairement non partagé : deux personnes qui cuisinent le même plat sur deux appareils ne doivent pas se pousser mutuellement d'une étape à l'autre, et cela évite une écriture Firestore à chaque « Suivante ». Ce module existe aussi pour que `app.js` ne touche jamais au `localStorage`, ce qui est l'invariant du projet.
 
@@ -215,7 +216,7 @@ Une seule liste, partagée par tous ceux qui ouvrent le site. Ce que l'un ajoute
 
 La liste est rangée dans l'ordre d'un parcours de magasin : Fruits et légumes, Viandes et poissons, Crèmerie, Boulangerie, Surgelés, Épices et herbes, Épicerie salée, Épicerie sucrée, Boissons. On ne revient donc pas trois fois au même rayon.
 
-Le classement se fait par mots-clés dans `js/rayons.js`, et les 126 ingrédients du carnet sont tous classés, ce qu'un test vérifie. Trois traitements évitent des erreurs constatées sur les données réelles : la ligature `œ` est convertie en `oe` (sans quoi « Œufs » n'était pas reconnu, et « Bœuf haché » partait en crèmerie), ce qui suit « pour » est ignoré car c'est un usage et non un produit (« Farine pour beurre manié » est de la farine), et les parenthèses de la source sont retirées. Un ingrédient inclassable tomberait dans « Autre », ce qui est un signal à traiter, pas un résultat normal.
+Le classement se fait par mots-clés dans `js/rayons.js`, et les 133 ingrédients du carnet sont tous classés, ce qu'un test vérifie. Trois traitements évitent des erreurs constatées sur les données réelles : la ligature `œ` est convertie en `oe` (sans quoi « Œufs » n'était pas reconnu, et « Bœuf haché » partait en crèmerie), ce qui suit « pour » est ignoré car c'est un usage et non un produit (« Farine pour beurre manié » est de la farine), et les parenthèses de la source sont retirées. Un ingrédient inclassable tomberait dans « Autre », ce qui est un signal à traiter, pas un résultat normal.
 
 **Les quantités du même ingrédient s'additionnent** : 300 g de beurre venus d'une recette et 125 g d'une autre donnent une seule ligne « Beurre 425 g », avec le nom des recettes d'origine en regard. Les conversions se font dans une même famille (50 cl + 1 l = 1,5 l), jamais entre familles : « 3 c. à s. » et « 200 g » restent affichés côte à côte, et une cuillère à soupe n'est pas convertie en cuillère à café.
 
@@ -298,9 +299,11 @@ La mise à jour est donc désormais **explicite** :
 - un seul bouton de rafraîchissement, dans l'en-tête, qui relit la liste **et** les menus du même geste ; sur téléphone, tirer la page vers le bas fait la même chose ;
 - aucun sondage périodique, aucune relecture au retour sur l'onglet.
 
-En échange, **l'âge de ce qui est affiché est visible en permanence** : « Liste partagée, à jour il y a 3 minutes » dans le bandeau, et « il y a 3 min » sur le bouton de l'en-tête. Au-delà de deux minutes (`seuilDonneesAgees`), les deux changent de couleur. Un minuteur de 15 secondes réécrit ces seuls libellés, sans aucune lecture réseau : sans lui, l'âge affiché resterait figé à sa valeur du dernier rendu, ce qui serait pire que de ne rien afficher.
+En échange, **l'âge de ce qui est affiché est visible en permanence**, sur le bouton de l'en-tête, en trois caractères : « à jour », « 4min », « 3h », « 2j ». Au-delà de deux minutes (`seuilDonneesAgees`), le bouton change de couleur. Un minuteur de 15 secondes réécrit ce seul libellé, sans aucune lecture réseau : sans lui, l'âge affiché resterait figé à sa valeur du dernier rendu, ce qui serait pire que de ne rien afficher.
 
-Le bandeau distingue par ailleurs **trois causes d'échec**, qui n'appellent pas les mêmes actions :
+**Le bandeau d'état ne s'affiche plus quand tout va bien.** Il répétait sur une ligne pleine (« Menus partagés à la maison, à jour il y a 3 minutes ») une information que le bouton de l'en-tête porte déjà, et depuis n'importe quel écran. Il reste indispensable dans tous les autres cas, où il est seul à pouvoir dire quoi faire :
+
+Il distingue **trois causes d'échec**, qui n'appellent pas les mêmes actions :
 
 | Ce que dit le bandeau | Cause réelle | Ce qu'il faut faire |
 |---|---|---|
@@ -317,14 +320,14 @@ Confondre les trois était le vrai défaut de la version précédente : elle ann
 cd recipe-app
 node tests/run-tests.js           # 111 tests de la logique métier
 node tests/run-sync-tests.js      # 105 tests de la synchronisation
-node tests/run-browser-tests.js   # 323 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 326 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.
 
 `run-sync-tests.js` couvre la synchronisation de bout en bout : session anonyme et renouvellement de jeton, encodage des valeurs Firestore, écriture d'un document par article, mise à jour par masque de champs, propagation d'un appareil à l'autre, sélection partielle, articles libres, et tout le comportement hors ligne (cochage différé, file d'attente persistée, envoi dans l'ordre au retour du réseau, opération en échec conservée en tête de file). Ces tests **n'appellent jamais votre projet Firebase** : ils lancent l'émulation de `stub-firestore.js` sur un port local, qui sait aussi simuler une panne réseau à la demande.
 
-`test-web.js` couvre le parcours général dans Chromium : les 20 vignettes, la recherche, les filtres, la conservation du focus pendant la saisie, la résolution de la grille fusionnée du tableau de flux (5 colonnes, telle que le navigateur la calcule), l'identifiant inconnu, le mode impression et l'absence de débordement horizontal en 360 px.
+`test-web.js` couvre le parcours général dans Chromium : les 21 vignettes, la recherche, les filtres, la conservation du focus pendant la saisie, la résolution de la grille fusionnée du tableau de flux (5 colonnes, telle que le navigateur la calcule), l'identifiant inconnu, le mode impression et l'absence de débordement horizontal en 360 px.
 
 `test-semainier.js` couvre le semainier, les photos et la création de recettes, également sur **deux contextes isolés** : poser un plat du livre et un repas hors carnet, remplacer, vider, glisser d'une case à l'autre, échanger deux plats occupés, glisser depuis la réserve, la validation plat par plat avant ajout aux courses (dont le plat déjà en liste décoché et le repas hors carnet non ajoutable), l'envoi d'une photo réduite en deux tailles dans les bornes des règles Firestore, la création refusée sans titre, la suppression d'une recette ajoutée, un repas posé hors ligne, et l'absence de débordement horizontal en 360 px.
 
@@ -346,7 +349,7 @@ La fiche affiche un tableau qui montre à quelle étape chaque ingrédient entre
 
 ### Ce que la reconstitution sait faire, et ce qu'elle ne sait pas
 
-Mesuré sur les 20 recettes : **182 ingrédients sur 198 sont rattachés à une étape, soit 92 %**, et 11 recettes le sont entièrement. Un test protège ce plancher.
+Mesuré sur les 21 recettes : **193 ingrédients sur 209 sont rattachés à une étape, soit 92 %**, et 12 recettes le sont entièrement. Un test protège ce plancher.
 
 Les 11 restants ne sont pas des défauts réparables, mais des cas où l'instruction désigne une catégorie plutôt qu'un produit :
 
@@ -385,7 +388,7 @@ Le formulaire porte un réglage du nombre de parts, avec deux boutons et un cham
 
 Un rapport affiche le facteur appliqué, la liste des quantités ajustées dans les instructions, et ce qui a été laissé inchangé faute de quantité chiffrée (« Sel, poivre : Selon le goût »). Rien n'est enregistré avant d'avoir cliqué sur « Enregistrer ».
 
-**Le point délicat, traité explicitement : les durées et les températures ne sont jamais multipliées.** Doubler une recette ne double ni le temps de cuisson ni la température du four. Sur les 75 occurrences numériques des instructions des 20 recettes, 69 sont des durées (minutes, heures), des températures (°C) ou des dimensions (cm, mm), et 6 seulement sont des quantités : un facteur appliqué naïvement transformerait « 45 minutes » en « 90 minutes » et « 165 °C » en « 330 °C ». La mise à l'échelle travaille donc sur **liste blanche d'unités** (masses, volumes, cuillerées, gousses, pincées, sachets, tranches) et ne touche jamais un nombre nu, qui serait ambigu (« thermostat 6 »). Un test vérifie, sur les 20 recettes et pour chaque étape, qu'aucune durée ni température ne bouge après un changement de parts.
+**Le point délicat, traité explicitement : les durées et les températures ne sont jamais multipliées.** Doubler une recette ne double ni le temps de cuisson ni la température du four. Sur les 75 occurrences numériques des instructions des 20 premières recettes, 69 sont des durées (minutes, heures), des températures (°C) ou des dimensions (cm, mm), et 6 seulement sont des quantités : un facteur appliqué naïvement transformerait « 45 minutes » en « 90 minutes » et « 165 °C » en « 330 °C ». La mise à l'échelle travaille donc sur **liste blanche d'unités** (masses, volumes, cuillerées, gousses, pincées, sachets, tranches) et ne touche jamais un nombre nu, qui serait ambigu (« thermostat 6 »). Un test vérifie, sur les 21 recettes et pour chaque étape, qu'aucune durée ni température ne bouge après un changement de parts.
 
 Si le nombre de parts ne commence pas par un nombre, le recalcul automatique est désactivé et le formulaire le dit, plutôt que de deviner.
 
@@ -414,7 +417,7 @@ Si le nombre de parts ne commence pas par un nombre, le recalcul automatique est
 }
 ```
 
-`origine` et `difficulte` sont du texte libre : les filtres travaillent sur des étiquettes courtes dérivées par mots-clés (`origineCourte`, `difficulteCourte` dans `js/logic.js`), le texte intégral restant affiché sur la fiche. Les 20 recettes sont toutes classées ; une source formulée autrement retomberait sur « Autre », et un test le signalerait.
+`origine` et `difficulte` sont du texte libre : les filtres travaillent sur des étiquettes courtes dérivées par mots-clés (`origineCourte`, `difficulteCourte` dans `js/logic.js`), le texte intégral restant affiché sur la fiche. Les 21 recettes sont toutes classées ; une source formulée autrement retomberait sur « Autre », et un test le signalerait. La règle « Maghrébine » passe avant « Française » : l'ordre des règles est significatif, sans quoi « Maghrébine, version familiale française » ressortait « Française ».
 
 Pour ajouter une recette : modifier `data/recipes.json`, puis `node tests/run-tests.js`, qui contrôle le schéma, l'unicité des identifiants et la validité des URL de source.
 
@@ -430,15 +433,33 @@ Deux règles sont tenues par le code, pas par la vigilance de l'opérateur :
 
 Les 17 recettes antérieures n'ont **pas** été réécrites depuis la dernière extraction : celle-ci est en recul mesuré sur les recettes déjà présentes (de −29 % à −80 % de texte d'instructions, et par exemple 17 ingrédients ramenés à 12). Seules les 3 recettes absentes du carnet ont été ajoutées. Les trois sites sources sont inaccessibles depuis l'environnement de développement, les unités perdues n'ont donc pas pu être recoupées : elles sont à corriger dans l'éditeur de l'application.
 
+## La recette venue d'une page de livre
+
+`couscous-poulet-merguez` a été saisie le 9 août 2026 depuis une page de livre de cuisine photographiée. C'est la première recette du carnet **sans source en ligne** : son champ `source.url` vaut `null`, et la fiche affiche alors le nom de la source seul, plutôt qu'un lien mort. Un test vérifie que le nom est toujours présent et que l'adresse est soit absente, soit une vraie URL.
+
+La page se contredit ou se tait sur sept points. **Aucun n'a été comblé** : ils sont écrits dans le champ `manquants`, que la fiche affiche sous « Ce que la source ne donne pas ».
+
+| Ce que dit la page | Ce qui manque ou se contredit |
+|---|---|
+| Étape 4 : « ajoutez les pois chiches » | Les pois chiches ne figurent pas dans la liste des ingrédients, aucune quantité |
+| Étape 5 : « placez la graine de couscous » | La semoule ne figure pas dans la liste des ingrédients, aucune quantité |
+| Liste : 4 c. à c. de cumin — Étape 2 : 1 c. à s. de cumin | Deux valeurs différentes, la page ne dit pas laquelle retenir ; les deux sont conservées telles quelles |
+| Étape 2 : « salez et poivrez » | Ni sel ni poivre dans la liste des ingrédients |
+| Liste : « 1 blette » — Étape 4 : « les feuilles de blette » | Une feuille ou une botte, la page ne le précise pas |
+| Étape 3 : 20 min — Étape 4 : 1 heure | Aucun temps de préparation ni de repos ; la cuisson affichée, 1 h 20 min, est la somme de ces deux durées seules et exclut le rissolage des étapes 1 et 2, qui n'est pas chronométré |
+| Rien | Aucune difficulté, aucune valeur calorique, aucun éditeur ni auteur |
+
+Deux règles de classement ont dû être ajoutées pour cette recette : `merguez` va en « Viandes et poissons » et `blette` en « Fruits et légumes ». Sans elles, elles tombaient dans « Autre », ce qui est un signal à traiter et non un résultat normal.
+
 ## Trois constats sur les données, non corrigés volontairement
 
 Ces écarts viennent des sources. Ils sont signalés plutôt que masqués, et le code les tolère.
 
-1. **Un seul tableau de flux sur 20 porte une information.** Seul `lasagnes-bolognaise` a un tableau construit à la main (5 colonnes, cellules fusionnées, 15 lignes d'ingrédients). Les 16 tableaux fournis par les extractions précédentes ne contiennent que des marqueurs répétés à l'identique (« ✓ », « Selon étapes », « Si concerné ») et ne sont donc pas affichés ; les 3 recettes de la dernière extraction n'en embarquent plus du tout, pour la même raison. C'est sans conséquence à l'affichage : l'application reconstitue le déroulé depuis les étapes (voir plus haut), ce qui est plus juste qu'un tableau de marqueurs.
+1. **Un seul tableau de flux sur 21 porte une information.** Seul `lasagnes-bolognaise` a un tableau construit à la main (5 colonnes, cellules fusionnées, 15 lignes d'ingrédients). Les 16 tableaux fournis par les extractions précédentes ne contiennent que des marqueurs répétés à l'identique (« ✓ », « Selon étapes », « Si concerné ») et ne sont donc pas affichés ; les 3 recettes de la dernière extraction et le couscous n'en embarquent plus du tout, pour la même raison. C'est sans conséquence à l'affichage : l'application reconstitue le déroulé depuis les étapes (voir plus haut), ce qui est plus juste qu'un tableau de marqueurs.
 
 2. **Un numéro d'étape n'est pas un entier.** Dans `lasagnes-bolognaise`, la 6ᵉ étape porte `"numero": "Pour finir"`, libellé repris du site source. Le schéma annonce un entier. La donnée n'a pas été réécrite : le libellé est affiché tel quel, et un test échouera si une nouvelle recette introduit une autre forme.
 
-3. **Vingt quantités sur 198 n'ont pas d'unité (7, 7 et 6 pour les trois recettes de la dernière extraction), et une recette n'a pas de nombre de parts.** L'unité manque à la source telle qu'elle a été extraite, et n'a pas été devinée. Chaque recette concernée le déclare dans son champ `manquants`, affiché sur la fiche. Conséquence assumée : pour `gougeres-de-courgettes-et-comte`, faute de nombre de parts exploitable (« Non indiqué »), le recalcul automatique des quantités est désactivé.
+3. **Vingt quantités sur 209 n'ont pas d'unité (7, 7 et 6 pour les trois recettes de la dernière extraction), et une recette n'a pas de nombre de parts.** L'unité manque à la source telle qu'elle a été extraite, et n'a pas été devinée. Chaque recette concernée le déclare dans son champ `manquants`, affiché sur la fiche. Conséquence assumée : pour `gougeres-de-courgettes-et-comte`, faute de nombre de parts exploitable (« Non indiqué »), le recalcul automatique des quantités est désactivé.
 
 Un quatrième écart, mineur : pour `lasagnes-bolognaise`, le tableau de flux détaille 15 lignes d'ingrédients contre 14 dans la liste `ingredients`, parce qu'il isole « sel, poivre » pour la béchamel.
 

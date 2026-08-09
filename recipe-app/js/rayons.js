@@ -98,10 +98,10 @@
     [/pain\b|baguette|brioche|pate brisee|pate feuilletee|pate sablee|biscuit|speculoos|boudoir|genoise/, 'Boulangerie'],
 
     // --- Viandes et poissons ---
-    [/boeuf|veau|porc|agneau|poulet|dinde|lardon|jambon|saucisse|chair a saucisse|steak|viande|saumon|cabillaud|thon|crevette|poisson|anchois/, 'Viandes et poissons'],
+    [/boeuf|veau|porc|agneau|poulet|dinde|lardon|jambon|saucisse|chair a saucisse|merguez|steak|viande|saumon|cabillaud|thon|crevette|poisson|anchois/, 'Viandes et poissons'],
 
     // --- Fruits et légumes ---
-    [/abricot|pomme\b|poire|fraise|framboise|banane|citron|orange|ail\b|oignon|echalote|aubergine|courgette|carotte|tomate|poivron|champignon|salade|epinard|persil|basilic|aneth|ciboulette|coriandre|menthe|pomme de terre|patate|brocoli|chou|haricot|petits pois|concombre|radis|betterave|celeri|poireau|navet|fenouil|potiron|courge/, 'Fruits et légumes'],
+    [/abricot|pomme\b|poire|fraise|framboise|banane|citron|orange|ail\b|oignon|echalote|aubergine|courgette|carotte|tomate|poivron|champignon|salade|epinard|persil|basilic|aneth|ciboulette|coriandre|menthe|pomme de terre|patate|brocoli|chou|haricot|petits pois|concombre|radis|betterave|celeri|poireau|navet|fenouil|potiron|courge|blette|bette\b/, 'Fruits et légumes'],
 
     // --- Épices et herbes séchées ---
     [/sel\b|poivre|piment|paprika|curry|cumin|curcuma|cannelle|gingembre|quatre-epices|epice|origan|thym|romarin|sarriette|sauge|marjolaine|estragon|laurier|herbes aromatiques|safran|noix de muscade|graine/, 'Épices et herbes'],

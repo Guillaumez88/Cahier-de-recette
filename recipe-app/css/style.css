@@ -770,17 +770,6 @@ h4,
   color: var(--terracotta);
 }
 
-/* --- Pied ------------------------------------------------------------------ */
-
-.pied {
-  margin-top: 40px;
-  padding: 22px 0;
-  border-top: 1px solid var(--bordure);
-  font-family: system-ui, sans-serif;
-  font-size: 13px;
-  color: var(--texte-faible);
-}
-
 /* --- Petits écrans -------------------------------------------------------- */
 
 @media (max-width: 640px) {
@@ -814,7 +803,6 @@ h4,
   }
 
   .entete,
-  .pied,
   .actions-fiche,
   .retour,
   .filtres,
@@ -3178,8 +3166,9 @@ a.creneau__plat:hover .creneau__titre {
     font-weight: 700;
   }
 
-  /* La barre d'onglets recouvre le bas de la page : on rend sa hauteur au contenu. */
-  .pied {
+  /* La barre d'onglets recouvre le bas de la page : on rend sa hauteur au contenu.
+     Le pied de page portait ce retrait, il n'existe plus. */
+  main {
     padding-bottom: 72px;
   }
 }

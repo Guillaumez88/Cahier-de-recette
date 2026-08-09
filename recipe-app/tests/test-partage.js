@@ -186,15 +186,19 @@ async function attendreTexte(page, motif, limite = 8000) {
     (await pageA.locator('#rafraichir.bouton-rafraichir--vieux').count()) === 1,
     await pageA.locator('#rafraichir').getAttribute('class')
   );
+  // Forme courte, a cote des liens : « à jour », « 4min », « 3h », « 2j ». La forme
+  // longue occupait la largeur d'un troisieme lien dans la barre.
   verifier(
-    'le bouton d en-tete porte l age de la donnee',
-    /il y a|à l’instant/.test(await pageA.locator('.bouton-rafraichir__age').textContent()),
+    'le bouton d en-tete porte l age sous forme courte',
+    /^(à jour|\d+(min|h|j))$/.test((await pageA.locator('.bouton-rafraichir__age').textContent()).trim()),
     await pageA.locator('.bouton-rafraichir__age').textContent()
   );
+  // Le bandeau d'etat ne subsiste que s'il a quelque chose a dire : ici la donnee a
+  // vieilli mais tout fonctionne, c'est le bouton d'en-tete qui le signale.
   verifier(
-    'le bandeau passe en etat vieillissant',
-    (await pageA.locator('.sync--age').count()) === 1,
-    await pageA.locator('.sync').first().getAttribute('class')
+    'aucun bandeau d etat quand tout fonctionne',
+    (await pageA.locator('.sync').count()) === 0,
+    String(await pageA.locator('.sync').count())
   );
 
   // --- 5. Bouton de rafraichissement manuel ----------------------------------
@@ -208,9 +212,10 @@ async function attendreTexte(page, motif, limite = 8000) {
     (await texteDe(pageA)).slice(0, 300)
   );
   verifier(
-    'le bandeau repasse a jour apres rafraichissement',
-    (await pageA.locator('.sync--ok').count()) === 1,
-    await pageA.locator('.sync').first().getAttribute('class')
+    'le bouton d en-tete repasse a jour apres rafraichissement',
+    (await pageA.locator('#rafraichir.bouton-rafraichir--vieux').count()) === 0 &&
+      (await pageA.locator('.bouton-rafraichir__age').textContent()).trim() === 'à jour',
+    await pageA.locator('.bouton-rafraichir__age').textContent()
   );
 
   // --- 6. Hors ligne ---------------------------------------------------------

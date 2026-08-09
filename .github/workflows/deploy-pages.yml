@@ -51,7 +51,7 @@ jobs:
           for f in index.html favicon.svg css/style.css js/logic.js js/quantites.js js/rayons.js js/flux.js js/semaine.js js/icones.js js/sync.js js/recettes.js js/storage.js js/semainier.js js/photos.js js/cuisson.js js/firebase-config.js js/app.js data/recipes.json; do
             test -f "$f" || { echo "manquant : $f"; exit 1; }
           done
-          node -e "const r=require('./data/recipes.json'); if(r.length!==20) throw new Error(r.length+' recettes au lieu de 20'); console.log(r.length+' recettes')"
+          node -e "const r=require('./data/recipes.json'); if(r.length!==21) throw new Error(r.length+' recettes au lieu de 21'); console.log(r.length+' recettes')"
           # L'ordre de chargement dans index.html est significatif : chaque module
           # consomme les precedents. Un script oublie dans la page passerait les tests
           # Node, qui chargent les modules directement, et casserait le site.

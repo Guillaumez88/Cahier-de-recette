@@ -70,14 +70,14 @@ function verifier(nom, condition, detail = '') {
   await page.waitForTimeout(400);
   let corps = await texte();
   verifier('le livre s ouvre', page.url().includes('#/livre'), page.url());
-  verifier('20 recettes annoncees', /20 recettes rassemblées/.test(corps), corps.slice(0, 150));
+  verifier('21 recettes annoncees', /21 recettes rassemblées/.test(corps), corps.slice(0, 150));
   // Lu sur l'element plutot que dans tout le texte de la page : « 17 recettes »
   // apparait aussi dans l'accroche, l'assertion ne prouverait rien.
   const compteur = () => page.locator('.barre-resultats span').first().textContent();
-  verifier('le decompte des resultats est affiche', (await compteur()).trim() === '20 recettes', await compteur());
+  verifier('le decompte des resultats est affiche', (await compteur()).trim() === '21 recettes', await compteur());
 
   const nbCartes = await page.locator('.carte').count();
-  verifier('20 vignettes rendues', nbCartes === 20, `${nbCartes} trouvees`);
+  verifier('21 vignettes rendues', nbCartes === 21, `${nbCartes} trouvees`);
 
   // Recherche
   const champ = page.locator('.champ-recherche');
@@ -113,7 +113,7 @@ function verifier(nom, condition, detail = '') {
 
   await page.locator('.barre-resultats').getByText('Tout effacer', { exact: true }).click();
   await page.waitForTimeout(300);
-  verifier('« Tout effacer » remet les 20 recettes', (await page.locator('.carte').count()) === 20);
+  verifier('« Tout effacer » remet les 21 recettes', (await page.locator('.carte').count()) === 21);
 
   // Fiche : les lasagnes, seule recette au tableau de flux informatif
   await page.locator('.carte', { hasText: 'Lasagnes bolognaise' }).first().click();
@@ -409,14 +409,14 @@ function verifier(nom, condition, detail = '') {
       entete: cache('.entete'),
       actions: cache('.actions-fiche'),
       retour: cache('.retour'),
-      pied: cache('.pied'),
+      pied: document.querySelector('.pied'),
       sectionVisible: getComputedStyle(document.querySelector('.section')).display !== 'none',
     };
   });
   verifier('l impression masque l en-tete', impression.entete === true, JSON.stringify(impression));
   verifier('l impression masque les boutons d action', impression.actions === true, JSON.stringify(impression));
   verifier('l impression masque le lien de retour', impression.retour === true, JSON.stringify(impression));
-  verifier('l impression masque le pied de page', impression.pied === true, JSON.stringify(impression));
+  verifier('le pied de page n existe plus', impression.pied === null, JSON.stringify(impression));
   verifier('l impression garde le contenu de la fiche', impression.sectionVisible === true, JSON.stringify(impression));
   await page.emulateMedia({ media: 'screen' });
 
