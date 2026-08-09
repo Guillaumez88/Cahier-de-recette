@@ -9,9 +9,12 @@
    servir éternellement une vieille version, sans que personne comprenne pourquoi
    l'application ne change plus. Trois règles l'évitent ici :
 
-   1. **Le nom du cache porte une version.** Changer VERSION rend tout l'ancien cache
-      obsolète d'un coup, et `activate` le supprime. Cette constante doit être
-      incrémentée à chaque déploiement qui touche un fichier de COQUILLE.
+   1. **La coquille est servie depuis le cache, puis mise à jour en arrière-plan.**
+      Un fichier modifié est donc bien récupéré, et s'affiche au chargement suivant :
+      une version périmée ne survit jamais plus d'une ouverture. Incrémenter VERSION
+      n'est pas obligatoire à chaque déploiement ; c'est le moyen de forcer une purge
+      immédiate quand on ne veut pas de ce décalage d'un chargement, ou quand la liste
+      COQUILLE elle-même change (un fichier retiré resterait sinon en cache).
 
    2. **Le réseau gagne pour les données.** `data/recipes.json` est relu depuis le
       réseau quand il répond, et le cache ne sert que de secours. Une recette
