@@ -4,7 +4,170 @@ Carnet de cuisine de la maison. Trois écrans : le **semainier** des repas de la
 
 En ligne : `https://guillaumez88.github.io/Cahier-de-recette/`
 
-Aucune dépendance, aucune étape de construction, aucun framework : quatorze fichiers JavaScript, une feuille de style, un fichier de données. Le partage passe par Firestore, appelé directement par son API REST en `fetch`, sans le SDK Firebase.
+Aucune dépendance, aucune étape de construction, aucun framework : dix-sept fichiers JavaScript, une feuille de style, un fichier de données. Le partage passe par Firestore, appelé directement par son API REST en `fetch`, sans le SDK Firebase.
+
+---
+
+# Reprendre ce projet
+
+Cette section s'adresse à qui reprend le code, humain ou modèle. Le reste du fichier
+est la référence détaillée, écran par écran ; ici se trouve seulement ce qu'il faut
+savoir avant de toucher à quoi que ce soit.
+
+## En cinq minutes
+
+```bash
+cd recipe-app
+python3 -m http.server 8000        # puis http://localhost:8000
+node tests/run-tests.js            # 128 tests de logique, sans navigateur
+node tests/run-sync-tests.js       # 115 tests de synchronisation, contre une émulation locale
+```
+
+Il n'y a **rien à installer**. Pas de `npm install`, pas de `package.json`, pas d'étape
+de construction. Le dossier `recipe-app/` est le site tel qu'il est publié.
+
+Les tests navigateur demandent Playwright, qui n'est volontairement pas une dépendance
+du projet (voir « Tests »).
+
+## Les dix invariants
+
+Ce sont les règles que le code tient partout. Les rompre casse le projet d'une façon
+qui ne se voit pas tout de suite.
+
+1. **Aucune dépendance, aucune étape de construction.** Pas de CDN, pas de police
+   distante, pas de bundler. C'est ce qui fait que le carnet s'ouvre en cuisine avec
+   un réseau incertain, et qu'il fonctionnera encore dans cinq ans sans rien réinstaller.
+2. **Chaque module s'exporte deux fois** : `window.CarnetX` dans le navigateur,
+   `module.exports` sous Node. Sans cela il n'est pas testable.
+3. **L'ordre des `<script>` de `index.html` est significatif** : chaque module consomme
+   les précédents. Le workflow de publication compare cet ordre à une liste ; un module
+   ajouté et oublié dans la page passerait les tests Node et casserait le site.
+4. **`app.js` ne touche jamais au réseau ni au stockage.** Il passe par `storage.js`,
+   `semainier.js`, `placard.js`, `recettes.js`, `photos.js`, `cuisson.js`. C'est ce qui
+   permettra de changer de stockage sans toucher au rendu.
+5. **Le cache local est la source du rendu**, jamais le réseau. Les lectures sont
+   synchrones, l'affichage n'attend rien, et le carnet reste consultable hors ligne.
+6. **Une modification s'applique en local puis part**, via une file d'attente persistée.
+   Cocher un article hors ligne fonctionne et repart au retour du réseau.
+7. **Une écriture qui échoue n'est jamais annoncée comme réussie.** Voir le piège n° 2.
+8. **Rien n'est inventé.** Une donnée absente de la source est écrite dans le champ
+   `manquants` de la recette et affichée sous « Ce que la source ne donne pas ». Aucune
+   quantité, aucune durée, aucune catégorie n'est devinée pour combler un trou.
+9. **Aucun sondage périodique.** Une lecture au chargement, puis un bouton. Voir
+   « Pourquoi il n'y a plus de rafraîchissement automatique » : le sondage a épuisé le
+   palier gratuit de Firestore en deux heures.
+10. **Tout chiffre écrit ici est mesuré**, jamais estimé. Les planchers des tests sont
+    remesurés quand les données changent, pas décalés.
+
+## Où se trouve quoi
+
+| Je veux… | Fichier |
+|---|---|
+| Changer un écran, le routage, une boîte modale | `js/app.js` (4 400 lignes, voir le piège n° 6) |
+| L'écran « En magasin » | `js/vue-magasin.js` |
+| Filtres, recherche, durées, rappel d'ingrédients de l'étape | `js/logic.js` |
+| Lire, additionner, mettre à l'échelle une quantité | `js/quantites.js` |
+| Classer un ingrédient par rayon de magasin | `js/rayons.js` |
+| Le déroulé reconstitué depuis les étapes | `js/flux.js` |
+| Dates, semaines, clés de créneau | `js/semaine.js` |
+| Pictogrammes SVG | `js/icones.js` |
+| Tous les appels Firestore et l'authentification | `js/sync.js` |
+| Une collection partagée (liste, menus, placard) | `js/storage.js`, `js/semainier.js`, `js/placard.js` |
+| Recettes modifiées et ajoutées | `js/recettes.js` |
+| Photos, redimensionnement, cache IndexedDB | `js/photos.js` |
+| Import depuis un site | `js/import-recette.js` |
+| Couleurs, espacements, animations | `css/style.css` (bloc `:root` en tête) |
+| Le fonctionnement hors ligne | `sw.js` |
+
+## Recettes de modification courantes
+
+**Ajouter un module JavaScript.** Quatre endroits, tous vérifiés par un test ou par le
+workflow : le fichier lui-même, la balise `<script>` de `index.html` **à la bonne
+place**, la liste `attendus` du workflow `.github/workflows/deploy-pages.yml`, et la
+`COQUILLE` de `sw.js`. En oublier un casse soit la publication, soit le hors ligne.
+
+**Ajouter une collection Firestore.** Cinq endroits : `js/sync.js` (chemin, lecture,
+écriture, suppression), un module de collection sur le modèle de `js/placard.js`,
+`firestore.rules`, l'émulation `tests/stub-firestore.js`, et
+`tests/verifier-firebase.js`. **Et il faut republier les règles à la main**, sinon la
+fonctionnalité ne marche pas sans que rien ne le dise.
+
+**Ajouter une recette.** Éditer `data/recipes.json`, puis remesurer les planchers des
+tests : nombre de recettes, quantités lisibles, ingrédients distincts, étapes,
+couverture du déroulé. `node tests/run-tests.js` nomme chaque écart.
+
+**Ajouter un écran.** Le sortir de `app.js` dans son propre module, sur le modèle de
+`js/vue-magasin.js` : il reçoit ses outils de rendu en paramètre et rend un fragment,
+sans connaître le routage ni l'en-tête.
+
+## Les six pièges qui ont déjà coûté du temps
+
+Chacun s'est réellement produit sur ce projet.
+
+**1. Le sondage périodique épuise le quota Firestore.** La liste était relue toutes les
+5 secondes : 18 720 lectures par heure et par onglet, palier gratuit de 50 000 par jour,
+tout est tombé en `429` en deux heures. Le symptôme est trompeur, chaque appareil
+retombe sur sa copie locale et les copies divergent, ce qui ressemble à un défaut de
+partage. **Ne jamais rétablir de sondage.**
+
+**2. Une écriture peut échouer sans rejeter.** `recettes.js` applique en local puis tente
+l'envoi et range l'erreur dans son état plutôt que de rejeter. Une promesse tenue ne
+prouve donc rien. Tout appel à `Rc.creer`, `Rc.enregistrer`, `Rc.supprimer` ou
+`Rc.reinitialiser` doit passer par `erreurEcritureRecette()` avant d'annoncer un succès.
+Trois écrans l'avaient oublié et annonçaient des réussites qui disparaissaient au
+rafraîchissement suivant.
+
+**3. Une collection oubliée dans `firestore.rules` ne casse rien de visible.** Le
+placard reste simplement vide, ce qui passe pour un placard qu'on n'a pas rempli. Seul
+`node tests/verifier-firebase.js --reel` le prouve.
+
+**4. Les planchers chiffrés des tests se remesurent, ils ne se décalent pas.** Un test
+qui dit « 193 ingrédients sur 209 » protège une mesure. Le mettre à jour sans remesurer
+transforme un garde-fou en décoration.
+
+**5. Playwright annule un glisser-déposer s'il doit faire défiler la page pendant le
+geste**, sans lever la moindre erreur. Les tests amènent donc leur cible à l'écran
+avant de commencer, et la fenêtre de `test-semainier.js` fait 1 400 px de haut. Un
+échec de glissement est presque toujours un problème de géométrie de test, pas de code.
+
+**6. `app.js` fait 4 400 lignes**, contre 100 à 800 pour les autres modules. C'est le
+seul endroit qui ne suit pas la règle « un rôle par fichier ». Le découpage a commencé
+avec `vue-magasin.js` ; le poursuivre écran par écran, quand un écran change, plutôt
+qu'en une fois.
+
+## Ce que la couverture ne prouve pas
+
+À dire clairement, pour ne pas prendre les tests pour plus qu'ils ne sont.
+
+- **L'import depuis un site n'a jamais été joué contre un vrai site.** Les pages de test
+  sont écrites depuis la spécification schema.org : l'environnement de développement
+  n'a pas accès à internet. C'est le premier point à vérifier.
+- **Les tests navigateur n'appellent jamais le vrai Firebase.** Ils utilisent
+  l'émulation de `tests/stub-firestore.js`. Le comportement réel est couvert par
+  `tests/verifier-firebase.js --reel`, à jouer à la main, qui demande les identifiants.
+- **Le hors ligne n'est pas testé automatiquement.** Le service worker ne s'enregistre
+  qu'en `https` ou sur `localhost`, et aucun test ne coupe le réseau après installation.
+
+## Chiffres du projet, mesurés
+
+| | |
+|---|---|
+| Recettes | 21 |
+| Ingrédients | 209 occurrences, 133 noms distincts, tous classés par rayon |
+| Étapes | 145, dont 107 portent un rappel d'ingrédients |
+| Couverture du déroulé reconstitué | 193 / 209, soit 92 % |
+| Code | 17 modules, environ 10 200 lignes de JavaScript |
+| Poids transféré au chargement | 169 Ko compressés, 28 fichiers |
+| Tests | 128 + 115 sous Node, 367 vérifications navigateur, 18 contre le vrai Firebase |
+
+---
+
+# Référence
+
+Le détail, écran par écran et décision par décision. Les sections qui suivent
+expliquent **pourquoi** chaque chose est faite ainsi, et ce qui a été écarté :
+c'est ce qui évite de refaire un choix déjà tranché, ou de défaire une correction
+sans voir ce qu'elle protégeait.
 
 ## Structure
 
@@ -599,8 +762,18 @@ Un quatrième écart, mineur : pour `lasagnes-bolognaise`, le tableau de flux d�
 
 Une seconde version, en React Native / Expo (mobile plus export web), a existé dans `recipe-app-native/`. Elle a été retirée : cette version web statique est plus aboutie, et maintenir deux bases pour un carnet personnel coûtait plus qu'elle n'apportait. Le code reste consultable dans l'historique Git, jusqu'au commit précédant sa suppression.
 
-## Conventions
+## Conventions d'écriture
 
-- Interface et contenus en français, typographie française.
-- Palette « carnet de cuisine chaleureux » définie dans le bloc `:root` de `css/style.css`, source unique des couleurs.
-- `app.js` ne lit jamais le `localStorage` ni ne filtre lui-même : il passe par `logic.js` et `storage.js`. Cette séparation est ce qui rendra possible un changement de stockage sans toucher au rendu.
+- **Interface et contenus en français**, typographie française : espace insécable avant `: ; ! ?`, guillemets « », virgule décimale.
+- **Palette** définie dans le bloc `:root` de `css/style.css`, source unique des couleurs. Aucune couleur en dur ailleurs.
+- **Commentaires en français, sans accents dans le code JavaScript** (les fichiers sont en UTF-8, mais les commentaires historiques sont sans accents ; les chaînes affichées, elles, sont accentuées).
+- **Un commentaire dit pourquoi, pas quoi.** Le code dit déjà ce qu'il fait. Ce qui se perd, c'est la raison d'un choix et ce qui a été écarté.
+- **Les messages d'erreur nomment l'action à faire.** « Accès refusé par la base » est suivi de « republier `firestore.rules` », parce que la cause n'est pas devinable.
+- **Les identifiants et classes sont en français**, comme le reste : `creneau`, `placard`, `repas-carte`.
+
+## Comment travailler avec ce dépôt
+
+- **Mesurer avant d'affirmer.** Tous les chiffres de ce fichier viennent d'une exécution, pas d'une estimation. Un chiffre qu'on ne peut pas refaire ne doit pas y entrer.
+- **Ne pas combler un trou de donnée.** Le déclarer dans `manquants`, que la fiche affiche.
+- **Consigner les décisions.** `docs/DECISIONS-2026-08-04.md` porte ce qui a été tranché et contre quoi. Une décision revue s'y ajoute, datée, sans réécrire les précédentes.
+- **Jouer les trois suites avant de pousser.** Node d'abord, navigateur ensuite : les tests Node sont vingt fois plus rapides et attrapent l'essentiel.
