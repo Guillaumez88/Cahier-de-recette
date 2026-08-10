@@ -2,19 +2,15 @@
    Une seule liste, partagee par tous ceux qui ouvrent le site, stockee dans
    Firestore et recopiee en local a chaque chargement.
 
-   Trois principes gouvernent ce fichier :
+   Le cache local, la file d'attente et l'etat de synchronisation sont tenus par
+   collection.js, partage avec le semainier et le placard. Ce fichier ne porte que
+   ce qui est propre a la liste :
 
-   1. Le cache local est la source du rendu. getShoppingList() reste synchrone et lit
-      le localStorage : l'affichage n'attend jamais le reseau, et la liste est
-      consultable en magasin meme sans connexion.
-
-   2. Les modifications sont appliquees d'abord en local, puis poussees. Chacune est
-      inscrite dans une file d'attente persistee : si le reseau manque, cocher un
-      article fonctionne quand meme, et la file est videe au retour du reseau. Sans
-      cette file, cocher hors ligne serait perdu au rafraichissement suivant.
-
-   3. Firestore est la reference. Un rafraichissement vide d'abord la file, puis
-      remplace le cache par ce que dit le serveur.
+   - la forme d'un article et sa cle ;
+   - le rangement par rayon de magasin, dans l'ordre du parcours ;
+   - l'addition des quantites d'un meme ingredient venu de plusieurs recettes ;
+   - le regroupement visuel des lignes proches, sans fusion ;
+   - les mutations : ajouter, cocher, retirer.
 
    Expose window.CarnetStorage dans le navigateur, module.exports sous Node. */
 
@@ -25,6 +21,7 @@
   var Sync = estNode ? require('./sync.js') : global.CarnetSync;
   var Rayons = estNode ? require('./rayons.js') : global.CarnetRayons;
   var Quantites = estNode ? require('./quantites.js') : global.CarnetQuantites;
+  var Collection = estNode ? require('./collection.js') : global.CarnetCollection;
 
   var CLE_CACHE = 'carnet-de-recettes:liste-commune';
   var CLE_FILE = 'carnet-de-recettes:file-attente';
@@ -32,178 +29,26 @@
   var RECETTE_LIBRE = '__libre__';
   var TITRE_LIBRE = 'Ajouts libres';
 
-  var abonnes = [];
-  var dejaCharge = false;
-
-  var etat = {
-    enLigne: null, // null tant qu'aucun echange n'a eu lieu
-    dernierSucces: null, // horodatage du dernier rafraichissement reussi
-    erreur: null, // message de la derniere erreur
-    statut: null, // statut HTTP de la derniere erreur, pour la distinguer a l'ecran
-    enCours: false,
-
-    // Compteur incremente a chaque modification locale. Sert a detecter qu'une
-    // modification est survenue pendant qu'une lecture etait en vol : la reponse
-    // decrit alors un etat anterieur, il ne faut pas en ecraser le cache.
-    versionLocale: 0,
-  };
-
-  // --- Abonnement -------------------------------------------------------------
-
-  function surChangement(rappel) {
-    abonnes.push(rappel);
-  }
-
-  function notifier() {
-    abonnes.forEach(function (rappel) {
-      try {
-        rappel();
-      } catch (erreur) {
-        /* un abonne fautif ne doit pas bloquer les autres */
-      }
-    });
-  }
-
-  // --- Cache local ------------------------------------------------------------
-
-  // Analyse memorisee, validee sur la chaine brute.
+  // --- Collection synchronisee -------------------------------------------------
   //
-  // Un rendu d'accueil appelle quatre fois la lecture du cache, et chaque appel
-  // reanalysait tout le JSON : 56 Ko et 5 ms pour quatre mois d'historique, et cela
-  // grossit avec lui. Relire la chaine reste bon marche, c'est l'analyse qui coute.
-  //
-  // La validation porte sur la chaine et non sur un drapeau interne : une ecriture
-  // faite en dehors du module (un test, un autre onglet) reste donc detectee, ce
-  // qu'un simple drapeau invalide manquerait.
-  var memo = {};
+  // Le cache local, la file d'attente et l'etat de synchronisation sont tenus par
+  // collection.js, partage avec le semainier et le placard. Ce fichier ne garde que
+  // ce qui est propre a la liste : la forme d'un article, le rangement par rayon,
+  // l'addition des quantites et les mutations.
 
-  function lireJson(cle, defaut) {
-    try {
-      var brut = global.localStorage && global.localStorage.getItem(cle);
-      if (!brut) return defaut;
-      var connu = memo[cle];
-      if (connu && connu.brut === brut) return connu.valeur;
-      var valeur = JSON.parse(brut);
-      if (!Array.isArray(valeur)) return defaut;
-      memo[cle] = { brut: brut, valeur: valeur };
-      return valeur;
-    } catch (erreur) {
-      return defaut;
-    }
-  }
-
-  function ecrireJson(cle, valeur) {
-    try {
-      if (global.localStorage) global.localStorage.setItem(cle, JSON.stringify(valeur));
-    } catch (erreur) {
-      /* quota atteint ou navigation privee : la valeur reste en memoire */
-    }
-  }
-
-  /** Liste affichee. Synchrone, lue dans le cache local. */
-  function getShoppingList() {
-    return lireJson(CLE_CACHE, []);
-  }
-
-  function ecrireCache(articles) {
-    ecrireJson(CLE_CACHE, articles);
-    notifier();
-    return articles;
-  }
-
-  // --- File d'attente ---------------------------------------------------------
-
-  function lireFile() {
-    return lireJson(CLE_FILE, []);
-  }
-
-  function empiler(operation) {
-    var file = lireFile();
-    file.push(operation);
-    ecrireJson(CLE_FILE, file);
-  }
-
-  function nbEnAttente() {
-    return lireFile().length;
-  }
-
-  /**
-   * Envoie les operations en attente, dans l'ordre.
-   * S'arrete a la premiere qui echoue et conserve le reste : l'ordre compte
-   * (ajouter puis cocher n'est pas cocher puis ajouter).
-   */
-  async function viderFile() {
-    var file = lireFile();
-
-    while (file.length > 0) {
-      var operation = file[0];
-      try {
-        if (operation.type === 'ecrire') await Sync.ecrireArticle(operation.article);
-        else if (operation.type === 'modifier') await Sync.modifierArticle(operation.cle, operation.champs);
-        else if (operation.type === 'supprimer') await Sync.supprimerArticle(operation.cle);
-        file.shift();
-        ecrireJson(CLE_FILE, file);
-      } catch (erreur) {
-        ecrireJson(CLE_FILE, file);
-        throw erreur;
-      }
-    }
-  }
-
-  async function pousser() {
-    try {
-      await viderFile();
-      etat.enLigne = true;
-      etat.erreur = null;
-      etat.statut = null;
-    } catch (erreur) {
-      etat.enLigne = false;
-      etat.erreur = erreur.message;
-      etat.statut = erreur.statut || null;
-    }
-    notifier();
-    return getShoppingList();
-  }
-
-  /** Applique une modification en local, l'inscrit dans la file, puis tente l'envoi. */
-  function appliquer(articles, operations) {
-    etat.versionLocale += 1;
-    ecrireCache(articles);
-    (Array.isArray(operations) ? operations : [operations]).forEach(empiler);
-    // Envoi opportuniste : l'echec est normal hors ligne, la file garde la trace.
-    return pousser();
-  }
-
-  // --- Rafraichissement -------------------------------------------------------
-
-  /**
-   * Vide la file puis relit la liste depuis Firestore et remplace le cache.
-   * Hors ligne, le cache local est conserve tel quel : mieux vaut une liste un peu
-   * ancienne mais utilisable qu'une liste vide.
-   */
-  async function rafraichir() {
-    if (etat.enCours) return getShoppingList();
-    etat.enCours = true;
-    notifier();
-
-    var versionAvant = etat.versionLocale;
-
-    try {
-      await viderFile();
-      var distants = await Sync.lireArticles();
-
-      // Une modification locale est survenue pendant la lecture : la reponse decrit
-      // un etat deja depasse. L'ecrire ferait reapparaitre a l'ecran ce qui vient
-      // d'etre supprime, ou decocher ce qui vient d'etre coche. On garde le cache et
-      // on laisse le sondage suivant reconcilier, une fois la file envoyee.
-      if (etat.versionLocale !== versionAvant) {
-        etat.enLigne = true;
-        etat.erreur = null;
-        etat.statut = null;
-        return getShoppingList();
-      }
-
-      var articles = distants
+  var col = Collection.creer({
+    cleCache: CLE_CACHE,
+    cleFile: CLE_FILE,
+    executer: function (operation) {
+      if (operation.type === 'ecrire') return Sync.ecrireArticle(operation.article);
+      if (operation.type === 'modifier') return Sync.modifierArticle(operation.cle, operation.champs);
+      return Sync.supprimerArticle(operation.cle);
+    },
+    lireDistant: function () {
+      return Sync.lireArticles();
+    },
+    normaliser: function (distants) {
+      return distants
         .map(function (article) {
           return {
             cle: article.cle,
@@ -225,65 +70,12 @@
           }
           return String(a.ajouteLe || '').localeCompare(String(b.ajouteLe || ''));
         });
+    },
+  });
 
-      etat.enLigne = true;
-      etat.erreur = null;
-      etat.statut = null;
-      etat.dernierSucces = Date.now();
-      ecrireCache(articles);
-      return articles;
-    } catch (erreur) {
-      etat.enLigne = false;
-      etat.erreur = erreur.message;
-      etat.statut = erreur.statut || null;
-      return getShoppingList();
-    } finally {
-      etat.enCours = false;
-      notifier();
-    }
-  }
-
-  /**
-   * Lecture initiale de la liste, au chargement de la page. Idempotente.
-   *
-   * IL N'Y A PLUS DE SONDAGE PERIODIQUE, et c'est le point le plus important de ce
-   * fichier. La liste etait relue toutes les 5 secondes ; cela a epuise le palier
-   * gratuit de Firestore, qui est de 50 000 lectures de document par jour et facture
-   * chaque document a chaque lecture. L'arithmetique : 720 sondages par heure, tous
-   * les articles lus a chaque fois, soit 18 720 lectures par heure avec 26 articles,
-   * et par onglet ouvert. Deux onglets oublies epuisaient la journee en deux heures,
-   * apres quoi le serveur repondait « 429 Quota exceeded » sur tout, y compris les
-   * ecritures : la liste et les menus paraissaient alors non partages, chaque
-   * appareil retombant sur sa copie locale.
-   *
-   * La mise a jour est donc explicite : un bouton « Rafraichir » sur les ecrans
-   * concernes. En echange, l'age de la donnee affichee doit etre visible, sinon on
-   * coche dans une liste perimee sans le savoir : voir `ageDonnees()`.
-   */
-  function initialiser() {
-    if (dejaCharge) return Promise.resolve(getShoppingList());
-    dejaCharge = true;
-    return rafraichir();
-  }
-
-  /**
-   * Age de la donnee affichee, en millisecondes, ou null si rien n'a encore ete lu.
-   * Sert a signaler a l'ecran qu'un rafraichissement serait utile.
-   */
-  function ageDonnees() {
-    return etat.dernierSucces === null ? null : Date.now() - etat.dernierSucces;
-  }
-
-  function etatSync() {
-    return {
-      enLigne: etat.enLigne,
-      dernierSucces: etat.dernierSucces,
-      erreur: etat.erreur,
-      statut: etat.statut,
-      enCours: etat.enCours,
-      enAttente: nbEnAttente(),
-    };
-  }
+  /** Liste affichee. Synchrone, lue dans le cache local. */
+  var getShoppingList = col.tous;
+  var appliquer = col.appliquer;
 
   // --- Modifications ----------------------------------------------------------
 
@@ -756,14 +548,14 @@
     CLE_CACHE: CLE_CACHE,
     CLE_FILE: CLE_FILE,
 
-    surChangement: surChangement,
+    surChangement: col.surChangement,
     cleArticle: cleArticle,
     getShoppingList: getShoppingList,
 
-    initialiser: initialiser,
-    rafraichir: rafraichir,
-    ageDonnees: ageDonnees,
-    etatSync: etatSync,
+    initialiser: col.initialiser,
+    rafraichir: col.rafraichir,
+    ageDonnees: col.ageDonnees,
+    etatSync: col.etatSync,
 
     addItemsToList: addItemsToList,
     addRecipeToList: addRecipeToList,

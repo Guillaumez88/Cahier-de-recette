@@ -4,7 +4,7 @@ Carnet de cuisine de la maison. Trois écrans : le **semainier** des repas de la
 
 En ligne : `https://guillaumez88.github.io/Cahier-de-recette/`
 
-Aucune dépendance, aucune étape de construction, aucun framework : dix-sept fichiers JavaScript, une feuille de style, un fichier de données. Le partage passe par Firestore, appelé directement par son API REST en `fetch`, sans le SDK Firebase.
+Aucune dépendance, aucune étape de construction, aucun framework : dix-huit fichiers JavaScript, une feuille de style, un fichier de données. Le partage passe par Firestore, appelé directement par son API REST en `fetch`, sans le SDK Firebase.
 
 ---
 
@@ -72,6 +72,7 @@ qui ne se voit pas tout de suite.
 | Dates, semaines, clés de créneau | `js/semaine.js` |
 | Pictogrammes SVG | `js/icones.js` |
 | Tous les appels Firestore et l'authentification | `js/sync.js` |
+| La mécanique commune des collections partagées | `js/collection.js` |
 | Une collection partagée (liste, menus, placard) | `js/storage.js`, `js/semainier.js`, `js/placard.js` |
 | Recettes modifiées et ajoutées | `js/recettes.js` |
 | Photos, redimensionnement, cache IndexedDB | `js/photos.js` |
@@ -87,10 +88,15 @@ place**, la liste `attendus` du workflow `.github/workflows/deploy-pages.yml`, e
 `COQUILLE` de `sw.js`. En oublier un casse soit la publication, soit le hors ligne.
 
 **Ajouter une collection Firestore.** Cinq endroits : `js/sync.js` (chemin, lecture,
-écriture, suppression), un module de collection sur le modèle de `js/placard.js`,
-`firestore.rules`, l'émulation `tests/stub-firestore.js`, et
+écriture, suppression), un module de collection sur le modèle de `js/placard.js` (le
+plus court, 171 lignes), `firestore.rules`, l'émulation `tests/stub-firestore.js`, et
 `tests/verifier-firebase.js`. **Et il faut republier les règles à la main**, sinon la
 fonctionnalité ne marche pas sans que rien ne le dise.
+
+Le module de collection n'écrit **pas** sa propre mécanique : il appelle
+`Collection.creer({ cleCache, cleFile, executer, lireDistant, normaliser })` et ne
+porte que son métier. Le cache local, la file d'attente persistée, l'état de
+synchronisation et la garde contre les lectures périmées viennent de `js/collection.js`.
 
 **Ajouter une recette.** Éditer `data/recipes.json`, puis remesurer les planchers des
 tests : nombre de recettes, quantités lisibles, ingrédients distincts, étapes,
@@ -130,7 +136,7 @@ geste**, sans lever la moindre erreur. Les tests amènent donc leur cible à l'�
 avant de commencer, et la fenêtre de `test-semainier.js` fait 1 400 px de haut. Un
 échec de glissement est presque toujours un problème de géométrie de test, pas de code.
 
-**6. `app.js` fait 4 400 lignes**, contre 100 à 800 pour les autres modules. C'est le
+**6. `app.js` fait 4 400 lignes**, contre 100 à 600 pour les autres modules. C'est le
 seul endroit qui ne suit pas la règle « un rôle par fichier ». Le découpage a commencé
 avec `vue-magasin.js` ; le poursuivre écran par écran, quand un écran change, plutôt
 qu'en une fois.
@@ -156,7 +162,7 @@ qu'en une fois.
 | Ingrédients | 209 occurrences, 133 noms distincts, tous classés par rayon |
 | Étapes | 145, dont 107 portent un rappel d'ingrédients |
 | Couverture du déroulé reconstitué | 193 / 209, soit 92 % |
-| Code | 17 modules, environ 10 200 lignes de JavaScript |
+| Code | 18 modules, environ 10 000 lignes de JavaScript |
 | Poids transféré au chargement | 169 Ko compressés, 28 fichiers |
 | Tests | 128 + 115 sous Node, 367 vérifications navigateur, 18 contre le vrai Firebase |
 
@@ -190,9 +196,10 @@ sans voir ce qu'elle protégeait.
     │   ├── semaine.js           Calendrier du semainier : semaines, jours, créneaux
     │   ├── icones.js            Pictogrammes, en SVG écrit dans la page
     │   ├── sync.js              Firestore par son API REST, session anonyme
+    │   ├── collection.js        Mécanique commune : cache local, file d'attente, état
     │   ├── recettes.js          Recettes d'origine, modifications, créations, parts
-    │   ├── storage.js           Liste commune : cache local, fusion, file d'attente
-    │   ├── semainier.js         Menus communs : cache local, file d'attente
+    │   ├── storage.js           Liste commune : rayons, addition des quantités
+    │   ├── semainier.js         Menus communs : créneaux, compteur de réalisations
     │   ├── placard.js           Ce qu'on a toujours et qu'il ne faut pas racheter
     │   ├── photos.js            Photos : redimensionnement, deux tailles, cache IndexedDB
     │   ├── cuisson.js           Où l'on en est dans une recette, en local

@@ -4,9 +4,9 @@
    Sans cette liste, ils repartaient en courses chaque semaine, et on les décochait
    à la main, ou on les rachetait.
 
-   Ce module suit les trois principes de storage.js : le cache local est la source
-   du rendu, les modifications sont appliquées en local puis poussées via une file
-   persistée, et un rafraîchissement remplace le cache par ce que dit le serveur.
+   Le cache local, la file d'attente et l'état de synchronisation sont tenus par
+   collection.js, partagé avec la liste de courses et le semainier. Ce fichier ne
+   porte que la clé d'un ingrédient, la mise en forme et les deux mutations.
 
    **Le placard est partagé, comme le reste.** Il décrit la maison, pas l'appareil.
    S'il était local, l'un curerait sa liste et l'autre recevrait quand même le sel
@@ -25,76 +25,10 @@
 
   var estNode = typeof module !== 'undefined' && module.exports;
   var Sync = estNode ? require('./sync.js') : global.CarnetSync;
+  var Collection = estNode ? require('./collection.js') : global.CarnetCollection;
 
   var CLE_CACHE = 'carnet-de-recettes:placard';
   var CLE_FILE = 'carnet-de-recettes:file-placard';
-
-  var abonnes = [];
-  var dejaCharge = false;
-
-  var etat = {
-    enLigne: null,
-    dernierSucces: null,
-    erreur: null,
-    statut: null,
-    enCours: false,
-    versionLocale: 0,
-  };
-
-  function surChangement(rappel) {
-    abonnes.push(rappel);
-  }
-
-  function notifier() {
-    abonnes.forEach(function (rappel) {
-      try {
-        rappel();
-      } catch (erreur) {
-        /* un abonne fautif ne doit pas bloquer les autres */
-      }
-    });
-  }
-
-  // --- Cache local ------------------------------------------------------------
-
-  // Analyse memorisee, validee sur la chaine brute.
-  //
-  // Un rendu d'accueil appelle quatre fois la lecture du cache, et chaque appel
-  // reanalysait tout le JSON : 56 Ko et 5 ms pour quatre mois d'historique, et cela
-  // grossit avec lui. Relire la chaine reste bon marche, c'est l'analyse qui coute.
-  //
-  // La validation porte sur la chaine et non sur un drapeau interne : une ecriture
-  // faite en dehors du module (un test, un autre onglet) reste donc detectee, ce
-  // qu'un simple drapeau invalide manquerait.
-  var memo = {};
-
-  function lireJson(cle, defaut) {
-    try {
-      var brut = global.localStorage && global.localStorage.getItem(cle);
-      if (!brut) return defaut;
-      var connu = memo[cle];
-      if (connu && connu.brut === brut) return connu.valeur;
-      var valeur = JSON.parse(brut);
-      if (!Array.isArray(valeur)) return defaut;
-      memo[cle] = { brut: brut, valeur: valeur };
-      return valeur;
-    } catch (erreur) {
-      return defaut;
-    }
-  }
-
-  function ecrireJson(cle, valeur) {
-    try {
-      if (global.localStorage) global.localStorage.setItem(cle, JSON.stringify(valeur));
-    } catch (erreur) {
-      /* quota atteint ou navigation privee : la valeur reste en memoire */
-    }
-  }
-
-  /** Le placard, trie par nom. Synchrone, lu dans le cache local. */
-  function tous() {
-    return lireJson(CLE_CACHE, []);
-  }
 
   // --- Cle -------------------------------------------------------------------
 
@@ -121,78 +55,26 @@
     });
   }
 
-  // --- File d'attente ---------------------------------------------------------
+  // --- Collection synchronisee -------------------------------------------------
+  //
+  // Le cache local, la file d'attente et l'etat de synchronisation sont tenus par
+  // collection.js, comme pour la liste de courses et les menus. Ce fichier ne garde
+  // que ce qui est propre au placard : la cle d'un ingredient et la mise en forme.
 
-  function lireFile() {
-    return lireJson(CLE_FILE, []);
-  }
-
-  function nbEnAttente() {
-    return lireFile().length;
-  }
-
-  async function viderFile() {
-    var file = lireFile();
-    while (file.length > 0) {
-      var operation = file[0];
-      try {
-        if (operation.type === 'ecrire') await Sync.ecrirePlacard(operation.entree);
-        else if (operation.type === 'supprimer') await Sync.supprimerPlacard(operation.cle);
-        file.shift();
-        ecrireJson(CLE_FILE, file);
-      } catch (erreur) {
-        ecrireJson(CLE_FILE, file);
-        throw erreur;
-      }
-    }
-  }
-
-  async function pousser() {
-    try {
-      await viderFile();
-      etat.enLigne = true;
-      etat.erreur = null;
-      etat.statut = null;
-    } catch (erreur) {
-      etat.enLigne = false;
-      etat.erreur = erreur.message;
-      etat.statut = erreur.statut || null;
-    }
-    notifier();
-    return tous();
-  }
-
-  function appliquer(entrees, operation) {
-    etat.versionLocale += 1;
-    ecrireJson(CLE_CACHE, entrees);
-    notifier();
-    var file = lireFile();
-    file.push(operation);
-    ecrireJson(CLE_FILE, file);
-    return pousser();
-  }
-
-  // --- Rafraichissement -------------------------------------------------------
-
-  async function rafraichir() {
-    if (etat.enCours) return tous();
-    etat.enCours = true;
-    notifier();
-
-    var versionAvant = etat.versionLocale;
-
-    try {
-      await viderFile();
-      var distants = await Sync.lirePlacard();
-
-      if (etat.versionLocale !== versionAvant) {
-        etat.enLigne = true;
-        etat.erreur = null;
-        etat.statut = null;
-        return tous();
-      }
-
-      var entrees = trier(
+  var col = Collection.creer({
+    cleCache: CLE_CACHE,
+    cleFile: CLE_FILE,
+    executer: function (operation) {
+      if (operation.type === 'ecrire') return Sync.ecrirePlacard(operation.entree);
+      return Sync.supprimerPlacard(operation.cle);
+    },
+    lireDistant: function () {
+      return Sync.lirePlacard();
+    },
+    normaliser: function (distants) {
+      // Une entree sans cle ou sans nom est un residu : l'ignorer plutot que de la
+      // rendre a l'ecran sous une forme incomprehensible.
+      return trier(
         distants
           .map(function (e) {
             return { cle: e.cle, nom: e.nom || '' };
@@ -201,43 +83,10 @@
             return e.cle && e.nom;
           })
       );
+    },
+  });
 
-      etat.enLigne = true;
-      etat.erreur = null;
-      etat.statut = null;
-      etat.dernierSucces = Date.now();
-      ecrireJson(CLE_CACHE, entrees);
-      notifier();
-      return entrees;
-    } catch (erreur) {
-      // Regles non publiees ou reseau coupe : le placard reste vide et le carnet
-      // fonctionne sans lui. L'erreur est conservee pour que l'ecran puisse le dire.
-      etat.enLigne = false;
-      etat.erreur = erreur.message;
-      etat.statut = erreur.statut || null;
-      return tous();
-    } finally {
-      etat.enCours = false;
-      notifier();
-    }
-  }
-
-  function initialiser() {
-    if (dejaCharge) return Promise.resolve(tous());
-    dejaCharge = true;
-    return rafraichir();
-  }
-
-  function etatSync() {
-    return {
-      enLigne: etat.enLigne,
-      dernierSucces: etat.dernierSucces,
-      erreur: etat.erreur,
-      statut: etat.statut,
-      enCours: etat.enCours,
-      enAttente: nbEnAttente(),
-    };
-  }
+  var tous = col.tous;
 
   // --- Lecture ----------------------------------------------------------------
 
@@ -284,7 +133,7 @@
     if (contient(propre)) return Promise.resolve(tous());
 
     var entree = { cle: k, nom: propre };
-    return appliquer(trier(tous().concat([entree])), { type: 'ecrire', entree: entree });
+    return col.appliquer(trier(tous().concat([entree])), { type: 'ecrire', entree: entree });
   }
 
   /** Retire un ingredient du placard. */
@@ -295,17 +144,17 @@
       return e.cle !== k;
     });
     if (apres.length === avant.length) return Promise.resolve(avant);
-    return appliquer(apres, { type: 'supprimer', cle: k });
+    return col.appliquer(apres, { type: 'supprimer', cle: k });
   }
 
   var api = {
     CLE_CACHE: CLE_CACHE,
     CLE_FILE: CLE_FILE,
 
-    surChangement: surChangement,
-    initialiser: initialiser,
-    rafraichir: rafraichir,
-    etatSync: etatSync,
+    surChangement: col.surChangement,
+    initialiser: col.initialiser,
+    rafraichir: col.rafraichir,
+    etatSync: col.etatSync,
 
     cle: cle,
     tous: tous,

@@ -1,22 +1,21 @@
 /* Semainier commun : quel plat a quel repas, partage par toute la maison.
 
-   Ce module suit exactement les trois principes de storage.js, pour les memes
-   raisons :
+   Le cache local, la file d'attente et l'etat de synchronisation sont tenus par
+   collection.js, partage avec la liste de courses et le placard. Ce fichier ne
+   porte que ce qui est propre au semainier :
 
-   1. Le cache local est la source du rendu. `tous()` est synchrone : l'accueil
-      s'affiche sans attendre le reseau, et le menu reste consultable en cuisine
-      meme sans connexion.
-
-   2. Les modifications sont appliquees en local puis poussees, chacune inscrite
-      dans une file persistee. Poser un plat fonctionne hors ligne et part au
-      retour du reseau.
-
-   3. Firestore est la reference : un rafraichissement vide la file puis remplace
-      le cache par ce que dit le serveur.
+   - la forme d'un creneau et l'ordre des plats d'un meme repas ;
+   - les index dont le rendu a besoin ;
+   - le compteur de realisations, lu dans l'historique ;
+   - les mutations : ajouter, poser, retirer, reposer, vider, deplacer.
 
    Un creneau vide n'existe pas cote serveur : vider un creneau supprime son
    document. Cela evite d'accumuler des documents vides pour les repas non prevus,
    qui sont la majorite.
+
+   Un repas peut porter plusieurs plats, chacun dans son propre document, avec une
+   cle « jour::moment::suffixe ». Voir js/semaine.js pour la forme des cles, et
+   docs/DECISIONS-2026-08-04.md pour la raison du suffixe tire au hasard.
 
    Expose window.CarnetSemainier dans le navigateur, module.exports sous Node. */
 
@@ -26,144 +25,13 @@
   var estNode = typeof module !== 'undefined' && module.exports;
   var Sync = estNode ? require('./sync.js') : global.CarnetSync;
   var Semaine = estNode ? require('./semaine.js') : global.CarnetSemaine;
+  var Collection = estNode ? require('./collection.js') : global.CarnetCollection;
 
   var CLE_CACHE = 'carnet-de-recettes:semainier';
   var CLE_FILE = 'carnet-de-recettes:file-semainier';
 
   var TYPE_RECETTE = 'recette';
   var TYPE_LIBRE = 'libre';
-
-  var abonnes = [];
-  var dejaCharge = false;
-
-  var etat = {
-    enLigne: null,
-    dernierSucces: null,
-    erreur: null,
-    statut: null, // statut HTTP de la derniere erreur, pour la distinguer a l'ecran
-    enCours: false,
-    versionLocale: 0,
-  };
-
-  // --- Abonnement -------------------------------------------------------------
-
-  function surChangement(rappel) {
-    abonnes.push(rappel);
-  }
-
-  function notifier() {
-    abonnes.forEach(function (rappel) {
-      try {
-        rappel();
-      } catch (erreur) {
-        /* un abonne fautif ne doit pas bloquer les autres */
-      }
-    });
-  }
-
-  // --- Cache local ------------------------------------------------------------
-
-  // Analyse memorisee, validee sur la chaine brute.
-  //
-  // Un rendu d'accueil appelle quatre fois la lecture du cache, et chaque appel
-  // reanalysait tout le JSON : 56 Ko et 5 ms pour quatre mois d'historique, et cela
-  // grossit avec lui. Relire la chaine reste bon marche, c'est l'analyse qui coute.
-  //
-  // La validation porte sur la chaine et non sur un drapeau interne : une ecriture
-  // faite en dehors du module (un test, un autre onglet) reste donc detectee, ce
-  // qu'un simple drapeau invalide manquerait.
-  var memo = {};
-
-  function lireJson(cle, defaut) {
-    try {
-      var brut = global.localStorage && global.localStorage.getItem(cle);
-      if (!brut) return defaut;
-      var connu = memo[cle];
-      if (connu && connu.brut === brut) return connu.valeur;
-      var valeur = JSON.parse(brut);
-      if (!Array.isArray(valeur)) return defaut;
-      memo[cle] = { brut: brut, valeur: valeur };
-      return valeur;
-    } catch (erreur) {
-      return defaut;
-    }
-  }
-
-  function ecrireJson(cle, valeur) {
-    try {
-      if (global.localStorage) global.localStorage.setItem(cle, JSON.stringify(valeur));
-    } catch (erreur) {
-      /* quota atteint ou navigation privee : la valeur reste en memoire */
-    }
-  }
-
-  /** Tous les creneaux planifies. Synchrone, lu dans le cache local. */
-  function tous() {
-    return lireJson(CLE_CACHE, []);
-  }
-
-  function ecrireCache(creneaux) {
-    ecrireJson(CLE_CACHE, creneaux);
-    notifier();
-    return creneaux;
-  }
-
-  // --- File d'attente ---------------------------------------------------------
-
-  function lireFile() {
-    return lireJson(CLE_FILE, []);
-  }
-
-  function empiler(operation) {
-    var file = lireFile();
-    file.push(operation);
-    ecrireJson(CLE_FILE, file);
-  }
-
-  function nbEnAttente() {
-    return lireFile().length;
-  }
-
-  async function viderFile() {
-    var file = lireFile();
-
-    while (file.length > 0) {
-      var operation = file[0];
-      try {
-        if (operation.type === 'ecrire') await Sync.ecrireCreneau(operation.creneau);
-        else if (operation.type === 'supprimer') await Sync.supprimerCreneau(operation.cle);
-        file.shift();
-        ecrireJson(CLE_FILE, file);
-      } catch (erreur) {
-        ecrireJson(CLE_FILE, file);
-        throw erreur;
-      }
-    }
-  }
-
-  async function pousser() {
-    try {
-      await viderFile();
-      etat.enLigne = true;
-      etat.erreur = null;
-      etat.statut = null;
-    } catch (erreur) {
-      etat.enLigne = false;
-      etat.erreur = erreur.message;
-      etat.statut = erreur.statut || null;
-    }
-    notifier();
-    return tous();
-  }
-
-  function appliquer(creneaux, operations) {
-    etat.versionLocale += 1;
-    ecrireCache(creneaux);
-    (Array.isArray(operations) ? operations : [operations]).forEach(empiler);
-    return pousser();
-  }
-
-  // --- Rafraichissement -------------------------------------------------------
 
   function trier(creneaux) {
     // Ordre stable : par date puis par moment de la journee. Sans tri, Firestore
@@ -185,28 +53,24 @@
     });
   }
 
-  async function rafraichir() {
-    if (etat.enCours) return tous();
-    etat.enCours = true;
-    notifier();
+  // --- Collection synchronisee -------------------------------------------------
+  //
+  // Le cache local, la file d'attente et l'etat de synchronisation sont tenus par
+  // collection.js. Ce fichier ne garde que ce qui est propre au semainier : la forme
+  // d'un creneau, les index de rendu, le compteur de realisations et les mutations.
 
-    var versionAvant = etat.versionLocale;
-
-    try {
-      await viderFile();
-      var distants = await Sync.lireCreneaux();
-
-      // Meme garde que pour la liste de courses : une modification locale survenue
-      // pendant la lecture rend la reponse perimee. L'ecrire ferait reapparaitre a
-      // l'ecran un plat qui vient d'etre retire.
-      if (etat.versionLocale !== versionAvant) {
-        etat.enLigne = true;
-        etat.erreur = null;
-        etat.statut = null;
-        return tous();
-      }
-
-      var creneaux = trier(
+  var col = Collection.creer({
+    cleCache: CLE_CACHE,
+    cleFile: CLE_FILE,
+    executer: function (operation) {
+      if (operation.type === 'ecrire') return Sync.ecrireCreneau(operation.creneau);
+      return Sync.supprimerCreneau(operation.cle);
+    },
+    lireDistant: function () {
+      return Sync.lireCreneaux();
+    },
+    normaliser: function (distants) {
+      return trier(
         distants
           .map(function (creneau) {
             return {
@@ -225,51 +89,11 @@
             return Boolean(Semaine.decouperCreneau(creneau.cle)) && creneau.titre !== '';
           })
       );
+    },
+  });
 
-      etat.enLigne = true;
-      etat.erreur = null;
-      etat.statut = null;
-      etat.dernierSucces = Date.now();
-      ecrireCache(creneaux);
-      return creneaux;
-    } catch (erreur) {
-      etat.enLigne = false;
-      etat.erreur = erreur.message;
-      etat.statut = erreur.statut || null;
-      return tous();
-    } finally {
-      etat.enCours = false;
-      notifier();
-    }
-  }
-
-  /**
-   * Lecture initiale des menus, au chargement de la page. Idempotente.
-   * Comme pour la liste de courses, il n'y a plus de sondage periodique : la mise a
-   * jour passe par un bouton explicite. Voir le commentaire de storage.js, qui donne
-   * l'arithmetique des lectures Firestore ayant motive ce choix.
-   */
-  function initialiser() {
-    if (dejaCharge) return Promise.resolve(tous());
-    dejaCharge = true;
-    return rafraichir();
-  }
-
-  /** Age des menus affiches, en millisecondes, ou null si rien n'a encore ete lu. */
-  function ageDonnees() {
-    return etat.dernierSucces === null ? null : Date.now() - etat.dernierSucces;
-  }
-
-  function etatSync() {
-    return {
-      enLigne: etat.enLigne,
-      dernierSucces: etat.dernierSucces,
-      erreur: etat.erreur,
-      statut: etat.statut,
-      enCours: etat.enCours,
-      enAttente: nbEnAttente(),
-    };
-  }
+  var tous = col.tous;
+  var appliquer = col.appliquer;
 
   // --- Lecture ----------------------------------------------------------------
 
@@ -637,11 +461,11 @@
     TYPE_RECETTE: TYPE_RECETTE,
     TYPE_LIBRE: TYPE_LIBRE,
 
-    surChangement: surChangement,
-    initialiser: initialiser,
-    rafraichir: rafraichir,
-    ageDonnees: ageDonnees,
-    etatSync: etatSync,
+    surChangement: col.surChangement,
+    initialiser: col.initialiser,
+    rafraichir: col.rafraichir,
+    ageDonnees: col.ageDonnees,
+    etatSync: col.etatSync,
 
     tous: tous,
     creneau: creneau,

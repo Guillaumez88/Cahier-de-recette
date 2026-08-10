@@ -46,6 +46,7 @@ function chargerModules() {
   [
     'js/firebase-config.js',
     'js/sync.js',
+    'js/collection.js',
     'js/recettes.js',
     'js/storage.js',
     'js/semainier.js',
