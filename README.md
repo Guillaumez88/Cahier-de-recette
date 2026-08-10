@@ -77,6 +77,9 @@ qui ne se voit pas tout de suite.
 | Recettes modifiées et ajoutées | `js/recettes.js` |
 | Photos, redimensionnement, cache IndexedDB | `js/photos.js` |
 | Import depuis un site | `js/import-recette.js` |
+| Partager une recette : texte et lien | `js/partage.js` |
+| Écrire un PDF sans dépendance | `js/pdf.js` |
+| La mise en page du menu de la semaine | `js/menu-pdf.js` |
 | Couleurs, espacements, animations | `css/style.css` (bloc `:root` en tête) |
 | Le fonctionnement hors ligne | `sw.js` |
 
@@ -162,9 +165,10 @@ qu'en une fois.
 | Ingrédients | 209 occurrences, 133 noms distincts, tous classés par rayon |
 | Étapes | 145, dont 107 portent un rappel d'ingrédients |
 | Couverture du déroulé reconstitué | 193 / 209, soit 92 % |
-| Code | 18 modules, environ 10 000 lignes de JavaScript |
-| Poids transféré au chargement | 169 Ko compressés, 28 fichiers |
-| Tests | 128 + 115 sous Node, 367 vérifications navigateur, 18 contre le vrai Firebase |
+| Code | 21 modules, 11 295 lignes de JavaScript |
+| Poids transféré au chargement | 182 Ko compressés, 31 fichiers |
+| Coût des deux dernières fonctions | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
+| Tests | 155 + 115 sous Node, 383 vérifications navigateur, 18 contre le vrai Firebase |
 
 ---
 
@@ -204,6 +208,9 @@ sans voir ce qu'elle protégeait.
     │   ├── photos.js            Photos : redimensionnement, deux tailles, cache IndexedDB
     │   ├── cuisson.js           Où l'on en est dans une recette, en local
     │   ├── import-recette.js    Lecture d'une recette schema.org trouvée sur un site
+    │   ├── partage.js           Une recette en texte et par un lien
+    │   ├── pdf.js               Écrivain de PDF minimal : texte, traits, rectangles
+    │   ├── menu-pdf.js          Le menu de la semaine sur une feuille A4
     │   ├── vue-magasin.js       L'écran « En magasin », premier écran sorti de app.js
     │   └── app.js               Rendu DOM et routage par ancre
     ├── data/recipes.json        Les 21 recettes
@@ -211,12 +218,12 @@ sans voir ce qu'elle protégeait.
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js           128 tests de la logique métier
+        ├── run-tests.js           155 tests de la logique métier
         ├── run-sync-tests.js      115 tests de la synchronisation
-        ├── test-web.js             88 vérifications navigateur, parcours général
-        ├── test-partage.js         57 vérifications navigateur, partage, placard, magasin
+        ├── test-web.js             98 vérifications navigateur, parcours général et partage
+        ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
         ├── test-edition.js         72 vérifications navigateur, modification, parts, accordéon
-        ├── test-semainier.js      150 vérifications navigateur, semainier, photos, import
+        ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -224,7 +231,7 @@ sans voir ce qu'elle protégeait.
         └── serveur.js              Serveur statique sans dépendance
 ```
 
-Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `recettes.js`, `storage.js`, `semainier.js`, `placard.js`, `photos.js`, `cuisson.js`, `import-recette.js`, `vue-magasin.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
+Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `collection.js`, `recettes.js`, `storage.js`, `semainier.js`, `placard.js`, `photos.js`, `cuisson.js`, `import-recette.js`, `partage.js`, `pdf.js`, `menu-pdf.js`, `vue-magasin.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
 
 `app.js` ne parle jamais au réseau ni au stockage : il passe par `storage.js`, `semainier.js`, `placard.js`, `recettes.js` et `photos.js`, seuls endroits décidant où sont rangées les données.
 
@@ -252,7 +259,9 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 - **Déroulé des préparations** : le tableau fourni avec la recette quand il existe, reconstitué automatiquement sinon (voir plus bas).
 - **Liste de courses commune** (voir la section suivante) : partagée entre tous les appareils, rangée par rayon de magasin, avec addition des quantités d'un même ingrédient, sélection d'ingrédients à la carte, ajout d'articles libres, compteur dans l'en-tête et fonctionnement hors ligne.
 - **Modification des recettes** et **changement du nombre de parts** (voir plus bas).
-- **Le carnet s'ouvre sans réseau.** Un *service worker* (`sw.js`) met en cache les 20 fichiers du site, soit 119 Ko compressés, et les sert en priorité avec mise à jour en arrière-plan : un fichier modifié est récupéré immédiatement et s'affiche au chargement suivant, une version périmée ne survivant jamais plus d'une ouverture. Incrémenter `VERSION` dans `sw.js` force une purge immédiate, et devient nécessaire quand un fichier est retiré de la liste, qui resterait sinon en cache. Sans lui, une page ouverte hors ligne n'affichait rien du tout : les données survivaient dans le stockage local, mais il n'y avait plus d'application pour les afficher. Un `manifest.webmanifest` permet « Ajouter à l'écran d'accueil », qui donne une icône et un lancement sans barre d'URL.
+- **Partager une recette** : le texte entier de la recette, prêt à coller dans un message, ou un lien vers la fiche (voir plus bas).
+- **Le menu de la semaine en PDF**, une feuille A4 à imprimer, fabriquée dans le navigateur sans aucune dépendance (voir plus bas).
+- **Le carnet s'ouvre sans réseau.** Un *service worker* (`sw.js`) met en cache les 31 fichiers du site, soit 182 Ko compressés, et les sert en priorité avec mise à jour en arrière-plan : un fichier modifié est récupéré immédiatement et s'affiche au chargement suivant, une version périmée ne survivant jamais plus d'une ouverture. Incrémenter `VERSION` dans `sw.js` force une purge immédiate, et devient nécessaire quand un fichier est retiré de la liste, qui resterait sinon en cache. Sans lui, une page ouverte hors ligne n'affichait rien du tout : les données survivaient dans le stockage local, mais il n'y avait plus d'application pour les afficher. Un `manifest.webmanifest` permet « Ajouter à l'écran d'accueil », qui donne une icône et un lancement sans barre d'URL.
 - **Annuler le retrait d'un plat.** La croix retire sans confirmation, parce que demander « êtes-vous sûr ? » à chaque geste est plus pénible que le geste. La contrepartie est un bandeau « Plat retiré — Annuler » pendant sept secondes, qui repose le plat **avec sa clé d'origine** : il retrouve sa place dans l'ordre du repas, alors qu'une clé neuve l'enverrait en fin de liste, ce qui ne serait pas une annulation. Si la clé a été reprise entre-temps par un autre appareil, le plat présent gagne : écraser serait pire que de ne pas annuler.
 - **Navigation adaptée à l'écran.** Sur ordinateur, l'en-tête porte les liens « Le livre » et « Liste de courses », chacun avec son pictogramme, l'état actif visible, le compteur d'articles restants et le bouton de rafraîchissement, qui affiche l'âge de la donnée en trois caractères (« 4min », « 3h », « 2j »). Sur téléphone, l'en-tête n'a plus de liens : une **barre d'onglets** en bas de l'écran (Semaine, Le livre, Courses) met les trois destinations sous le pouce, avec un retrait pour l'encoche du bas, et le rafraîchissement se fait en **tirant la page vers le bas**.
 - **Pictogrammes** en SVG écrit dans la page, dans `js/icones.js` : aucune police d'icônes ni CDN, donc rien à charger et rien qui casse en cuisine sans connexion. Ils se colorent par `currentColor` et suivent la palette sans code supplémentaire.
@@ -307,6 +316,89 @@ Deux pièges de dates sont traités dans `js/semaine.js`, et des tests les fixen
 - `toISOString()` convertit en UTC : à Paris en été, un lundi à 23 h donnerait « dimanche ». Les clés de jour sont donc fabriquées avec `getFullYear/getMonth/getDate`, qui sont locaux.
 - `new Date('2026-08-03')` est interprété comme minuit UTC : à l'ouest de Greenwich, `getDate()` rendrait le 2. Les clés sont relues en composant une date locale fixée à midi, midi résistant aux changements d'heure.
 
+## Le menu de la semaine en PDF
+
+Le bouton « PDF » de l'en-tête de chaque semaine fabrique une feuille A4 : les sept
+jours, ce qui est prévu à chaque repas, et rien d'autre. Le fichier s'appelle
+`menu-semaine-du-2026-08-10.pdf`, daté par la semaine qu'il décrit et non par le jour
+de l'impression : deux feuilles de deux semaines ne s'écrasent pas.
+
+Chaque semaine a son bouton, plutôt qu'un choix de semaine dans une boîte : ce sont
+deux feuilles différentes, et proposer un menu déroulant pour deux valeurs serait une
+étape de plus pour rien.
+
+### Ce que la feuille montre
+
+Un jour sans rien de prévu porte « à définir » et non un blanc : sur du papier, un
+blanc ne se distingue pas d'un oubli d'impression. Un créneau vide, en revanche, est
+simplement absent : afficher « Petit-déjeuner : rien » sept fois remplirait la feuille
+de vide. Le jour courant est encadré en terracotta, et chaque créneau a sa couleur, les
+mêmes que celles de l'écran.
+
+Aucune quantité, aucun ingrédient, aucune durée : la feuille répond à « qu'est-ce qu'on
+mange ? », pas à « comment on le fait ». Les fiches sont dans le carnet.
+
+Une semaine légère laissait le tiers bas de la page blanc, ce qui ressemblait à un
+brouillon : le surplus est réparti pour moitié dans la hauteur des cartes, où le
+contenu se centre, et pour le reste dans les écarts. Les deux sont plafonnés, sinon
+sept bandes hautes et vides ressemblent à un formulaire. Une semaine chargée passe à
+deux pages, et la coupure tombe **entre** deux jours, jamais au milieu d'un. C'est
+pourquoi `plan()` calcule toutes les hauteurs avant que rien ne soit écrit : le pied de
+page porte « page 1 sur 2 », qui suppose de connaître le total avant de dessiner la
+première page.
+
+### Pourquoi un écrivain de PDF écrit à la main
+
+Le premier invariant du projet est l'absence de dépendance. jsPDF pèse 380 Ko et
+pdf-lib 1,4 Mo, pour un besoin qui tient en une page : du texte, des traits, des
+rectangles. `js/pdf.js` fait 21 Ko, soit 7,1 Ko compressés, et le format PDF est
+documenté : sa forme minimale est courte.
+
+La contrainte réelle n'est pas le format, c'est l'encodage. Un PDF sans police
+embarquée n'a droit qu'aux quatorze polices de base et à l'encodage WinAnsi, soit
+environ 220 caractères. Les caractères hors ASCII présents dans les titres de recettes
+et les libellés du carnet ont donc été relevés **avant** d'écrire une ligne :
+
+```
+’ U+2019   ï U+00EF   é U+00E9   â U+00E2   è U+00E8   à U+00E0
+```
+
+Six caractères, tous dans WinAnsi : la contrainte est tenue sans compromis pour les
+données existantes. Pour ce qui viendra plus tard, une recette importée d'un site
+étranger par exemple, `versWinAnsi()` retire les accents inconnus au lieu de rendre un
+octet faux (« ā » devient « a »), et remplace en dernier recours par « ? », qui se voit
+à la relecture au lieu de disparaître en silence.
+
+Couper une ligne ou centrer un titre demande de mesurer le texte, et un PDF sans police
+embarquée ne mesure rien tout seul : les largeurs des polices de base font partie de la
+spécification, et la table est dans `js/pdf.js`. Les lettres accentuées y prennent la
+largeur de leur lettre de base, ce qui est exact dans Helvetica, sauf les variantes du
+i, listées à part parce que l'accent les élargit. Un octet absent de la table est
+compté comme un « n » : la coupure se décale d'une fraction de point, elle ne casse
+pas.
+
+**Ce que ce module ne fait pas** : pas de compression (une page de menu mesurée pèse
+de 4,6 Ko pour une semaine vide à 6,3 Ko pour quatorze plats, un Deflate écrit à la main n'en vaut pas le prix), pas d'image, pas de
+transparence, pas de police embarquée.
+
+### Ce qui remplace un lecteur de PDF, dans les tests
+
+Aucune bibliothèque n'est disponible pour relire le fichier produit, donc les tests
+vérifient la structure elle-même : chaque offset de la table `xref` doit tomber
+exactement sur la déclaration de son objet, `startxref` doit désigner le début de la
+table, et chaque longueur de flux déclarée doit valoir sa longueur réelle. Ce sont
+précisément les trois choses qu'un lecteur contrôle avant d'ouvrir un document. Le test
+navigateur, lui, clique le bouton, récupère le fichier téléchargé et vérifie qu'il
+commence par `%PDF-1.4` et se termine par `%%EOF`, puis reconstruit un PDF dans la page
+pour vérifier qu'il porte bien les plats posés : un PDF valide mais vide de ce qu'on a
+prévu serait un faux succès.
+
+### Une limite, sur iPhone
+
+Dans une application installée sur iOS, la demande de téléchargement ouvre le PDF dans
+une nouvelle vue au lieu de l'enregistrer. Le fichier est le même, il faut le partager
+depuis cette vue. Il n'y a pas de contournement depuis une page web.
+
 ## L'éditeur : une chose à la fois
 
 On ouvre l'éditeur pour corriger une quantité, changer le nombre de parts ou ajouter une photo, pas pour parcourir un formulaire du début à la fin. Il est donc en accordéon :
@@ -336,6 +428,59 @@ Ce rappel est déduit du texte de l'étape, rien n'est saisi recette par recette
 L'étape est bornée **à la lecture** et non à l'écriture : une recette raccourcie par une modification laisserait sinon un index au-delà de la dernière étape, et l'écran resterait vide sans qu'on comprenne pourquoi.
 
 **Il n'y a plus de bouton « Imprimer la fiche ».** L'impression reste possible par le navigateur, et **les replis y sont ouverts par JavaScript** (`beforeprint`), puis refermés ensuite, et seulement ceux que le code a ouverts. Une fiche imprimée doit être complète : un dépli refermé y perdrait les temps, le déroulé et la source. Le CSS ne peut pas le faire, le navigateur masquant le contenu d'un `<details>` fermé par un mécanisme que `display` ne touche pas.
+
+## Partager une recette
+
+Le bouton « Partager » de la fiche ouvre une boîte qui propose deux choses distinctes,
+et ne les mélange pas.
+
+**Le texte de la recette.** Quand on envoie une recette à quelqu'un par message, il
+veut la recette, pas un lien à ouvrir : le titre, les parts, le temps, les ingrédients
+avec leurs quantités, les étapes numérotées avec leurs astuces, ce que la source ne
+donne pas, et la source. C'est du texte brut, **sans astérisques ni tirets
+décoratifs** : chaque application de messagerie a sa propre syntaxe de gras, et un
+`*mot*` qui ne s'interprète pas est plus laid qu'une absence de gras.
+
+Le texte ne recopie que ce que la recette dit vraiment : un « Non indiqué » n'apparaît
+pas, et la ligne de contexte disparaît si la recette n'a ni parts ni temps. Si le
+nombre de parts a été changé sur la fiche, c'est ce nombre-là qui est annoncé, pas
+celui du fichier : sans cela le message promettrait 4 personnes avec les quantités
+pour 8.
+
+**Le lien vers la fiche.** Utile à quelqu'un qui a le carnet : il ouvre la version à
+jour, pas une copie figée. Le site est public et l'authentification est anonyme, donc
+un lien fonctionne pour tout le monde, et pas seulement pour la maison.
+
+### Les deux réserves, dites plutôt que cachées
+
+`js/recettes.js` applique une modification en local **puis** tente l'envoi, et n'a pas
+de file d'attente : un envoi qui échoue n'est pas rejoué. Il y a donc deux cas où un
+lien ne dit pas la vérité, et la boîte les distingue :
+
+| Situation | Ce que fait la boîte |
+|---|---|
+| Recette **ajoutée ici**, envoi en échec | Le lien est retiré : la recette n'existe que sur cet appareil, le lien mènerait à « Recette introuvable ». Le texte, lui, reste partageable. |
+| Recette **modifiée ici**, envoi en échec | Le lien reste proposé, avec un bandeau : il ouvrira la version précédente de la fiche. |
+
+C'est `Pt.partageable(recette, { ajoutee, erreurEcriture })` qui tranche, dans
+`js/partage.js`, et il rend une phrase affichable, pas un code d'erreur.
+
+### Trois chemins pour sortir le texte, du plus propre au plus vieux
+
+`navigator.share` n'apparaît que quand le navigateur l'a : sur un ordinateur de bureau
+la plupart ne l'ont pas, et un bouton qui ne fait rien vaut moins que son absence. Un
+partage annulé lève `AbortError`, qui n'est pas traité comme un échec : c'est un geste
+volontaire.
+
+Vient ensuite le presse-papiers. `navigator.clipboard` exige un contexte sécurisé
+(https, ou localhost) ; à défaut, le repli est `document.execCommand('copy')` sur une
+zone de texte posée hors écran. Officiellement obsolète, mais implémenté partout, et
+c'est le seul repli possible sans dépendance.
+
+Le dernier recours est affiché en clair au bas de la boîte : le texte complet dans une
+zone en lecture seule, qui se sélectionne d'un clic, et l'adresse de la fiche
+sélectionnable. Si ni le partage ni le presse-papiers ne répondent, il reste toujours
+quelque chose à copier à la main.
 
 ## Compteur de réalisations
 
@@ -577,9 +722,9 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 128 tests de la logique métier
+node tests/run-tests.js           # 155 tests de la logique métier
 node tests/run-sync-tests.js      # 115 tests de la synchronisation
-node tests/run-browser-tests.js   # 367 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 383 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.
@@ -589,6 +734,8 @@ node tests/run-browser-tests.js   # 367 vérifications dans un vrai Chromium
 `test-web.js` couvre le parcours général dans Chromium : les 21 vignettes, la recherche, les filtres, la conservation du focus pendant la saisie, la résolution de la grille fusionnée du tableau de flux (5 colonnes, telle que le navigateur la calcule), l'identifiant inconnu, le mode impression et l'absence de débordement horizontal en 360 px.
 
 `test-semainier.js` couvre le semainier, les photos et la création de recettes, également sur **deux contextes isolés** : poser un plat du livre et un repas hors carnet, remplacer, vider, glisser d'une case à l'autre, échanger deux plats occupés, glisser depuis la réserve, la validation plat par plat avant ajout aux courses (dont le plat déjà en liste décoché et le repas hors carnet non ajoutable), l'envoi d'une photo réduite en deux tailles dans les bornes des règles Firestore, la création refusée sans titre, la suppression d'une recette ajoutée, un repas posé hors ligne, et l'absence de débordement horizontal en 360 px.
+
+`run-tests.js` couvre aussi les deux dernières fonctions sans navigateur : le texte et le lien de partage, l'encodage WinAnsi, les largeurs de caractères, la coupure de lignes, et la **validité structurelle du PDF produit** (chaque offset de la table `xref` doit tomber sur la déclaration de son objet, chaque longueur de flux déclarée doit valoir sa longueur réelle). C'est ce contrôle-là qui remplace un lecteur de PDF : un fichier qui le passe s'ouvre.
 
 `test-partage.js` ouvre **deux contextes Chromium isolés**, c'est-à-dire deux appareils avec des stockages locaux distincts, sur la même base. C'est le seul montage qui prouve réellement le partage : ce que l'un ajoute ou coche doit apparaître chez l'autre après un rafraîchissement. La même suite vérifie qu'**aucune** lecture Firestore n'a lieu pendant quatre secondes d'inactivité, que la nouveauté de l'autre appareil n'arrive donc pas toute seule, et que le bandeau invite à rafraîchir. Puis elle coupe le réseau, vérifie que cocher fonctionne quand même et que les modifications en attente sont annoncées, et enfin qu'elles sont bien parties au retour.
 
@@ -764,6 +911,8 @@ Un quatrième écart, mineur : pour `lasagnes-bolognaise`, le tableau de flux d�
 - `docs/refonte-2026-08-03/` : la proposition retenue (`HANDOFF-DESIGN.md`, `design-final.html`, six plans). Les cinq écrans qu'elle décrit sont implémentés. Deux points ont été volontairement écartés depuis, à la demande : la pastille de partage compacte, remplacée par un bouton de rafraîchissement dans l'en-tête, et le vocabulaire « Matin / Midi / Soir » de la grille, remplacé par « Petit-déjeuner / Déjeuner / Dîner ».
 - `docs/PISTES-2026-08-09.md` : analyse du projet à date et pistes d'amélioration chiffrées, à valider ou invalider. Dit aussi ce qui n'a pas besoin d'être amélioré (poids du site, vitesse de la recherche), pour ne pas encombrer la liste de faux problèmes.
 - `docs/DECISIONS-2026-08-04.md` : ce qui a été tranché lors du passage à plusieurs plats par repas, contre quoi, et pourquoi. À lire avant de revenir sur la forme des clés de créneau, sur le comportement du glisser-déposer ou sur le rappel d'ingrédients de l'étape en cours.
+
+- `docs/DECISIONS-2026-08-10.md` : le partage d'une recette et le PDF du menu. À lire avant de remplacer `js/pdf.js` par une bibliothèque, ou avant de faire du lien de partage autre chose que ce qu'il est.
 
 ## Historique
 

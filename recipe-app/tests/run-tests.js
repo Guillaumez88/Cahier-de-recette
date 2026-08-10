@@ -15,6 +15,9 @@ const Fx = require(path.join(racine, 'js/flux.js'));
 const Sn = require(path.join(racine, 'js/semaine.js'));
 const Ic = require(path.join(racine, 'js/icones.js'));
 const Im = require(path.join(racine, 'js/import-recette.js'));
+const Pt = require(path.join(racine, 'js/partage.js'));
+const Pdf = require(path.join(racine, 'js/pdf.js'));
+const MPdf = require(path.join(racine, 'js/menu-pdf.js'));
 
 const recettes = JSON.parse(fs.readFileSync(path.join(racine, 'data/recipes.json'), 'utf8'));
 
@@ -1593,7 +1596,361 @@ test('dessiner rend null pour un nom inconnu plutot que de lever', () => {
   assert.strictEqual(Ic.dessiner(faux, 'nom-qui-n-existe-pas'), null);
 });
 
+// --- partage.js --------------------------------------------------------------
+
+test('lien construit une adresse de fiche depuis l adresse courante', () => {
+  const r = { id: 'tapenade-maison' };
+  assert.strictEqual(
+    Pt.lien(r, 'https://exemple.fr/Cahier-de-recette/#/liste-de-courses'),
+    'https://exemple.fr/Cahier-de-recette/#/recette/tapenade-maison'
+  );
+  // Un index.html explicite, une barre finale ou une chaine de requete ne doivent pas
+  // se retrouver au milieu de l adresse.
+  assert.strictEqual(
+    Pt.lien(r, 'https://exemple.fr/carnet/index.html'),
+    'https://exemple.fr/carnet/#/recette/tapenade-maison'
+  );
+  assert.strictEqual(Pt.lien(r, 'https://exemple.fr/carnet///'), 'https://exemple.fr/carnet/#/recette/tapenade-maison');
+  assert.strictEqual(Pt.lien(r, 'https://exemple.fr/carnet/?x=1'), 'https://exemple.fr/carnet/#/recette/tapenade-maison');
+  // L identifiant est encode : sans cela un identifiant a espace casserait l adresse.
+  assert.ok(Pt.lien({ id: 'a b' }, 'https://exemple.fr/c/').endsWith('/#/recette/a%20b'));
+});
+
+test('lien rend une chaine vide sans identifiant', () => {
+  assert.strictEqual(Pt.lien(null, 'https://exemple.fr/'), '');
+  assert.strictEqual(Pt.lien({}, 'https://exemple.fr/'), '');
+});
+
+test('partageable interdit le lien d une recette ajoutee jamais envoyee', () => {
+  const etat = Pt.partageable({ id: 'x' }, { ajoutee: true, erreurEcriture: 'réseau injoignable' });
+  assert.strictEqual(etat.possible, false);
+  assert.ok(/réseau injoignable/.test(etat.raison), etat.raison);
+});
+
+test('partageable autorise le lien d une recette modifiee, avec une reserve', () => {
+  const etat = Pt.partageable({ id: 'x' }, { ajoutee: false, erreurEcriture: 'réseau injoignable' });
+  assert.strictEqual(etat.possible, true);
+  assert.ok(/version précédente/.test(etat.reserve), etat.reserve);
+});
+
+test('partageable ne pose aucune reserve quand tout est parti', () => {
+  const etat = Pt.partageable({ id: 'x' }, { ajoutee: true, erreurEcriture: null });
+  assert.deepStrictEqual(etat, { possible: true, raison: null, reserve: null });
+});
+
+test('enTexte rend une recette lisible telle quelle', () => {
+  const recette = {
+    id: 'essai',
+    titre: 'Soupe à l’oignon',
+    portions: '4 personnes',
+    temps: { total: '1 h 10' },
+    ingredients: [
+      { groupe: 'Base', items: [{ nom: 'Oignons', quantite: '1 kg' }, { nom: 'Sel', quantite: '' }] },
+    ],
+    instructions: [
+      { numero: 1, texte: 'Émincer les oignons.', astuce: 'Astuce : au robot.' },
+      { numero: 'Pour finir', texte: 'Servir chaud.' },
+    ],
+    manquants: ['Le temps de cuisson n’est pas donné'],
+    source: { label: 'Livre de la maison', url: 'https://exemple.fr/soupe' },
+  };
+  const texte = Pt.enTexte(recette, { lien: 'https://exemple.fr/c/#/recette/essai' });
+
+  assert.ok(texte.startsWith('Soupe à l’oignon\n4 personnes · 1 h 10'), texte.slice(0, 80));
+  assert.ok(texte.includes('- Oignons : 1 kg'), texte);
+  // Un ingredient sans quantite ne doit pas trainer de separateur vide.
+  assert.ok(texte.includes('- Sel\n') && !texte.includes('Sel :'), texte);
+  assert.ok(texte.includes('1. Émincer les oignons.'), texte);
+  assert.ok(texte.includes('   Astuce : au robot.'), texte);
+  // Une etape dont le numero n est pas un entier est comptee, sinon la liste
+  // porterait « Pour finir. Servir chaud ».
+  assert.ok(texte.includes('2. Servir chaud.'), texte);
+  assert.ok(texte.includes('À savoir') && texte.includes('temps de cuisson'), texte);
+  assert.ok(texte.includes('Source : Livre de la maison (https://exemple.fr/soupe)'), texte);
+  assert.ok(texte.trimEnd().endsWith('La fiche : https://exemple.fr/c/#/recette/essai'), texte);
+});
+
+test('enTexte tait ce que la recette ne dit pas', () => {
+  const texte = Pt.enTexte({
+    titre: 'Essai',
+    portions: 'Non indiqué',
+    temps: { total: 'Non indiquée' },
+    ingredients: [{ groupe: '', items: [{ nom: 'Eau', quantite: '1 l' }] }],
+    instructions: [],
+    manquants: [],
+  });
+  assert.ok(!/Non indiqu/.test(texte), texte);
+  assert.ok(!/Préparation/.test(texte), texte);
+  assert.ok(!/À savoir/.test(texte), texte);
+});
+
+test('enTexte annonce les parts mises a l echelle et non celles de la fiche', () => {
+  const recette = {
+    titre: 'Essai',
+    portions: '4 personnes',
+    temps: {},
+    ingredients: [{ groupe: '', items: [{ nom: 'Farine', quantite: '500 g' }] }],
+    instructions: [],
+  };
+  assert.ok(Pt.enTexte(recette, { parts: '8 personnes' }).includes('8 personnes'));
+  assert.ok(!Pt.enTexte(recette, { parts: '8 personnes' }).includes('4 personnes'));
+});
+
+test('chargeDePartage ne repete pas le lien dans le texte', () => {
+  const recette = recettes[0];
+  const charge = Pt.chargeDePartage(recette, 'https://exemple.fr/c/#/livre');
+  assert.strictEqual(charge.title, recette.titre);
+  assert.strictEqual(charge.url, 'https://exemple.fr/c/#/recette/' + recette.id);
+  assert.ok(!charge.text.includes('La fiche :'), charge.text.slice(-120));
+});
+
+test('chargeDePartage omet l adresse plutot que d en inventer une', () => {
+  const charge = Pt.chargeDePartage({ titre: 'Essai', ingredients: [], instructions: [] }, '');
+  assert.strictEqual('url' in charge, false, JSON.stringify(charge));
+});
+
+test('le texte d une recette du carnet cite tous ses ingredients', () => {
+  const recette = recettes.find((r) => r.ingredients.some((g) => g.items.length > 3));
+  const texte = Pt.enTexte(recette);
+  recette.ingredients.forEach((groupe) => {
+    groupe.items.forEach((item) => {
+      assert.ok(texte.includes(item.nom), `${item.nom} absent du texte partage`);
+    });
+  });
+});
+
+// --- pdf.js ------------------------------------------------------------------
+
+function octetsDe(chaine) {
+  return Array.from(chaine).map((c) => c.charCodeAt(0));
+}
+
+test('versWinAnsi place la ponctuation typographique aux codes attendus', () => {
+  assert.deepStrictEqual(octetsDe(Pdf.versWinAnsi('’')), [0x92]);
+  assert.deepStrictEqual(octetsDe(Pdf.versWinAnsi('…')), [0x85]);
+  assert.deepStrictEqual(octetsDe(Pdf.versWinAnsi('€')), [0x80]);
+  // Les six caracteres hors ASCII des titres du carnet.
+  assert.deepStrictEqual(octetsDe(Pdf.versWinAnsi('ïéâèà')), [0xef, 0xe9, 0xe2, 0xe8, 0xe0]);
+});
+
+test('versWinAnsi degrade un caractere absent de l encodage sans rendre un octet faux', () => {
+  // Une lettre accentuee hors WinAnsi perd son accent plutot que sa lettre.
+  assert.strictEqual(Pdf.versWinAnsi('ā'), 'a');
+  // Ce qui n a aucun equivalent est marque, pour se voir a la relecture.
+  assert.strictEqual(Pdf.versWinAnsi('中'), '?');
+  // Un saut de ligne devient un espace : dans un flux PDF il n aurait aucun effet.
+  assert.strictEqual(Pdf.versWinAnsi('a\nb'), 'a b');
+});
+
+test('largeurTexte suit les largeurs Adobe des polices de base', () => {
+  // Valeurs de la specification : A vaut 667 milliemes en Helvetica, 722 en gras.
+  assert.strictEqual(Pdf.largeurTexte('A', 1000, false), 667);
+  assert.strictEqual(Pdf.largeurTexte('A', 1000, true), 722);
+  // Une lettre accentuee a la largeur de sa lettre de base.
+  assert.strictEqual(Pdf.largeurTexte('é', 1000, false), Pdf.largeurTexte('e', 1000, false));
+  // La police n est pas a espacement fixe : le carnet en depend pour couper juste.
+  assert.ok(Pdf.largeurTexte('iii', 10, false) < Pdf.largeurTexte('mmm', 10, false));
+  assert.strictEqual(Pdf.largeurTexte('', 12, false), 0);
+});
+
+test('couper respecte la largeur demandee', () => {
+  const lignes = Pdf.couper('Tarte aux pommes et à la cannelle de la maison', 80, 10, false);
+  assert.ok(lignes.length > 1, JSON.stringify(lignes));
+  lignes.forEach((ligne) => {
+    assert.ok(Pdf.largeurTexte(ligne, 10, false) <= 80, `ligne trop large : ${ligne}`);
+  });
+  // Rien ne doit se perdre a la coupure.
+  assert.strictEqual(lignes.join(' '), 'Tarte aux pommes et à la cannelle de la maison');
+});
+
+test('couper decoupe un mot plus large que la colonne au lieu de le laisser depasser', () => {
+  const lignes = Pdf.couper('Anticonstitutionnellement', 40, 10, false);
+  assert.ok(lignes.length > 1, JSON.stringify(lignes));
+  lignes.forEach((ligne) => assert.ok(Pdf.largeurTexte(ligne, 10, false) <= 40, ligne));
+  assert.strictEqual(lignes.join(''), 'Anticonstitutionnellement');
+});
+
+test('couper rend une liste vide pour un texte vide', () => {
+  assert.deepStrictEqual(Pdf.couper('', 100, 10, false), []);
+  assert.deepStrictEqual(Pdf.couper('   ', 100, 10, false), []);
+});
+
+test('couleur lit un code hexadecimal et refuse d inventer', () => {
+  assert.deepStrictEqual(Pdf.couleur('#ffffff'), [1, 1, 1]);
+  assert.deepStrictEqual(Pdf.couleur('#000'), [0, 0, 0]);
+  assert.deepStrictEqual(Pdf.couleur('pas une couleur'), [0, 0, 0]);
+});
+
+test('un document rendu est un PDF structurellement valide', () => {
+  const doc = Pdf.creer({ titre: 'Essai', horodatage: Pdf.horodatage(new Date(0)) });
+  doc.page();
+  doc.texte(40, 60, 'Bonjour l’été', { taille: 14, gras: true });
+  doc.rectangle(40, 80, 200, 40, { fond: '#f5ead8', contour: '#c67139', rayon: 8 });
+  doc.page();
+  doc.texte(40, 60, 'Page deux');
+
+  const fichier = Buffer.from(doc.octets()).toString('latin1');
+  assert.ok(fichier.startsWith('%PDF-1.4\n'), fichier.slice(0, 20));
+  assert.ok(fichier.trimEnd().endsWith('%%EOF'), fichier.slice(-40));
+  assert.strictEqual(doc.nbPages(), 2);
+  assert.strictEqual((fichier.match(/\/Type \/Page[^s]/g) || []).length, 2);
+
+  // La table xref porte des offsets en octets : chacun doit tomber exactement sur la
+  // declaration de son objet. C est ce que verifie un lecteur de PDF avant d ouvrir.
+  const tableau = fichier.slice(fichier.lastIndexOf('\nxref\n') + 6);
+  const entetes = tableau.split('\n');
+  const nbObjets = Number(entetes[0].split(' ')[1]) - 1;
+  for (let i = 1; i <= nbObjets; i += 1) {
+    // entetes[0] est « 0 N », entetes[1] l entree libre : l objet i est en i + 1.
+    const offset = Number(entetes[i + 1].slice(0, 10));
+    assert.ok(
+      fichier.startsWith(`${i} 0 obj`, offset),
+      `offset xref faux pour l objet ${i} : ${JSON.stringify(fichier.slice(offset, offset + 20))}`
+    );
+  }
+
+  // startxref doit designer le debut de la table.
+  const startxref = Number(/startxref\n(\d+)/.exec(fichier)[1]);
+  assert.ok(fichier.startsWith('xref\n', startxref), fichier.slice(startxref, startxref + 10));
+
+  // La longueur declaree de chaque flux doit valoir sa longueur reelle, sinon les
+  // lecteurs stricts refusent la page.
+  const flux = /<< \/Length (\d+) >>\nstream\n([\s\S]*?)\nendstream/g;
+  let trouve;
+  let nbFlux = 0;
+  while ((trouve = flux.exec(fichier)) !== null) {
+    nbFlux += 1;
+    assert.strictEqual(trouve[2].length, Number(trouve[1]), 'longueur de flux declaree fausse');
+  }
+  assert.strictEqual(nbFlux, 2);
+});
+
+test('les parentheses d un titre sont echappees dans le flux', () => {
+  const doc = Pdf.creer({});
+  doc.texte(10, 10, 'Poulet (basquaise) \\ maison');
+  const fichier = Buffer.from(doc.octets()).toString('latin1');
+  assert.ok(fichier.includes('(Poulet \\(basquaise\\) \\\\ maison) Tj'), fichier);
+});
+
+// --- menu-pdf.js -------------------------------------------------------------
+
+function semaineDEssai() {
+  const aujourdhui = new Date(2026, 7, 12, 12, 0, 0);
+  return { sem: Sn.semaine(aujourdhui, aujourdhui), aujourdhui };
+}
+
+function poser(plats, jourCle, moment, titre) {
+  const cle = Sn.cleCreneau(jourCle, moment);
+  plats[cle] = plats[cle] || [];
+  plats[cle].push({
+    cle: Sn.cleItem(jourCle, moment, 'e' + plats[cle].length),
+    jour: jourCle,
+    moment,
+    type: 'recette',
+    recetteId: 'r',
+    titre,
+  });
+  return plats;
+}
+
+test('plan repartit les sept jours sur une page pour une semaine ordinaire', () => {
+  const { sem } = semaineDEssai();
+  const plats = {};
+  poser(plats, sem.jours[0].cle, 'dejeuner', 'Couscous poulet merguez');
+  poser(plats, sem.jours[0].cle, 'diner', 'Soupe à l’oignon');
+  poser(plats, sem.jours[3].cle, 'dejeuner', 'Au bureau');
+
+  const p = MPdf.plan({ semaine: sem, plats });
+  assert.strictEqual(p.pages.length, 1);
+  assert.strictEqual(p.pages[0].length, 7);
+  assert.strictEqual(p.nbPlats, 3);
+});
+
+test('plan passe a la page suivante sans couper un jour en deux', () => {
+  const { sem } = semaineDEssai();
+  const plats = {};
+  sem.jours.forEach((jour) => {
+    ['petit-dejeuner', 'dejeuner', 'diner'].forEach((moment) => {
+      for (let i = 0; i < 3; i += 1) poser(plats, jour.cle, moment, `Blanquette de veau à l’ancienne ${i}`);
+    });
+  });
+
+  const p = MPdf.plan({ semaine: sem, plats });
+  assert.ok(p.pages.length > 1, `une semaine de ${p.nbPlats} plats devrait tenir sur plusieurs pages`);
+  assert.strictEqual(p.nbPlats, 63);
+  // Chaque jour figure une fois et une seule, entier.
+  const jours = p.pages.flat().map((c) => c.jour.cle);
+  assert.deepStrictEqual(jours, sem.jours.map((j) => j.cle));
+  // Aucune carte ne depasse le bas de la zone de contenu.
+  p.pages.forEach((cartes) => {
+    cartes.forEach((carte) => {
+      assert.ok(carte.haut + carte.hauteur <= Pdf.HAUTEUR_A4 - 54 + 0.01, `carte hors page : ${carte.jour.cle}`);
+    });
+  });
+});
+
+test('plan n affiche que les creneaux garnis', () => {
+  const { sem } = semaineDEssai();
+  const plats = poser({}, sem.jours[2].cle, 'diner', 'Pizzas');
+  const p = MPdf.plan({ semaine: sem, plats });
+  const mercredi = p.pages[0][2];
+  assert.deepStrictEqual(mercredi.moments.map((m) => m.cle), ['diner']);
+  assert.deepStrictEqual(p.pages[0][0].moments, []);
+});
+
+test('nomFichier porte la date de la semaine decrite', () => {
+  const { sem } = semaineDEssai();
+  assert.strictEqual(MPdf.nomFichier(sem), 'menu-semaine-du-2026-08-10.pdf');
+});
+
+test('construire ecrit les plats, les jours et le jour vide', () => {
+  const { sem, aujourdhui } = semaineDEssai();
+  const plats = poser({}, sem.jours[0].cle, 'dejeuner', 'Couscous poulet merguez');
+  const fichier = Buffer.from(MPdf.construire({ semaine: sem, plats, genereLe: aujourdhui })).toString('latin1');
+
+  assert.ok(fichier.includes('(Couscous poulet merguez) Tj'), 'le plat pose devrait etre ecrit');
+  assert.ok(fichier.includes('(Lundi) Tj') && fichier.includes('(Dimanche) Tj'), 'les sept jours devraient etre ecrits');
+  assert.ok(fichier.includes('(D' + String.fromCharCode(0xe9) + 'jeuner) Tj'), 'le creneau garni devrait etre nomme');
+  // Un jour sans rien de prevu le dit : sur du papier, un blanc est un doute.
+  assert.ok(fichier.includes('(' + String.fromCharCode(0xe0) + ' d' + String.fromCharCode(0xe9) + 'finir) Tj'));
+  // Un creneau vide n est pas nomme : sept fois « Petit-dejeuner : rien » ne sert a rien.
+  assert.ok(!fichier.includes('(Petit-d' + String.fromCharCode(0xe9) + 'jeuner) Tj'));
+  // La date d impression vient de l argument, jamais de l horloge de la machine.
+  assert.ok(fichier.includes('imprim' + String.fromCharCode(0xe9) + ' le 12 ao' + String.fromCharCode(0xfb) + 't 2026'));
+});
+
+test('construire numerote les pages seulement quand il y en a plusieurs', () => {
+  const { sem, aujourdhui } = semaineDEssai();
+  const legere = Buffer.from(MPdf.construire({ semaine: sem, plats: {}, genereLe: aujourdhui })).toString('latin1');
+  assert.ok(!/page 1 sur/.test(legere), 'une feuille unique ne se numerote pas');
+
+  const plats = {};
+  sem.jours.forEach((jour) => {
+    ['petit-dejeuner', 'dejeuner', 'diner'].forEach((moment) => {
+      for (let i = 0; i < 3; i += 1) poser(plats, jour.cle, moment, `Blanquette de veau ${i}`);
+    });
+  });
+  const chargee = Buffer.from(MPdf.construire({ semaine: sem, plats, genereLe: aujourdhui })).toString('latin1');
+  assert.ok(/\(page 1 sur 2\) Tj/.test(chargee), 'les feuilles multiples se numerotent');
+});
+
+test('un titre de plat trop long est coupe et non tronque', () => {
+  const { sem, aujourdhui } = semaineDEssai();
+  const long = 'Tarte aux pommes et à la cannelle façon grand-mère avec un titre exagérément long';
+  const plats = poser({}, sem.jours[1].cle, 'dejeuner', long);
+  const p = MPdf.plan({ semaine: sem, plats });
+  const lignes = p.pages[0][1].moments[0].lignes;
+  assert.ok(lignes.length > 1, JSON.stringify(lignes));
+  assert.strictEqual(lignes.join(' '), long);
+
+  const fichier = Buffer.from(MPdf.construire({ semaine: sem, plats, genereLe: aujourdhui })).toString('latin1');
+  lignes.forEach((ligne) => {
+    assert.ok(fichier.includes('(' + Pdf.versWinAnsi(ligne) + ') Tj'), `ligne absente du PDF : ${ligne}`);
+  });
+});
+
 // --- Restitution -------------------------------------------------------------
+
 
 console.log(`\n${reussis} test(s) reussi(s), ${echecs.length} echec(s)\n`);
 if (echecs.length > 0) {

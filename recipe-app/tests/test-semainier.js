@@ -1091,7 +1091,65 @@ const PNG_ROUGE =
     (await texteDe(pageA)).slice(0, 300)
   );
 
-  // --- 18. Aucune erreur JavaScript ------------------------------------------
+  // --- 18. Le menu de la semaine en PDF --------------------------------------
+  //
+  // Deux choses a prouver, et la seconde est la seule qui compte vraiment : que le
+  // bouton declenche un telechargement, et que le fichier telecharge est un PDF que
+  // le module a bien ecrit dans le navigateur, pas seulement sous Node.
+
+  await pageA.goto(BASE, { waitUntil: 'networkidle' });
+  await attendre(700);
+  verifier('le bouton PDF est propose sur la semaine', (await pageA.locator('#pdf-semaine').count()) === 1);
+
+  const [telechargement] = await Promise.all([
+    pageA.waitForEvent('download', { timeout: 8000 }),
+    pageA.click('#pdf-semaine'),
+  ]);
+  verifier(
+    'le fichier propose porte la date de la semaine',
+    /^menu-semaine-du-\d{4}-\d{2}-\d{2}\.pdf$/.test(telechargement.suggestedFilename()),
+    telechargement.suggestedFilename()
+  );
+  const cheminPdf = await telechargement.path();
+  const contenuPdf = require('fs').readFileSync(cheminPdf);
+  verifier(
+    'le fichier telecharge est un PDF complet',
+    contenuPdf.slice(0, 9).toString('latin1') === '%PDF-1.4\n' &&
+      contenuPdf.slice(-7).toString('latin1').includes('%%EOF'),
+    contenuPdf.slice(0, 20).toString('latin1')
+  );
+
+  // Le menu de la semaine en cours doit s y retrouver : un PDF valide mais vide de
+  // ce qu on a pose serait un faux succes.
+  const controlePdf = await pageA.evaluate(() => {
+    var Sem = window.CarnetSemaine;
+    var sem = Sem.semaine(new Date(), new Date());
+    var jour = sem.jours[0];
+    return window.CarnetSemainier.poser(jour.cle, 'dejeuner', {
+      type: 'recette',
+      recetteId: 'tapenade-maison',
+      titre: 'Tapenade maison',
+    }).then(function () {
+      var octets = window.CarnetMenuPdf.construire({
+        semaine: sem,
+        plats: window.CarnetSemainier.parCreneau(),
+        genereLe: new Date(),
+      });
+      var texte = '';
+      for (var i = 0; i < octets.length; i += 1) texte += String.fromCharCode(octets[i]);
+      return {
+        taille: octets.length,
+        nom: window.CarnetMenuPdf.nomFichier(sem),
+        porteLePlat: texte.indexOf('(Tapenade maison) Tj') !== -1,
+        porteLeJour: texte.indexOf('(Lundi) Tj') !== -1,
+      };
+    });
+  });
+  verifier('le PDF ecrit dans le navigateur porte le plat pose', controlePdf.porteLePlat, JSON.stringify(controlePdf));
+  verifier('le PDF porte les jours de la semaine', controlePdf.porteLeJour, JSON.stringify(controlePdf));
+  verifier('le PDF pese quelques kilo-octets, pas zero', controlePdf.taille > 2000, `${controlePdf.taille} octets`);
+
+  // --- 19. Aucune erreur JavaScript ------------------------------------------
 
   verifier('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
 

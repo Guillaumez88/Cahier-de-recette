@@ -398,6 +398,72 @@ function verifier(nom, condition, detail = '') {
     'le tableau generique de la source est rendu tel quel'
   );
 
+  // --- Partage de la recette --------------------------------------------------
+  //
+  // Le presse-papiers est demande au navigateur : sans cette permission,
+  // navigator.clipboard rejette en mode sans tete et le repli sur execCommand
+  // masquerait le vrai chemin. Ici on veut verifier le chemin normal, et relire ce
+  // qui a ete copie.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(BASE).origin });
+
+  verifier('la fiche propose de partager', (await page.locator('#partager-recette').count()) === 1);
+  await page.click('#partager-recette');
+  await page.waitForTimeout(300);
+  const partage = await page.evaluate(() => ({
+    voile: Boolean(document.querySelector('#voile')),
+    texte: (document.querySelector('#texte-partage') || {}).value || '',
+    adresse: (document.querySelector('#adresse-partage') || {}).textContent || '',
+    lecture: (document.querySelector('#texte-partage') || {}).readOnly === true,
+    reserve: Boolean(document.querySelector('#partage-reserve') || document.querySelector('#partage-impossible')),
+  }));
+  verifier('la boite de partage s ouvre', partage.voile);
+  verifier(
+    'le texte partage porte la recette entiere',
+    /^Tapenade maison/.test(partage.texte) &&
+      /Ingrédients/.test(partage.texte) &&
+      /Préparation/.test(partage.texte) &&
+      /Olives noires/.test(partage.texte),
+    partage.texte.slice(0, 200)
+  );
+  verifier('le texte partage n est pas modifiable', partage.lecture === true);
+  verifier(
+    'l adresse de la fiche est affichee en clair',
+    partage.adresse.endsWith('#/recette/tapenade-maison'),
+    partage.adresse
+  );
+  verifier(
+    'aucune reserve n est annoncee quand tout est synchronise',
+    partage.reserve === false,
+    'un bandeau de reserve est affiche alors que rien n a echoue'
+  );
+
+  await page.click('#copier-recette');
+  await page.waitForTimeout(400);
+  const copie = await page.evaluate(() => navigator.clipboard.readText());
+  verifier(
+    'le bouton copie bien la recette dans le presse-papiers',
+    copie.startsWith('Tapenade maison') && copie.includes('Olives noires'),
+    copie.slice(0, 120)
+  );
+  verifier(
+    'le bouton confirme la copie a l ecran',
+    /Recette copiée/.test(await page.locator('#copier-recette').textContent()),
+    await page.locator('#copier-recette').textContent()
+  );
+
+  await page.click('#copier-lien');
+  await page.waitForTimeout(400);
+  const lienCopie = await page.evaluate(() => navigator.clipboard.readText());
+  verifier(
+    'le bouton copie le lien vers la fiche',
+    lienCopie.endsWith('#/recette/tapenade-maison') && !lienCopie.includes('#/recette/tapenade-maison#'),
+    lienCopie
+  );
+
+  await page.click('#fermer-boite');
+  await page.waitForTimeout(200);
+  verifier('la boite de partage se referme', (await page.locator('#voile').count()) === 0);
+
   await page.emulateMedia({ media: 'print' });
   await page.waitForTimeout(300);
   const impression = await page.evaluate(() => {

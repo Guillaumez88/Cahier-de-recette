@@ -23,6 +23,8 @@
   var Mg = window.CarnetVueMagasin;
   var Pl = window.CarnetPlacard;
   var Imp = window.CarnetImport;
+  var Pt = window.CarnetPartage;
+  var MPdf = window.CarnetMenuPdf;
 
   var criteresVides = L.criteresVides;
   var origineCourte = L.origineCourte;
@@ -896,6 +898,19 @@
             ouvrirCoursesSemaine(sem);
           },
         }, [icone('panier', { taille: 16 }), el('span', { texte: 'Ajouter aux courses' })]),
+        // Le menu sur papier. Chaque semaine a son bouton : ce sont deux feuilles
+        // differentes, et proposer un choix de semaine dans une boite pour deux
+        // valeurs serait une etape de plus pour rien.
+        el('button', {
+          type: 'button',
+          class: 'bouton bouton--sobre',
+          id: estCourante ? 'pdf-semaine' : null,
+          'data-pdf-semaine': sem.cle,
+          title: 'Le menu de cette semaine en PDF, à imprimer',
+          onclick: function () {
+            telechargerMenuPdf(sem);
+          },
+        }, [icone('feuille', { taille: 16 }), el('span', { texte: 'PDF' })]),
         // Un seul interrupteur pour tout l'accueil, pas un par semaine : les cases a
         // « + » et la reserve de plats apparaissent ou disparaissent ensemble.
         el('button', {
@@ -2423,6 +2438,14 @@
               },
             })
           : null,
+        el('button', {
+          type: 'button',
+          class: 'bouton bouton--secondaire',
+          id: 'partager-recette',
+          onclick: function () {
+            ouvrirPartage(recette);
+          },
+        }, [icone('partager', { taille: 16 }), el('span', { texte: 'Partager' })]),
         el('a', {
           class: 'bouton bouton--secondaire',
           id: 'modifier-recette',
@@ -2807,6 +2830,255 @@
    */
   function erreurEcritureRecette() {
     return Rc.etatChargement().erreur || null;
+  }
+
+  /* --- partage d'une recette ------------------------------------------------ */
+
+  /**
+   * Copie un texte dans le presse-papiers. Rend une promesse de booleen.
+   *
+   * Trois chemins, du plus propre au plus vieux, parce que le premier n'existe pas
+   * partout : `navigator.clipboard` demande un contexte securise (https, ou
+   * localhost) et le carnet peut tourner ailleurs. `execCommand('copy')` est
+   * officiellement obsolete mais reste implemente partout, et c'est le seul repli
+   * possible sans dependance. La zone de texte est posee hors ecran, jamais dans le
+   * flux, sinon la page sauterait a chaque copie.
+   */
+  function copierDansPressePapiers(texte) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(texte).then(
+        function () {
+          return true;
+        },
+        function () {
+          return copierParSelection(texte);
+        }
+      );
+    }
+    return Promise.resolve(copierParSelection(texte));
+  }
+
+  function copierParSelection(texte) {
+    try {
+      var zone = document.createElement('textarea');
+      zone.value = texte;
+      zone.setAttribute('readonly', 'readonly');
+      zone.style.position = 'fixed';
+      zone.style.top = '-1000px';
+      zone.style.opacity = '0';
+      document.body.appendChild(zone);
+      zone.select();
+      var copie = document.execCommand && document.execCommand('copy');
+      zone.remove();
+      return Boolean(copie);
+    } catch (erreur) {
+      return false;
+    }
+  }
+
+  /** Marque un bouton comme ayant fait son office, sans re-rendre la boite. */
+  function confirmerSurBouton(bouton, phrase, libelleDorigine) {
+    if (!bouton) return;
+    var etiquette = bouton.querySelector('span');
+    if (etiquette) etiquette.textContent = phrase;
+    annoncer(phrase);
+    setTimeout(function () {
+      if (etiquette && document.body.contains(bouton)) etiquette.textContent = libelleDorigine;
+    }, 2500);
+  }
+
+  /**
+   * Boite de partage d'une recette.
+   *
+   * Deux objets differents s'y partagent, et la boite ne les melange pas : le texte
+   * de la recette, qui se lit tel quel dans une conversation, et le lien vers la
+   * fiche, utile a qui a le carnet. Voir l'en-tete de js/partage.js pour ce qu'un
+   * lien donne vraiment, et a qui.
+   *
+   * `navigator.share` n'apparait que quand le navigateur l'a : sur un bureau, la
+   * plupart ne l'ont pas, et un bouton qui ne fait rien vaut moins que son absence.
+   * Le texte reste affiche en clair au bas de la boite : c'est le dernier recours
+   * quand ni le partage ni le presse-papiers ne repondent.
+   */
+  function ouvrirPartage(recette) {
+    var etatPartage = Pt.partageable(recette, {
+      ajoutee: Rc.estAjoutee(recette.id),
+      erreurEcriture: erreurEcritureRecette(),
+    });
+    var adresse = etatPartage.possible ? Pt.lien(recette, window.location.href) : '';
+    var texte = Pt.enTexte(recette, { lien: null });
+
+    function corps() {
+      var elements = [];
+
+      if (!etatPartage.possible) {
+        elements.push(
+          el('div', { class: 'sync sync--config', id: 'partage-impossible' }, [
+            el('span', { class: 'sync__etat', texte: 'Le lien n’est pas partageable' }),
+            el('p', { class: 'sync__erreur', texte: majusculePhrase(etatPartage.raison) }),
+            el('p', { class: 'apercu-import__note', texte: 'Le texte de la recette, lui, reste partageable.' }),
+          ])
+        );
+      } else if (etatPartage.reserve) {
+        elements.push(
+          el('div', { class: 'sync sync--config', id: 'partage-reserve' }, [
+            el('span', { class: 'sync__etat', texte: 'À savoir avant d’envoyer' }),
+            el('p', { class: 'sync__erreur', texte: majusculePhrase(etatPartage.reserve) }),
+          ])
+        );
+      }
+
+      var boutons = [];
+
+      if (navigator.share) {
+        boutons.push(
+          el('button', {
+            type: 'button',
+            class: 'bouton',
+            id: 'partager-systeme',
+            onclick: function () {
+              navigator.share(Pt.chargeDePartage(recette, etatPartage.possible ? window.location.href : '')).catch(
+                function (erreur) {
+                  // Un partage annule leve AbortError : ce n'est pas un echec, et le
+                  // dire ferait passer un geste volontaire pour un probleme.
+                  if (erreur && erreur.name === 'AbortError') return;
+                  annoncer('Le partage n’a pas abouti. Le texte est copiable juste en dessous.');
+                }
+              );
+            },
+          }, [icone('partager', { taille: 16 }), el('span', { texte: 'Partager…' })])
+        );
+      }
+
+      boutons.push(
+        el('button', {
+          type: 'button',
+          class: 'bouton bouton--secondaire',
+          id: 'copier-recette',
+          onclick: function (evenement) {
+            var bouton = evenement.currentTarget;
+            copierDansPressePapiers(texte).then(function (fait) {
+              confirmerSurBouton(
+                bouton,
+                fait ? 'Recette copiée' : 'Copie refusée, sélectionnez le texte',
+                'Copier la recette'
+              );
+            });
+          },
+        }, [icone('copier', { taille: 16 }), el('span', { texte: 'Copier la recette' })])
+      );
+
+      if (adresse) {
+        boutons.push(
+          el('button', {
+            type: 'button',
+            class: 'bouton bouton--sobre',
+            id: 'copier-lien',
+            onclick: function (evenement) {
+              var bouton = evenement.currentTarget;
+              copierDansPressePapiers(adresse).then(function (fait) {
+                confirmerSurBouton(
+                  bouton,
+                  fait ? 'Lien copié' : 'Copie refusée, sélectionnez l’adresse',
+                  'Copier le lien'
+                );
+              });
+            },
+          }, [icone('lien', { taille: 16 }), el('span', { texte: 'Copier le lien' })])
+        );
+      }
+
+      elements.push(el('div', { class: 'boite__actions', id: 'actions-partage' }, boutons));
+
+      if (adresse) {
+        elements.push(
+          el('p', { class: 'apercu-import__note' }, [
+            el('span', { texte: 'La fiche : ' }),
+            el('span', { class: 'adresse-partage', id: 'adresse-partage', texte: adresse }),
+          ])
+        );
+      }
+
+      elements.push(
+        el('h3', { class: 'boite__section', texte: 'Le texte envoyé' })
+      );
+      var zone = el('textarea', {
+        class: 'champ-import',
+        id: 'texte-partage',
+        rows: 10,
+        readonly: 'readonly',
+        'aria-label': 'Texte de la recette, prêt à copier',
+        onclick: function (evenement) {
+          evenement.target.select();
+        },
+      });
+      zone.value = texte;
+      elements.push(zone);
+
+      return elements;
+    }
+
+    ouvrirVoile('Partager ' + recette.titre, corps, { large: true });
+  }
+
+  /** Premiere lettre en majuscule : les raisons sont ecrites en minuscule. */
+  function majusculePhrase(phrase) {
+    var chaine = String(phrase || '');
+    return chaine.charAt(0).toUpperCase() + chaine.slice(1);
+  }
+
+  /* --- le menu de la semaine en PDF ----------------------------------------- */
+
+  /**
+   * Fabrique le PDF du menu et le propose au telechargement.
+   *
+   * Le lien est cree, clique, puis retire : c'est le seul moyen de nommer un fichier
+   * telecharge depuis une page. L'adresse objet n'est liberee qu'apres un delai, la
+   * revoquer aussitot interrompant le telechargement sur plusieurs navigateurs.
+   *
+   * Limite connue et non contournable : dans une application installee sur iOS, la
+   * demande de telechargement ouvre le PDF dans une nouvelle vue au lieu de
+   * l'enregistrer. Le fichier est le meme, il faut le partager depuis cette vue.
+   */
+  function telechargerMenuPdf(sem) {
+    try {
+      var octets = MPdf.construire({
+        semaine: sem,
+        plats: Sm.parCreneau(),
+        genereLe: new Date(),
+      });
+      var adresse = URL.createObjectURL(new Blob([octets], { type: 'application/pdf' }));
+      var lien = document.createElement('a');
+      lien.href = adresse;
+      lien.download = MPdf.nomFichier(sem);
+      document.body.appendChild(lien);
+      lien.click();
+      lien.remove();
+      setTimeout(function () {
+        URL.revokeObjectURL(adresse);
+      }, 30000);
+      annoncer('Menu ' + sem.libelle + ' enregistré en PDF.');
+    } catch (erreur) {
+      // Un echec ici ne doit pas rester muet : sans message, on cliquerait a nouveau
+      // en croyant avoir mal vise. Une boite plutot qu'un bandeau, parce qu'il faut
+      // pouvoir lire le message et reessayer.
+      ouvrirVoile('Le PDF n’a pas pu être fabriqué', function (fermer) {
+        return [
+          el('p', { class: 'sync__erreur', texte: erreur.message }),
+          el('div', { class: 'boite__actions' }, [
+            el('button', {
+              type: 'button',
+              class: 'bouton',
+              id: 'reessayer-pdf',
+              onclick: function () {
+                fermer();
+                telechargerMenuPdf(sem);
+              },
+            }, [icone('rafraichir', { taille: 16 }), el('span', { texte: 'Réessayer' })]),
+          ]),
+        ];
+      });
+    }
   }
 
   /* --- import d'une recette depuis un site ---------------------------------- */

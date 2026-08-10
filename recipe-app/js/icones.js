@@ -68,6 +68,32 @@
       ['path', { d: 'M12 8v4.5l3 1.8' }],
     ],
     coche: [['path', { d: 'M5 12.5l4.5 4.5L19 7' }]],
+    // Trois noeuds relies : le symbole de partage, celui des menus systeme sur
+    // Android et sur le bureau. Pas la fleche sortant d'un cadre, qui est celui d'iOS
+    // et que personne ne reconnait ailleurs.
+    partager: [
+      ['circle', { cx: '18', cy: '5.5', r: '2.5' }],
+      ['circle', { cx: '6', cy: '12', r: '2.5' }],
+      ['circle', { cx: '18', cy: '18.5', r: '2.5' }],
+      ['path', { d: 'M15.8 6.8 8.2 10.7M8.2 13.3l7.6 3.9' }],
+    ],
+    // Deux feuilles superposees : copier. Le presse-papiers dessine comme une
+    // planchette se confond avec une note ou une liste, a 16 pixels.
+    copier: [
+      ['rect', { x: '9', y: '9', width: '11.5', height: '11.5', rx: '2' }],
+      ['path', { d: 'M15 5.5A2 2 0 0 0 13 3.5H5.5a2 2 0 0 0-2 2V13a2 2 0 0 0 2 2' }],
+    ],
+    // Deux maillons : une adresse. Distinct de la fleche, qui veut dire « aller a ».
+    lien: [
+      ['path', { d: 'M10.5 13.5a3.5 3.5 0 0 1 0-5l2-2a3.5 3.5 0 0 1 5 5l-1 1' }],
+      ['path', { d: 'M13.5 10.5a3.5 3.5 0 0 1 0 5l-2 2a3.5 3.5 0 0 1-5-5l1-1' }],
+    ],
+    // Une feuille au coin replie : le document a imprimer ou a enregistrer.
+    feuille: [
+      ['path', { d: 'M6 3.5h7.5L19 9v11.5H6z' }],
+      ['path', { d: 'M13.5 3.5V9H19' }],
+      ['path', { d: 'M9 13h7M9 16.5h5' }],
+    ],
 
     // Moments de la journee
     'petit-dejeuner': [
