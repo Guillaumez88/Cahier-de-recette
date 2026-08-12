@@ -22,6 +22,19 @@
       ['path', { d: 'M20 5.5a2 2 0 0 0-2-2h-4.5v17H18a2 2 0 0 1 2 2z' }],
       ['path', { d: 'M12 3.5v17' }],
     ],
+    // Le livre ferme, vu de face : c'est celui de la proposition de design pour la
+    // couverture d'une carte de la bibliotheque. Distinct de `livre`, qui est un
+    // livre ouvert et sert a la navigation.
+    'livre-ferme': [
+      ['path', { d: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20' }],
+      ['path', { d: 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' }],
+    ],
+    // Trois volumes debout : l'etagere, donc la bibliotheque.
+    bibliotheque: [
+      ['rect', { x: '3.5', y: '5', width: '4.5', height: '14', rx: '1' }],
+      ['rect', { x: '10', y: '5', width: '4.5', height: '14', rx: '1' }],
+      ['path', { d: 'M16.8 6.4l3.5.9-2.6 12-3.5-.9z' }],
+    ],
     panier: [
       ['path', { d: 'M4 7.5h16l-1.4 10a2 2 0 0 1-2 1.7H7.4a2 2 0 0 1-2-1.7z' }],
       ['path', { d: 'M9 7.5V6a3 3 0 0 1 6 0v1.5' }],

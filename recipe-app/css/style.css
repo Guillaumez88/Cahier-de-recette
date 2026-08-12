@@ -4127,3 +4127,150 @@ a.creneau__plat:hover .creneau__titre {
   cursor: pointer;
   margin-top: 4px;
 }
+
+/* --- La bibliothèque -------------------------------------------------------- */
+
+/* Un bloc de filtres réduit à son champ de recherche : la bibliothèque n'a pas de
+   rangées de puces au-dessus de sa recherche, contrairement au livre. */
+.filtres--seul {
+  padding-bottom: 4px;
+}
+
+.rangee-filtre--themes {
+  margin: 4px 0 6px;
+}
+
+/* Sans largeur maximale, la phrase d'introduction occupe toute la ligne et repousse
+   le bouton « Créer un livre » en dessous du titre, alors qu'il lui fait face sur les
+   autres écrans. */
+.livre__entete .accroche {
+  max-width: 62ch;
+}
+
+.biblio__theme {
+  margin: 24px 0 12px;
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--terracotta-sombre);
+}
+
+/* Les cartes de livre sont plus étroites que les cartes de recette : un livre porte
+   un titre et un décompte, pas des ingrédients et des étapes. */
+.grille-livres {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.livre-carte {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 172px;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-lg);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.livre-carte:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(32, 30, 29, 0.09);
+}
+
+/* La couverture : un aplat et un livre dessiné. Trois palettes, choisies par une
+   empreinte du nom du thème dans vue-bibliotheque.js, pour qu'un thème inventé plus
+   tard ait quand même une couleur stable sans table à maintenir ici. */
+.livre-carte__couverture {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 104px;
+  color: var(--terracotta-sombre);
+  background: var(--accent-100);
+}
+.livre-carte--p1 .livre-carte__couverture {
+  color: var(--sauge-700);
+  background: var(--sauge-100);
+}
+/* Un livre encore vide reste neutre : sa couverture dit qu'il attend son contenu. */
+.livre-carte--vide .livre-carte__couverture {
+  color: var(--texte-faible);
+  background: var(--neutre-100);
+}
+
+.livre-carte__corps {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 11px 14px 14px;
+}
+
+.livre-carte__titre {
+  font-family: 'Caprasimo', Georgia, serif;
+  font-size: 15px;
+  line-height: 1.25;
+  color: var(--texte);
+}
+
+.livre-carte__auteur,
+.livre-carte__compte {
+  font-size: 12.5px;
+  color: var(--texte-doux);
+}
+.livre-carte__compte--vide {
+  color: var(--texte-faible);
+}
+
+/* La carte d'ajout : un contour tireté, qui dit « place libre » sans faire croire à
+   un livre existant. */
+.livre-carte--ajout {
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--texte-doux);
+  background: transparent;
+  border: 1.5px dashed var(--bordure-forte);
+  cursor: pointer;
+}
+.livre-carte--ajout:hover {
+  color: var(--terracotta);
+  border-color: var(--terracotta);
+}
+
+/* La provenance d'une recette, sur sa carte et sur sa fiche. */
+.carte__livre,
+.etiquette--livre {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.carte__livre {
+  font-size: 12.5px;
+  color: var(--terracotta-sombre);
+}
+.etiquette--livre {
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--terracotta-sombre);
+  background: var(--terracotta-clair);
+  border-radius: 999px;
+  text-decoration: none;
+}
+.etiquette--remontee {
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--olive);
+  background: var(--sauge-100);
+  border-radius: 999px;
+}

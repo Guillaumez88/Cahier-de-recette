@@ -65,6 +65,8 @@ qui ne se voit pas tout de suite.
 |---|---|
 | Changer un écran, le routage, une boîte modale | `js/app.js` (4 400 lignes, voir le piège n° 6) |
 | L'écran « En magasin » | `js/vue-magasin.js` |
+| L'écran « Bibliothèque » | `js/vue-bibliotheque.js` |
+| Les livres de la bibliothèque | `js/livres.js` |
 | Filtres, recherche, durées, rappel d'ingrédients de l'étape | `js/logic.js` |
 | Lire, additionner, mettre à l'échelle une quantité | `js/quantites.js` |
 | Classer un ingrédient par rayon de magasin | `js/rayons.js` |
@@ -90,7 +92,7 @@ workflow : le fichier lui-même, la balise `<script>` de `index.html` **à la bo
 place**, la liste `attendus` du workflow `.github/workflows/deploy-pages.yml`, et la
 `COQUILLE` de `sw.js`. En oublier un casse soit la publication, soit le hors ligne.
 
-**Ajouter une collection Firestore.** Cinq endroits : `js/sync.js` (chemin, lecture,
+**Ajouter une collection Firestore.** Six collections existent aujourd'hui : les articles de liste, les recettes, les créneaux du semainier, le placard, les photos et les livres. Pour en ajouter une, cinq endroits : `js/sync.js` (chemin, lecture,
 écriture, suppression), un module de collection sur le modèle de `js/placard.js` (le
 plus court, 171 lignes), `firestore.rules`, l'émulation `tests/stub-firestore.js`, et
 `tests/verifier-firebase.js`. **Et il faut republier les règles à la main**, sinon la
@@ -165,10 +167,11 @@ qu'en une fois.
 | Ingrédients | 209 occurrences, 133 noms distincts, tous classés par rayon |
 | Étapes | 145, dont 107 portent un rappel d'ingrédients |
 | Couverture du déroulé reconstitué | 193 / 209, soit 92 % |
-| Code | 21 modules, 11 295 lignes de JavaScript |
-| Poids transféré au chargement | 182 Ko compressés, 31 fichiers |
-| Coût des deux dernières fonctions | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
-| Tests | 155 + 115 sous Node, 383 vérifications navigateur, 18 contre le vrai Firebase |
+| Code | 23 modules, 12 482 lignes de JavaScript |
+| Poids transféré au chargement | 196 Ko compressés, 33 fichiers |
+| Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
+| Coût de la bibliothèque | 6,9 Ko compressés (livres 3,3 Ko, écran 3,6 Ko) |
+| Tests | 161 + 125 sous Node, 426 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -205,6 +208,7 @@ sans voir ce qu'elle protégeait.
     │   ├── storage.js           Liste commune : rayons, addition des quantités
     │   ├── semainier.js         Menus communs : créneaux, compteur de réalisations
     │   ├── placard.js           Ce qu'on a toujours et qu'il ne faut pas racheter
+    │   ├── livres.js            La bibliothèque : les livres de cuisine de la maison
     │   ├── photos.js            Photos : redimensionnement, deux tailles, cache IndexedDB
     │   ├── cuisson.js           Où l'on en est dans une recette, en local
     │   ├── import-recette.js    Lecture d'une recette schema.org trouvée sur un site
@@ -212,18 +216,20 @@ sans voir ce qu'elle protégeait.
     │   ├── pdf.js               Écrivain de PDF minimal : texte, traits, rectangles
     │   ├── menu-pdf.js          Le menu de la semaine sur une feuille A4
     │   ├── vue-magasin.js       L'écran « En magasin », premier écran sorti de app.js
+    │   ├── vue-bibliotheque.js  L'écran « Bibliothèque », deuxième écran sorti de app.js
     │   └── app.js               Rendu DOM et routage par ancre
     ├── data/recipes.json        Les 21 recettes
     ├── favicon.svg
     ├── tools/
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
-        ├── run-tests.js           155 tests de la logique métier
-        ├── run-sync-tests.js      115 tests de la synchronisation
+        ├── run-tests.js           161 tests de la logique métier
+        ├── run-sync-tests.js      125 tests de la synchronisation
         ├── test-web.js             98 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
         ├── test-edition.js         72 vérifications navigateur, modification, parts, accordéon
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
+        ├── test-bibliotheque.js    43 vérifications navigateur, livres et périmètres
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -231,7 +237,7 @@ sans voir ce qu'elle protégeait.
         └── serveur.js              Serveur statique sans dépendance
 ```
 
-Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `collection.js`, `recettes.js`, `storage.js`, `semainier.js`, `placard.js`, `photos.js`, `cuisson.js`, `import-recette.js`, `partage.js`, `pdf.js`, `menu-pdf.js`, `vue-magasin.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
+Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `collection.js`, `recettes.js`, `storage.js`, `semainier.js`, `placard.js`, `livres.js`, `photos.js`, `cuisson.js`, `import-recette.js`, `partage.js`, `pdf.js`, `menu-pdf.js`, `vue-magasin.js`, `vue-bibliotheque.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
 
 `app.js` ne parle jamais au réseau ni au stockage : il passe par `storage.js`, `semainier.js`, `placard.js`, `recettes.js` et `photos.js`, seuls endroits décidant où sont rangées les données.
 
@@ -259,9 +265,10 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 - **Déroulé des préparations** : le tableau fourni avec la recette quand il existe, reconstitué automatiquement sinon (voir plus bas).
 - **Liste de courses commune** (voir la section suivante) : partagée entre tous les appareils, rangée par rayon de magasin, avec addition des quantités d'un même ingrédient, sélection d'ingrédients à la carte, ajout d'articles libres, compteur dans l'en-tête et fonctionnement hors ligne.
 - **Modification des recettes** et **changement du nombre de parts** (voir plus bas).
+- **La bibliothèque** : les livres de cuisine « en vrai » de la maison, classés par thème, auxquels on rattache des recettes au fil de leur saisie. Leurs recettes ont toutes les fonctions des autres mais restent hors du planning de la semaine, sauf celles qu'on remonte dans le livre de cuisine (voir plus bas).
 - **Partager une recette** : le texte entier de la recette, prêt à coller dans un message, ou un lien vers la fiche (voir plus bas).
 - **Le menu de la semaine en PDF**, une feuille A4 à imprimer, fabriquée dans le navigateur sans aucune dépendance (voir plus bas).
-- **Le carnet s'ouvre sans réseau.** Un *service worker* (`sw.js`) met en cache les 31 fichiers du site, soit 182 Ko compressés, et les sert en priorité avec mise à jour en arrière-plan : un fichier modifié est récupéré immédiatement et s'affiche au chargement suivant, une version périmée ne survivant jamais plus d'une ouverture. Incrémenter `VERSION` dans `sw.js` force une purge immédiate, et devient nécessaire quand un fichier est retiré de la liste, qui resterait sinon en cache. Sans lui, une page ouverte hors ligne n'affichait rien du tout : les données survivaient dans le stockage local, mais il n'y avait plus d'application pour les afficher. Un `manifest.webmanifest` permet « Ajouter à l'écran d'accueil », qui donne une icône et un lancement sans barre d'URL.
+- **Le carnet s'ouvre sans réseau.** Un *service worker* (`sw.js`) met en cache les 33 fichiers du site, soit 196 Ko compressés, et les sert en priorité avec mise à jour en arrière-plan : un fichier modifié est récupéré immédiatement et s'affiche au chargement suivant, une version périmée ne survivant jamais plus d'une ouverture. Incrémenter `VERSION` dans `sw.js` force une purge immédiate, et devient nécessaire quand un fichier est retiré de la liste, qui resterait sinon en cache. Sans lui, une page ouverte hors ligne n'affichait rien du tout : les données survivaient dans le stockage local, mais il n'y avait plus d'application pour les afficher. Un `manifest.webmanifest` permet « Ajouter à l'écran d'accueil », qui donne une icône et un lancement sans barre d'URL.
 - **Annuler le retrait d'un plat.** La croix retire sans confirmation, parce que demander « êtes-vous sûr ? » à chaque geste est plus pénible que le geste. La contrepartie est un bandeau « Plat retiré — Annuler » pendant sept secondes, qui repose le plat **avec sa clé d'origine** : il retrouve sa place dans l'ordre du repas, alors qu'une clé neuve l'enverrait en fin de liste, ce qui ne serait pas une annulation. Si la clé a été reprise entre-temps par un autre appareil, le plat présent gagne : écraser serait pire que de ne pas annuler.
 - **Navigation adaptée à l'écran.** Sur ordinateur, l'en-tête porte les liens « Le livre » et « Liste de courses », chacun avec son pictogramme, l'état actif visible, le compteur d'articles restants et le bouton de rafraîchissement, qui affiche l'âge de la donnée en trois caractères (« 4min », « 3h », « 2j »). Sur téléphone, l'en-tête n'a plus de liens : une **barre d'onglets** en bas de l'écran (Semaine, Le livre, Courses) met les trois destinations sous le pouce, avec un retrait pour l'encoche du bas, et le rafraîchissement se fait en **tirant la page vers le bas**.
 - **Pictogrammes** en SVG écrit dans la page, dans `js/icones.js` : aucune police d'icônes ni CDN, donc rien à charger et rien qui casse en cuisine sans connexion. Ils se colorent par `currentColor` et suivent la palette sans code supplémentaire.
@@ -428,6 +435,85 @@ Ce rappel est déduit du texte de l'étape, rien n'est saisi recette par recette
 L'étape est bornée **à la lecture** et non à l'écriture : une recette raccourcie par une modification laisserait sinon un index au-delà de la dernière étape, et l'écran resterait vide sans qu'on comprenne pourquoi.
 
 **Il n'y a plus de bouton « Imprimer la fiche ».** L'impression reste possible par le navigateur, et **les replis y sont ouverts par JavaScript** (`beforeprint`), puis refermés ensuite, et seulement ceux que le code a ouverts. Une fiche imprimée doit être complète : un dépli refermé y perdrait les temps, le déroulé et la source. Le CSS ne peut pas le faire, le navigateur masquant le contenu d'un `<details>` fermé par un mécanisme que `display` ne touche pas.
+
+## La bibliothèque : les livres de la maison
+
+Un livre de la bibliothèque est une **étagère**, pas un recueil : un titre, un thème, un
+auteur, et rien d'autre. On lui rattache des recettes au fil de leur saisie, et un livre
+sans aucune recette reste listé, parce qu'il existe quand même dans la cuisine.
+
+### Ce que la séparation garantit
+
+Les recettes d'un livre ont **toutes** les fonctions des autres : fiche, mode Cuisiner,
+ajout aux courses, photo, partage, mise à l'échelle, modification. Une seule chose leur
+est refusée : **entrer dans le planning de la semaine**. Elles n'apparaissent ni dans la
+réserve de plats, ni dans la boîte de choix d'un repas, ni dans la recherche du livre de
+cuisine.
+
+Chaque fiche propose « Ajouter au livre de cuisine », qui la rend planifiable sans la
+sortir de son livre. Le bouton devient alors « Retirer du livre de cuisine », et la
+retirer ne supprime rien : elle reste dans son livre.
+
+### Le modèle, en trois lignes
+
+Un livre est un document de la collection Firestore `livres`. Le livre **ne porte pas**
+la liste de ses recettes : c'est chaque recette qui nomme son livre, dans son propre
+document, par deux champs facultatifs rangés dans le JSON de la recette.
+
+| Champ | Sens |
+|---|---|
+| `livre` | l'identifiant du livre. Absent pour les recettes du livre de cuisine. |
+| `auLivre` | vrai quand la recette a été remontée dans le livre de cuisine. Absent sinon. |
+
+Pourquoi ce sens-là : deux appareils qui rattachent chacun une recette au même livre
+modifient alors deux documents distincts, sans s'écraser. C'est la raison qui a déjà fait
+choisir un document par article dans la liste de courses. Conséquence utile : supprimer
+un livre ne supprime aucune recette, et c'est pourquoi la suppression est refusée tant
+qu'il en contient, ses recettes resteraient sinon en base sans étagère, donc visibles
+nulle part.
+
+Les sélecteurs sont dans `js/recettes.js` : `duLivreDeCuisine()` (la seule source du
+planning), `duLivre()`, `deLaBibliotheque()`, `comptesParLivre()`, `livreDe()`,
+`estRemontee()`, `remonter()`.
+
+### Un seul écran pour deux étagères
+
+`vueLivre(livre)` rend le livre de cuisine (`livre` valant `null`) comme un livre de la
+bibliothèque. La demande était une page « qui ressemble à la page Le livre de cuisine » :
+en dupliquer deux cents lignes aurait garanti qu'un filtre corrigé d'un côté reste faux
+de l'autre.
+
+Ce qui en découle, et qui était demandé : les filtres d'un livre ne proposent que ce
+qu'il contient (un livre de desserts n'offre pas la puce « Entrée »), la recherche d'un
+livre ne regarde que ses recettes, et la recherche de l'écran « Bibliothèque » traverse
+tous les livres, ses résultats portant le nom du livre d'origine.
+
+**Un piège traité** : les critères de filtre sont remis à zéro quand on change
+d'étagère. Sans cela, un filtre « Dessert » hérité du livre de cuisine viderait l'écran
+d'un livre de plats, avec une puce qui n'y est même pas proposée.
+
+### Thème et catégorie ne sont pas la même chose
+
+La **catégorie** (Entrée, Plat, Dessert) décrit un plat. Le **thème** (Pâtisserie, Plats,
+Boisson) décrit un ouvrage. Les deux se croisent sur le même écran, d'où deux mots
+distincts. La liste des thèmes n'est pas fermée : les puces de filtre sont déduites des
+livres présents, un livre de conserves fait donc apparaître « Conserves » sans qu'on
+touche au code. La couleur d'une couverture vient d'une empreinte du nom du thème sur
+deux palettes, stable d'un chargement à l'autre ; un livre vide reste neutre.
+
+### Le seuil de lectures à surveiller
+
+Toutes les recettes de la collection `recettes` sont relues à chaque chargement de page.
+À 500 recettes de livres, cela ferait 11 000 lectures par jour pour 22 chargements, sur
+un palier gratuit de 50 000, en plus du semainier (piste A1). La sortie est connue et non
+faite : lire les recettes d'un livre à l'ouverture du livre, par une requête filtrée sur
+le champ `livre`. Rien ne presse aux volumes actuels.
+
+### Ce qui reste à faire côté console Firebase
+
+**`firestore.rules` doit être republié** : la collection `livres` s'ajoute aux cinq
+autres. Tant que ce n'est pas fait, la bibliothèque paraît vide et l'application
+continue de fonctionner sans elle.
 
 ## Partager une recette
 
@@ -634,7 +720,7 @@ node tests/verifier-firebase.js --reel
 
 Les contrôles portent sur : la session anonyme, l'écriture d'un document par article, la conservation des accents et des quantités à l'aller-retour, le cochage n'écrivant que le champ concerné, la relecture depuis un cache local vide (le cas du second appareil), l'article libre, le retrait des cochés, la suppression, l'intégrité des articles préexistants, l'accès à la collection des recettes et le cycle complet d'une recette modifiée, le semainier (un plat écrit, relu et vidé, deux plats dans un même repas en deux documents distincts, le refus d'un moment inconnu), les photos, et le placard (une entrée écrite, relue depuis le serveur et non depuis le cache, puis supprimée, et le refus d'une entrée sans nom).
 
-Au 9 août 2026, **les 18 contrôles passent** contre le vrai projet, règles republiées. Les cinq collections sont couvertes : articles, recettes, créneaux, photos et placard.
+Au 9 août 2026, **les 18 contrôles passaient** contre le vrai projet, règles republiées. Deux contrôles s'y ajoutent le 12 août pour la collection `livres`, et ils ne passeront qu'une fois `firestore.rules` republié : les six collections sont désormais couvertes, articles, recettes, créneaux, photos, placard et livres.
 
 Ces contrôles sont les seuls qui prouvent qu'une republication de règles a bien eu lieu. Une collection oubliée dans les règles ne casse rien de visible : le placard reste simplement vide, ce qui passe pour un placard qu'on n'a pas rempli. En cas d'échec sur la collection des recettes, le message nomme précisément l'action à faire.
 
@@ -722,9 +808,9 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 155 tests de la logique métier
-node tests/run-sync-tests.js      # 115 tests de la synchronisation
-node tests/run-browser-tests.js   # 383 vérifications dans un vrai Chromium
+node tests/run-tests.js           # 161 tests de la logique métier
+node tests/run-sync-tests.js      # 125 tests de la synchronisation
+node tests/run-browser-tests.js   # 426 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.
@@ -912,6 +998,8 @@ Un quatrième écart, mineur : pour `lasagnes-bolognaise`, le tableau de flux d�
 - `docs/PISTES-2026-08-09.md` : analyse du projet à date et pistes d'amélioration chiffrées, à valider ou invalider. Dit aussi ce qui n'a pas besoin d'être amélioré (poids du site, vitesse de la recherche), pour ne pas encombrer la liste de faux problèmes.
 - `docs/DECISIONS-2026-08-04.md` : ce qui a été tranché lors du passage à plusieurs plats par repas, contre quoi, et pourquoi. À lire avant de revenir sur la forme des clés de créneau, sur le comportement du glisser-déposer ou sur le rappel d'ingrédients de l'étape en cours.
 
+- `docs/BIBLIOTHEQUE-2026-08-12.md` : la spécification de la bibliothèque, écrite avant le code, avec les mesures qui ont décidé du modèle et la révision qui a suivi la lecture de l'écran proposé. Utile surtout pour ce qu'elle documente d'abandonné : le modèle à fichiers statiques, et pourquoi il ne convenait pas à des livres remplis recette par recette.
+- `docs/DECISIONS-BIBLIOTHEQUE-2026-08-12.md` : ce qui a été tranché en écrivant la bibliothèque, dont le seuil de lectures Firestore à surveiller et les trois défauts trouvés au passage. À lire avant de toucher au rattachement d'une recette à un livre.
 - `docs/DECISIONS-2026-08-10.md` : le partage d'une recette et le PDF du menu. À lire avant de remplacer `js/pdf.js` par une bibliothèque, ou avant de faire du lien de partage autre chose que ce qu'il est.
 
 ## Historique

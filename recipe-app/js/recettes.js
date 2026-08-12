@@ -121,6 +121,91 @@
     return liste.concat(ajoutees);
   }
 
+  // --- Le livre de cuisine et les livres de la bibliotheque ---------------------
+  //
+  // Une recette porte deux champs facultatifs, tous deux ranges dans son document
+  // comme le reste de la recette (elle est enregistree en une seule chaine JSON, il
+  // n'y a donc rien a changer dans sync.js ni dans firestore.rules) :
+  //
+  //   livre    identifiant du livre de la bibliotheque auquel elle est rattachee.
+  //            Absent pour les recettes du livre de cuisine, qui est la reference.
+  //   auLivre  vraie quand une recette de livre a ete remontee dans le livre de
+  //            cuisine, ce qui la rend planifiable. Absente sinon.
+  //
+  // Pourquoi un drapeau et pas une copie : tout le chemin du planning est synchrone,
+  // de la reserve de plats au PDF du menu en passant par l'ajout aux courses de la
+  // semaine. Une recette remontee doit donc etre lisible immediatement, sans
+  // chargement, ce qu'un drapeau sur une recette deja en cache garantit. Et rien ne
+  // se duplique : corriger la recette la corrige partout.
+
+  /** L'identifiant du livre d'une recette, ou null si elle est du livre de cuisine. */
+  function livreDe(id) {
+    var recette = parId(id);
+    return recette && recette.livre ? String(recette.livre) : null;
+  }
+
+  /** Vrai si cette recette de livre a ete remontee dans le livre de cuisine. */
+  function estRemontee(id) {
+    var recette = parId(id);
+    return Boolean(recette && recette.livre && recette.auLivre);
+  }
+
+  /**
+   * Le livre de cuisine : la reference, et la seule source du planning.
+   *
+   * Les recettes d'origine, celles ajoutees a la main, et celles qu'on a remontees
+   * depuis un livre de la bibliotheque. Rien d'autre : c'est tout l'objet de la
+   * bibliotheque que d'exister a cote sans encombrer la semaine.
+   */
+  function duLivreDeCuisine() {
+    return toutes().filter(function (r) {
+      return !r.livre || r.auLivre;
+    });
+  }
+
+  /** Les recettes rattachees a un livre donne, remontees ou non. */
+  function duLivre(livreId) {
+    return toutes().filter(function (r) {
+      return r.livre === livreId;
+    });
+  }
+
+  /** Toutes les recettes de la bibliotheque, tous livres confondus. */
+  function deLaBibliotheque() {
+    return toutes().filter(function (r) {
+      return Boolean(r.livre);
+    });
+  }
+
+  /** Table { livreId: nombre de recettes }, pour les cartes de la bibliotheque. */
+  function comptesParLivre() {
+    var table = {};
+    toutes().forEach(function (r) {
+      if (!r.livre) return;
+      table[r.livre] = (table[r.livre] || 0) + 1;
+    });
+    return table;
+  }
+
+  /**
+   * Remonte une recette de livre dans le livre de cuisine, ou la redescend.
+   *
+   * Refuse pour une recette qui n'est pas dans un livre : le livre de cuisine est
+   * deja son unique place, et un drapeau y serait sans objet.
+   */
+  function remonter(id, dedans) {
+    var recette = parId(id);
+    if (!recette) return Promise.reject(new Error('cette recette n’existe pas'));
+    if (!recette.livre) {
+      return Promise.reject(new Error('cette recette est déjà dans le livre de cuisine'));
+    }
+
+    var copie = JSON.parse(JSON.stringify(recette));
+    if (dedans) copie.auLivre = true;
+    else delete copie.auLivre;
+    return enregistrer(copie);
+  }
+
   function parId(id) {
     var trouvee = null;
     toutes().forEach(function (r) {
@@ -197,7 +282,12 @@
     return String(texte || '')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
+      // Les ligatures ne se decomposent pas en NFD : sans elles, « Œufs mimosa » donne
+      // « ufs-mimosa ». Defaut trouve en ajoutant la bibliotheque, corrige ici aussi.
       .replace(/œ/g, 'oe')
+      .replace(/Œ/g, 'OE')
+      .replace(/æ/g, 'ae')
+      .replace(/Æ/g, 'AE')
       .replace(/[^A-Za-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 80)
@@ -222,9 +312,16 @@
     return racine + '-' + Date.now();
   }
 
-  /** Squelette d'une recette vide, pour l'ecran de creation. */
-  function recetteVide() {
+  /**
+   * Squelette d'une recette vide, pour l'ecran de creation.
+   *
+   * `livre` rattache la nouvelle recette a un livre de la bibliotheque. La source
+   * prend alors le titre de l'ouvrage : une recette venue d'un livre papier a une
+   * source, et c'est ce livre. Sans lui, la recette est du livre de cuisine.
+   */
+  function recetteVide(livre) {
     return {
+      livre: livre && livre.id ? livre.id : undefined,
       id: '',
       titre: '',
       categorie: 'Plat',
@@ -233,7 +330,7 @@
       portions: '4 personnes',
       temps: { preparation: 'Non indiqué', cuisson: 'Non indiqué', repos: 'Non indiqué', total: 'Non indiqué' },
       calories: null,
-      source: { label: 'Recette de la maison', url: '' },
+      source: { label: livre && livre.titre ? livre.titre : 'Recette de la maison', url: '' },
       ingredients: [{ groupe: null, items: [] }],
       instructions: [],
       astuces: { recette: [], commentaires: [] },
@@ -367,6 +464,13 @@
     originale: originale,
     estModifiee: estModifiee,
     estAjoutee: estAjoutee,
+    livreDe: livreDe,
+    estRemontee: estRemontee,
+    duLivreDeCuisine: duLivreDeCuisine,
+    duLivre: duLivre,
+    deLaBibliotheque: deLaBibliotheque,
+    comptesParLivre: comptesParLivre,
+    remonter: remonter,
     rafraichir: rafraichir,
     etatChargement: etatChargement,
     enregistrer: enregistrer,

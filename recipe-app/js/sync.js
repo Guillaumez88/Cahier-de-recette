@@ -285,18 +285,29 @@
 
   /** Lit toutes les recettes modifiees. Retourne { id: recette }. */
   async function lireRecettesModifiees() {
-    var corps = await requete(`${cheminRecettes()}?pageSize=300`, { method: 'GET' });
     var resultat = {};
-    (corps && corps.documents ? corps.documents : []).forEach(function (document_) {
-      var champs = champsVersObjet(document_.fields);
-      if (!champs.json) return;
-      try {
-        var recette = JSON.parse(champs.json);
-        if (recette && recette.id) resultat[recette.id] = recette;
-      } catch (erreur) {
-        // Document illisible : on l'ignore plutot que de casser le chargement.
-      }
-    });
+    var pageSuivante = null;
+
+    // La pagination n'est pas theorique depuis la bibliotheque : une seule page de
+    // 300 documents suffisait aux recettes modifiees a la main, mais les recettes
+    // rattachees a un livre vivent dans la meme collection. Sans cette boucle, la
+    // 301e recette disparaitrait de l'application sans le moindre message.
+    do {
+      var url = `${cheminRecettes()}?pageSize=300${pageSuivante ? `&pageToken=${encodeURIComponent(pageSuivante)}` : ''}`;
+      var corps = await requete(url, { method: 'GET' });
+      (corps && corps.documents ? corps.documents : []).forEach(function (document_) {
+        var champs = champsVersObjet(document_.fields);
+        if (!champs.json) return;
+        try {
+          var recette = JSON.parse(champs.json);
+          if (recette && recette.id) resultat[recette.id] = recette;
+        } catch (erreur) {
+          // Document illisible : on l'ignore plutot que de casser le chargement.
+        }
+      });
+      pageSuivante = corps && corps.nextPageToken;
+    } while (pageSuivante);
+
     return resultat;
   }
 
@@ -438,6 +449,59 @@
     }
   }
 
+  // --- Bibliotheque : les livres de cuisine ------------------------------------
+  //
+  // Un livre est une etagere : un titre, un theme, et rien d'autre. Il ne porte pas
+  // la liste de ses recettes, c'est chaque recette qui nomme son livre dans son
+  // propre document. Deux raisons : une recette rattachee a un livre est ecrite au
+  // meme endroit qu'une recette ajoutee a la main, donc rien du mecanisme existant
+  // ne change ; et deux appareils qui rattachent chacun une recette au meme livre
+  // modifient deux documents distincts, sans s'ecraser.
+
+  function cheminLivres() {
+    return `projects/${config.projectId}/databases/(default)/documents/livres`;
+  }
+
+  /** Lit toute la bibliotheque. Retourne une liste de { id, titre, theme, auteur }. */
+  async function lireLivres() {
+    var livres = [];
+    var pageSuivante = null;
+
+    do {
+      var url = `${cheminLivres()}?pageSize=300${pageSuivante ? `&pageToken=${encodeURIComponent(pageSuivante)}` : ''}`;
+      var corps = await requete(url, { method: 'GET' });
+      (corps && corps.documents ? corps.documents : []).forEach(function (document_) {
+        var objet = champsVersObjet(document_.fields);
+        objet.idDocument = String(document_.name).split('/').pop();
+        livres.push(objet);
+      });
+      pageSuivante = corps && corps.nextPageToken;
+    } while (pageSuivante);
+
+    return livres;
+  }
+
+  async function ecrireLivre(livre) {
+    var id = idDocument(livre.id);
+    var aEcrire = Object.assign({}, livre);
+    delete aEcrire.idDocument;
+    aEcrire.modifieLe = new Date().toISOString();
+    return requete(`${cheminLivres()}/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: objetVersChamps(aEcrire) }),
+    });
+  }
+
+  async function supprimerLivre(id) {
+    try {
+      return await requete(`${cheminLivres()}/${encodeURIComponent(idDocument(id))}`, { method: 'DELETE' });
+    } catch (erreur) {
+      if (erreur.statut === 404) return null;
+      throw erreur;
+    }
+  }
+
   // --- Photos des recettes -----------------------------------------------------
   //
   // Un document par recette dans `photos`, avec deux tailles dans le meme document :
@@ -543,6 +607,10 @@
     ecrireCreneau: ecrireCreneau,
     supprimerCreneau: supprimerCreneau,
     cheminPhotos: cheminPhotos,
+    cheminLivres: cheminLivres,
+    lireLivres: lireLivres,
+    ecrireLivre: ecrireLivre,
+    supprimerLivre: supprimerLivre,
     lirePlacard: lirePlacard,
     ecrirePlacard: ecrirePlacard,
     supprimerPlacard: supprimerPlacard,

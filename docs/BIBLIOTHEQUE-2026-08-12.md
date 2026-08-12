@@ -1,5 +1,40 @@
 # « Ma bibliothèque » : ce qui est tranché, ce qui reste à trancher
 
+> **Révision du 12 août, après lecture de l'écran 06.** La proposition de design a
+> changé le modèle, et ce document conserve les deux états : ce qui suit la présente
+> note décrit la conception **retenue et implémentée** ; les sections 2 à 4 et 6.1,
+> écrites avant d'avoir vu l'écran, décrivent un modèle **abandonné** et sont
+> conservées pour la trace du raisonnement.
+>
+> Ce que l'écran a changé : un livre n'est pas un recueil importé en bloc, c'est une
+> **étagère**, créée depuis l'application (« Créer un livre »), à laquelle on rattache
+> des recettes au fil de leur saisie. La proposition affiche « 12 recettes importées »,
+> « 0 recette importée pour l'instant » : on parle de dizaines de recettes qui arrivent
+> une par une, pas de cent cinquante d'un coup.
+>
+> Conséquences, toutes des simplifications :
+>
+> - **Pas de fichier statique par livre.** Les volumes en jeu ne justifient plus le
+>   chargement paresseux ni l'index réduit. Le calcul de poids du point 2 reste juste,
+>   il ne s'applique simplement plus à ce cas d'usage.
+> - **Un livre est un document Firestore** dans une collection `livres` : un titre, un
+>   thème, un auteur. Minuscule, et quelques lectures par chargement.
+> - **Le livre ne porte pas ses recettes.** C'est chaque recette qui nomme son livre,
+>   dans son propre document. Deux appareils qui rattachent chacun une recette au même
+>   livre modifient donc deux documents distincts, sans s'écraser. C'est la même raison
+>   qui a fait choisir un document par article dans la liste de courses.
+> - **Remonter une recette est un drapeau, pas une copie** (`auLivre`). Le point 4
+>   choisissait la copie faute de pouvoir garder les chemins synchrones ; comme la
+>   recette est désormais toujours en cache, un drapeau suffit et rien ne se duplique.
+> - **`firestore.rules` doit être republié** : une collection de plus. C'était l'étape
+>   manuelle que le modèle statique évitait ; elle revient.
+>
+> Un défaut réel a été trouvé et corrigé au passage : `lireRecettesModifiees()` lisait
+> une seule page de 300 documents, sans pagination. Avec des recettes de livres dans la
+> même collection, la 301e aurait disparu de l'application sans le moindre message.
+>
+> Les décisions retenues sont détaillées dans `docs/DECISIONS-BIBLIOTHEQUE-2026-08-12.md`.
+
 Spécification de la fonctionnalité demandée le 12 août 2026 : une page donnant accès à
 des livres de cuisine spécialisés, chacun portant son propre groupe de recettes, sans
 que ces recettes n'alimentent le planning de la semaine, sauf celles qu'on remonte

@@ -18,6 +18,8 @@ const Im = require(path.join(racine, 'js/import-recette.js'));
 const Pt = require(path.join(racine, 'js/partage.js'));
 const Pdf = require(path.join(racine, 'js/pdf.js'));
 const MPdf = require(path.join(racine, 'js/menu-pdf.js'));
+const Lv = require(path.join(racine, 'js/livres.js'));
+const VBib = require(path.join(racine, 'js/vue-bibliotheque.js'));
 
 const recettes = JSON.parse(fs.readFileSync(path.join(racine, 'data/recipes.json'), 'utf8'));
 
@@ -1949,7 +1951,64 @@ test('un titre de plat trop long est coupe et non tronque', () => {
   });
 });
 
+// --- La bibliotheque ---------------------------------------------------------
+
+test('l identifiant d un livre se lit et survit aux accents', () => {
+  assert.strictEqual(Lv.identifiant('Ferrandi — Pâtisserie'), 'ferrandi-patisserie');
+  assert.strictEqual(Lv.identifiant('Le Larousse des desserts'), 'le-larousse-des-desserts');
+  assert.strictEqual(Lv.identifiant('Œufs & Cie'), 'oeufs-cie');
+  // La casse et la ponctuation ne creent pas deux etageres pour un seul ouvrage.
+  assert.strictEqual(Lv.identifiant('LE LAROUSSE DES DESSERTS !'), Lv.identifiant('Le Larousse des desserts'));
+  assert.strictEqual(Lv.identifiant('   '), '');
+});
+
+test('l identifiant d une recette traite aussi les ligatures', () => {
+  const R = require(path.join(racine, 'js/recettes.js'));
+  // Defaut trouve en ecrivant la bibliotheque : NFD ne decompose pas les ligatures,
+  // et « Œufs mimosa » donnait « ufs-mimosa ».
+  assert.strictEqual(R.slug('Œufs mimosa'), 'oeufs-mimosa');
+  assert.strictEqual(R.slug('Bœuf bourguignon'), 'boeuf-bourguignon');
+});
+
+test('les themes suggeres sont distincts et non vides', () => {
+  const vus = {};
+  Lv.THEMES_SUGGERES.forEach((t) => {
+    assert.ok(typeof t === 'string' && t.trim() !== '', `theme vide : ${JSON.stringify(t)}`);
+    assert.ok(!vus[t], `theme en double : ${t}`);
+    vus[t] = true;
+  });
+});
+
+test('la couleur d un theme est stable et bornee', () => {
+  // Stable : la meme couverture d un chargement a l autre, sans table a maintenir.
+  assert.strictEqual(VBib.palette('Pâtisserie'), VBib.palette('Pâtisserie'));
+  ['Pâtisserie', 'Plats', 'Boisson', 'Conserves', 'Un thème inventé plus tard', ''].forEach((theme) => {
+    const p = VBib.palette(theme);
+    assert.ok(Number.isInteger(p) && p >= 0 && p < 2, `palette hors bornes pour ${theme} : ${p}`);
+  });
+});
+
+test('le decompte d un livre se dit au singulier, au pluriel, et quand il est vide', () => {
+  assert.strictEqual(VBib.libelleCompte(0), 'aucune recette pour l’instant');
+  assert.strictEqual(VBib.libelleCompte(1), '1 recette');
+  assert.strictEqual(VBib.libelleCompte(12), '12 recettes');
+});
+
+test('le livre de cuisine et les livres partagent le meme jeu de recettes', () => {
+  // Sans localStorage, les modules de collection rendent une liste vide plutot que
+  // de lever : c est ce qui permet a ces tests de tourner sans navigateur.
+  const R = require(path.join(racine, 'js/recettes.js'));
+  R.definirBase(recettes);
+  assert.strictEqual(R.duLivreDeCuisine().length, recettes.length);
+  assert.deepStrictEqual(R.deLaBibliotheque(), []);
+  assert.deepStrictEqual(R.comptesParLivre(), {});
+  // Une recette d origine n a pas de livre : elle est du livre de cuisine.
+  assert.strictEqual(R.livreDe(recettes[0].id), null);
+  assert.strictEqual(R.estRemontee(recettes[0].id), false);
+});
+
 // --- Restitution -------------------------------------------------------------
+
 
 
 console.log(`\n${reussis} test(s) reussi(s), ${echecs.length} echec(s)\n`);

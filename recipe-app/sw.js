@@ -29,8 +29,8 @@
    Portée : ce fichier est servi depuis la racine du site, il contrôle donc toute
    l'application. Sur GitHub Pages, cette racine est /Cahier-de-recette/. */
 
-// v5 : partage.js, pdf.js et menu-pdf.js rejoignent la coquille.
-var VERSION = 'v5';
+// v6 : livres.js et vue-bibliotheque.js rejoignent la coquille.
+var VERSION = 'v6';
 var CACHE = 'carnet-' + VERSION;
 
 // La coquille de l'application : tout ce qu'il faut pour afficher un écran. Cette
@@ -60,6 +60,7 @@ var COQUILLE = [
   './js/storage.js',
   './js/semainier.js',
   './js/placard.js',
+  './js/livres.js',
   './js/photos.js',
   './js/cuisson.js',
   './js/import-recette.js',
@@ -67,6 +68,7 @@ var COQUILLE = [
   './js/pdf.js',
   './js/menu-pdf.js',
   './js/vue-magasin.js',
+  './js/vue-bibliotheque.js',
   './js/app.js',
   './data/recipes.json',
 ];

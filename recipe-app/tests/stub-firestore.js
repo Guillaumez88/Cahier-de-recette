@@ -17,6 +17,7 @@ const etat = {
   creneaux: new Map(), // idDocument -> { fields }, semainiers/<id>/creneaux
   photos: new Map(), // idDocument -> { fields }, collection photos
   placard: new Map(), // idDocument -> { fields }, collection placard
+  livres: new Map(), // idDocument -> { fields }, collection livres (la bibliotheque)
   sessions: new Map(), // refreshToken -> compteur
   panne: false, // quand vrai, toute requete Firestore repond 503
   // Quand vrai, seule la collection `recettes` est refusee, comme le ferait un
@@ -31,6 +32,7 @@ function reinitialiser() {
   etat.creneaux.clear();
   etat.photos.clear();
   etat.placard.clear();
+  etat.livres.clear();
   etat.sessions.clear();
   etat.panne = false;
   etat.refuserRecettes = false;
@@ -114,11 +116,13 @@ async function traiter(requete, reponse) {
       nbCreneaux: etat.creneaux.size,
       nbPhotos: etat.photos.size,
       nbPlacard: etat.placard.size,
+      nbLivres: etat.livres.size,
       appels: etat.appels,
       articles: [...etat.articles.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
       recettes: [...etat.recettes.keys()],
       creneaux: [...etat.creneaux.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
       placard: [...etat.placard.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
+      livres: [...etat.livres.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
       // Les photos sont volumineuses : on n'expose que leur taille, pas leur contenu.
       photos: [...etat.photos.entries()].map(([id, doc]) => ({
         id,
@@ -183,12 +187,12 @@ async function traiter(requete, reponse) {
     return true;
   }
 
-  // Cinq collections sont emulees : les articles de la liste, les recettes
-  // modifiees, les creneaux du semainier, les photos et le placard. On ne verifie pas
+  // Six collections sont emulees : les articles de la liste, les recettes modifiees,
+  // les creneaux du semainier, les photos, le placard et les livres. On ne verifie pas
   // la structure complete du chemin, seulement le nom de la collection visee.
   let collection = null;
   let reste = null;
-  ['articles', 'recettes', 'creneaux', 'photos', 'placard'].forEach((nom) => {
+  ['articles', 'recettes', 'creneaux', 'photos', 'placard', 'livres'].forEach((nom) => {
     if (collection) return;
     const morceaux = chemin.split('/' + nom);
     if (morceaux.length >= 2) {

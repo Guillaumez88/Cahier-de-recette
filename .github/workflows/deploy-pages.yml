@@ -48,7 +48,7 @@ jobs:
       - name: Vérifier que le site est complet
         run: |
           cd recipe-app
-          for f in index.html favicon.svg manifest.webmanifest sw.js css/style.css js/logic.js js/quantites.js js/rayons.js js/flux.js js/semaine.js js/icones.js js/sync.js js/collection.js js/recettes.js js/storage.js js/semainier.js js/placard.js js/photos.js js/cuisson.js js/import-recette.js js/partage.js js/pdf.js js/menu-pdf.js js/vue-magasin.js js/firebase-config.js js/app.js data/recipes.json; do
+          for f in index.html favicon.svg manifest.webmanifest sw.js css/style.css js/logic.js js/quantites.js js/rayons.js js/flux.js js/semaine.js js/icones.js js/sync.js js/collection.js js/recettes.js js/storage.js js/semainier.js js/placard.js js/livres.js js/photos.js js/cuisson.js js/import-recette.js js/partage.js js/pdf.js js/menu-pdf.js js/vue-magasin.js js/vue-bibliotheque.js js/firebase-config.js js/app.js data/recipes.json; do
             test -f "$f" || { echo "manquant : $f"; exit 1; }
           done
           node -e "const r=require('./data/recipes.json'); if(r.length!==21) throw new Error(r.length+' recettes au lieu de 21'); console.log(r.length+' recettes')"
@@ -57,7 +57,7 @@ jobs:
           # Node, qui chargent les modules directement, et casserait le site.
           node -e "
             const html = require('fs').readFileSync('index.html', 'utf8');
-            const attendus = ['firebase-config', 'logic', 'quantites', 'rayons', 'flux', 'semaine', 'icones', 'sync', 'collection', 'recettes', 'storage', 'semainier', 'placard', 'photos', 'cuisson', 'import-recette', 'partage', 'pdf', 'menu-pdf', 'vue-magasin', 'app'];
+            const attendus = ['firebase-config', 'logic', 'quantites', 'rayons', 'flux', 'semaine', 'icones', 'sync', 'collection', 'recettes', 'storage', 'semainier', 'placard', 'livres', 'photos', 'cuisson', 'import-recette', 'partage', 'pdf', 'menu-pdf', 'vue-magasin', 'vue-bibliotheque', 'app'];
             const presents = [...html.matchAll(/<script src=\"js\/([a-z-]+)\.js\">/g)].map((m) => m[1]);
             if (presents.join(',') !== attendus.join(',')) {
               throw new Error('scripts de index.html : ' + presents.join(',') + '\nattendu : ' + attendus.join(','));

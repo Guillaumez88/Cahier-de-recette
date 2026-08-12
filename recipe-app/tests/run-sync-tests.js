@@ -51,6 +51,7 @@ function chargerModules() {
     'js/storage.js',
     'js/semainier.js',
     'js/placard.js',
+    'js/livres.js',
     'js/photos.js',
   ].forEach((relatif) => {
     delete require.cache[require.resolve(path.join(racine, relatif))];
@@ -65,8 +66,9 @@ function chargerModules() {
   const Storage = require(path.join(racine, 'js/storage.js'));
   const Semainier = require(path.join(racine, 'js/semainier.js'));
   const Placard = require(path.join(racine, 'js/placard.js'));
+  const Livres = require(path.join(racine, 'js/livres.js'));
   const Photos = require(path.join(racine, 'js/photos.js'));
-  return { config, Sync, Recettes, Storage, Semainier, Placard, Photos };
+  return { config, Sync, Recettes, Storage, Semainier, Placard, Livres, Photos };
 }
 
 function neuf() {
@@ -1572,7 +1574,171 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     assert.strictEqual(stub.etat.recettes.size, 0);
   });
 
+  // --- La bibliotheque -------------------------------------------------------
+
+  await test('un livre part en base et revient tel quel', async () => {
+    const { Livres } = neuf();
+    await Livres.initialiser();
+    const livre = await Livres.creer('Ferrandi — Pâtisserie', 'Pâtisserie', 'Ferrandi Paris');
+
+    assert.strictEqual(livre.id, 'ferrandi-patisserie');
+    assert.strictEqual(stub.etat.livres.size, 1);
+    const champs = [...stub.etat.livres.values()][0].fields;
+    assert.strictEqual(champs.titre.stringValue, 'Ferrandi — Pâtisserie');
+    assert.strictEqual(champs.theme.stringValue, 'Pâtisserie');
+    assert.strictEqual(champs.auteur.stringValue, 'Ferrandi Paris');
+
+    // Nouveau localStorage, meme serveur : c'est la situation d'un autre appareil.
+    global.localStorage = faireLocalStorage();
+    const autre = chargerModules().Livres;
+    assert.deepStrictEqual(autre.tous(), [], 'le cache local devrait partir vide');
+    await autre.rafraichir();
+    assert.deepStrictEqual(
+      autre.tous().map((l) => l.titre),
+      ['Ferrandi — Pâtisserie']
+    );
+  });
+
+  await test('deux livres de meme titre n en font qu un', async () => {
+    const { Livres } = neuf();
+    await Livres.initialiser();
+    await Livres.creer('Le Larousse des desserts', 'Pâtisserie');
+    const second = await Livres.creer('LE LAROUSSE DES DESSERTS', 'Plats');
+    assert.strictEqual(Livres.tous().length, 1, 'un doublon a ete cree');
+    // Le premier gagne : son theme n est pas ecrase par le second appel.
+    assert.strictEqual(second.theme, 'Pâtisserie');
+  });
+
+  await test('un livre sans titre est refuse, un theme vide prend « Autres »', async () => {
+    const { Livres } = neuf();
+    await Livres.initialiser();
+    let leve = false;
+    try {
+      await Livres.creer('   ', 'Pâtisserie');
+    } catch (erreur) {
+      leve = true;
+    }
+    assert.ok(leve, 'un livre sans titre a ete accepte');
+    const sansTheme = await Livres.creer('Cahier de la maison', '  ');
+    assert.strictEqual(sansTheme.theme, 'Autres');
+  });
+
+  await test('les livres sont groupes par theme, dans l ordre', async () => {
+    const { Livres } = neuf();
+    await Livres.initialiser();
+    await Livres.creer('Zeste', 'Pâtisserie');
+    await Livres.creer('Alpha', 'Pâtisserie');
+    await Livres.creer('Sud-Ouest', 'Plats');
+    assert.deepStrictEqual(Livres.themes(), ['Pâtisserie', 'Plats']);
+    assert.deepStrictEqual(
+      Livres.parTheme().map((g) => [g.theme, g.livres.map((l) => l.titre)]),
+      [
+        ['Pâtisserie', ['Alpha', 'Zeste']],
+        ['Plats', ['Sud-Ouest']],
+      ]
+    );
+  });
+
+  await test('un livre garni refuse d etre supprime, un livre vide part', async () => {
+    const { Livres } = neuf();
+    await Livres.initialiser();
+    await Livres.creer('Japon', 'Plats');
+
+    let message = '';
+    try {
+      await Livres.supprimer('japon', 3);
+    } catch (erreur) {
+      message = erreur.message;
+    }
+    assert.ok(/contient encore 3 recettes/.test(message), message);
+    assert.strictEqual(Livres.tous().length, 1);
+
+    await Livres.supprimer('japon', 0);
+    assert.strictEqual(Livres.tous().length, 0);
+    assert.strictEqual(stub.etat.livres.size, 0);
+  });
+
+  await test('un livre cree hors ligne repart au retour du reseau', async () => {
+    const { Livres } = neuf();
+    await Livres.initialiser();
+    stub.etat.panne = true;
+    await Livres.creer('Conserves de saison', 'Conserves');
+    // Visible tout de suite, malgre l echec : c est le principe de la file.
+    assert.strictEqual(Livres.tous().length, 1);
+    assert.strictEqual(stub.etat.livres.size, 0);
+    assert.strictEqual(Livres.etatSync().enAttente, 1);
+
+    stub.etat.panne = false;
+    await Livres.rafraichir();
+    assert.strictEqual(stub.etat.livres.size, 1);
+    assert.strictEqual(Livres.etatSync().enAttente, 0);
+  });
+
+  await test('une recette rattachee a un livre reste hors du livre de cuisine', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const creee = await Recettes.creer(
+      Object.assign(Recettes.recetteVide({ id: 'ferrandi', titre: 'Ferrandi' }), { titre: 'Paris-Brest' })
+    );
+
+    assert.strictEqual(creee.livre, 'ferrandi');
+    assert.strictEqual(Recettes.livreDe(creee.id), 'ferrandi');
+    // La source prend le titre de l ouvrage : une recette de livre a une source.
+    assert.strictEqual(creee.source.label, 'Ferrandi');
+
+    const cuisine = Recettes.duLivreDeCuisine().map((r) => r.id);
+    assert.ok(!cuisine.includes(creee.id), 'une recette de livre est entree dans le livre de cuisine');
+    assert.deepStrictEqual(Recettes.duLivre('ferrandi').map((r) => r.id), [creee.id]);
+    assert.deepStrictEqual(Recettes.comptesParLivre(), { ferrandi: 1 });
+  });
+
+  await test('remonter une recette la fait entrer dans le livre de cuisine, et rien de plus', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const creee = await Recettes.creer(
+      Object.assign(Recettes.recetteVide({ id: 'ferrandi', titre: 'Ferrandi' }), { titre: 'Paris-Brest' })
+    );
+
+    await Recettes.remonter(creee.id, true);
+    assert.strictEqual(Recettes.estRemontee(creee.id), true);
+    assert.ok(Recettes.duLivreDeCuisine().some((r) => r.id === creee.id));
+    // Elle reste dans son livre : remonter n est pas deplacer.
+    assert.deepStrictEqual(Recettes.duLivre('ferrandi').map((r) => r.id), [creee.id]);
+
+    await Recettes.remonter(creee.id, false);
+    assert.strictEqual(Recettes.estRemontee(creee.id), false);
+    assert.ok(!Recettes.duLivreDeCuisine().some((r) => r.id === creee.id));
+    // Le drapeau est retire du document, pas mis a false : rien ne traine.
+    const enBase = JSON.parse([...stub.etat.recettes.values()][0].fields.json.stringValue);
+    assert.strictEqual('auLivre' in enBase, false);
+  });
+
+  await test('remonter une recette du livre de cuisine est refuse', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    let message = '';
+    try {
+      await Recettes.remonter(ID_LASAGNES, true);
+    } catch (erreur) {
+      message = erreur.message;
+    }
+    assert.ok(/déjà dans le livre de cuisine/.test(message), message);
+  });
+
+  await test('la lecture des recettes suit la pagination', async () => {
+    const { Recettes, Sync } = neuf();
+    Recettes.definirBase([]);
+    // 305 documents : au-dela d une page de 300, ce que la bibliotheque rend possible.
+    for (let i = 0; i < 305; i += 1) {
+      await Sync.ecrireRecette({ id: 'r' + i, titre: 'Recette ' + i, livre: 'gros-livre' });
+    }
+    assert.strictEqual(stub.etat.recettes.size, 305);
+    const lues = await Sync.lireRecettesModifiees();
+    assert.strictEqual(Object.keys(lues).length, 305, 'des recettes ont ete perdues a la pagination');
+  });
+
   // --- Restitution -----------------------------------------------------------
+
 
   serveur.close();
   console.log(`\n${reussis} test(s) reussi(s), ${echecs.length} echec(s)\n`);

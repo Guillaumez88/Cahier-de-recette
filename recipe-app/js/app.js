@@ -24,6 +24,8 @@
   var Pl = window.CarnetPlacard;
   var Imp = window.CarnetImport;
   var Pt = window.CarnetPartage;
+  var Lv = window.CarnetLivres;
+  var VBib = window.CarnetVueBibliotheque;
   var MPdf = window.CarnetMenuPdf;
 
   var criteresVides = L.criteresVides;
@@ -52,6 +54,13 @@
     criteres: criteresVides(),
     semainesDepliees: {},
     rechercheReserve: '',
+    // Bibliotheque : le theme filtre et la recherche qui traverse tous les livres.
+    // `livreCourant` sert a remettre les filtres a zero quand on change de source de
+    // recettes : un filtre « Dessert » herite du livre de cuisine masquerait tout
+    // dans un livre de plats, avec une puce qui n'y est meme pas proposee.
+    themeBiblio: null,
+    rechercheBiblio: '',
+    livreCourant: null,
     // Famille affichee dans la reserve de plats. « Plat » par defaut : c'est ce qu'on
     // pose le plus souvent dans un semainier.
     familleReserve: 'Plat',
@@ -173,6 +182,7 @@
   var DESTINATIONS = [
     { href: '#/', route: '/', icone: 'calendrier', libelle: 'Semaine' },
     { href: '#/livre', route: '/livre', icone: 'livre', libelle: 'Le livre' },
+    { href: '#/bibliotheque', route: '/bibliotheque', icone: 'bibliotheque', libelle: 'Bibliothèque' },
     { href: '#/liste-de-courses', route: '/liste-de-courses', icone: 'panier', libelle: 'Courses' },
   ];
 
@@ -206,6 +216,19 @@
     return bouton;
   }
 
+  /**
+   * Change d'etagere : le livre de cuisine, ou un livre de la bibliotheque.
+   *
+   * Les filtres sont remis a zero au passage. Sans cela, un filtre « Dessert » herite
+   * du livre de cuisine masquerait tout dans un livre de plats, avec une puce qui n'y
+   * est meme pas proposee : l'ecran paraitrait vide sans qu'on voie pourquoi.
+   */
+  function changerDeLivre(idLivre) {
+    if (etat.livreCourant === idLivre) return;
+    etat.livreCourant = idLivre;
+    etat.criteres = criteresVides();
+  }
+
   /** Relit la liste et les menus, puis re-rend l'ecran courant. */
   function rafraichirTout() {
     var apres = function () {
@@ -213,9 +236,11 @@
       var route = routeCourante();
       if (route === '/') monter(vueAccueil());
       else if (route === '/liste-de-courses') monter(vueListeDeCourses());
-      else if (route === '/livre') monter(vueLivre());
+      else if (route === '/livre') monter(vueLivre(null));
+      else if (route === '/bibliotheque') monter(vueBibliotheque());
+      else if (route.indexOf('/bibliotheque/') === 0) router();
     };
-    return Promise.all([S.rafraichir(), Sm.rafraichir()]).then(apres, apres);
+    return Promise.all([S.rafraichir(), Sm.rafraichir(), Lv.rafraichir()]).then(apres, apres);
   }
 
   /**
@@ -244,6 +269,14 @@
     var restants = nbArticlesRestants();
     var route = routeCourante();
 
+    /* Une sous-page garde sa destination allumee : sur le livre « Ferrandi », c'est
+       toujours la bibliotheque qu'on parcourt. La racine est exclue du prefixe, sinon
+       elle serait active partout. */
+    function estActive(destination) {
+      if (route === destination) return true;
+      return destination !== '/' && route.indexOf(destination + '/') === 0;
+    }
+
     var nav = document.getElementById('nav-entete');
     if (nav) {
       nav.textContent = '';
@@ -254,7 +287,7 @@
       }).forEach(function (d) {
         nav.appendChild(
           el('a', {
-            class: 'bouton-entete' + (route === d.route ? ' bouton-entete--actif' : ''),
+            class: 'bouton-entete' + (estActive(d.route) ? ' bouton-entete--actif' : ''),
             href: d.href,
           }, [
             icone(d.icone, { taille: 18 }),
@@ -274,9 +307,9 @@
       DESTINATIONS.forEach(function (d) {
         onglets.appendChild(
           el('a', {
-            class: 'onglet' + (route === d.route ? ' onglet--actif' : ''),
+            class: 'onglet' + (estActive(d.route) ? ' onglet--actif' : ''),
             href: d.href,
-            'aria-current': route === d.route ? 'page' : null,
+            'aria-current': estActive(d.route) ? 'page' : null,
           }, [
             icone(d.icone, { taille: 22 }),
             el('span', { class: 'onglet__libelle', texte: d.libelle }),
@@ -984,7 +1017,7 @@
     var recettes =
       famille === 'Autres'
         ? []
-        : filterRecipes(Rc.toutes(), Object.assign(criteresVides(), { recherche: recherche })).filter(function (r) {
+        : filterRecipes(Rc.duLivreDeCuisine(), Object.assign(criteresVides(), { recherche: recherche })).filter(function (r) {
             return r.categorie === famille;
           });
 
@@ -1298,7 +1331,7 @@
 
     var aujourdhui = new Date();
     var toutes = Sem.semaines(aujourdhui, Math.max(1, window.CarnetConfig.nbSemaines || 2));
-    var recettes = Rc.toutes();
+    var recettes = Rc.duLivreDeCuisine();
     var restants = nbArticlesRestants();
     var index = Sm.parCreneau();
 
@@ -1394,7 +1427,9 @@
 
     function corps() {
       var actuels = Sm.creneaux(jour.cle, moment.cle);
-      var recettes = filterRecipes(Rc.toutes(), Object.assign(criteresVides(), { recherche: recherche }));
+      // Le planning ne se sert que dans le livre de cuisine : une recette de la
+      // bibliotheque n'y entre qu'apres avoir ete remontee. Voir recettes.js.
+      var recettes = filterRecipes(Rc.duLivreDeCuisine(), Object.assign(criteresVides(), { recherche: recherche }));
 
       var champRecherche = el('input', {
         type: 'search',
@@ -1768,10 +1803,84 @@
     }, { large: true });
   }
 
-  /* --- vue : livre de cuisine ---------------------------------------------- */
+  /* --- vue : livre de cuisine et livre de la bibliotheque -------------------- */
 
-  function vueLivre() {
-    var recettes = Rc.toutes();
+  /**
+   * La carte d'une recette, telle qu'elle apparait dans une grille.
+   *
+   * Sortie de `vueLivre` pour servir aussi a la recherche de la bibliotheque, qui
+   * doit rendre exactement les memes cartes : deux dessins differents pour la meme
+   * chose forceraient a se demander en quoi ils different.
+   *
+   * `options.origine` ajoute le nom du livre d'ou vient la recette. Utile quand la
+   * grille melange plusieurs provenances, inutile a l'interieur d'un livre : la
+   * repeter sur chaque carte n'apprendrait rien.
+   */
+  function carteRecette(recette, options) {
+    var reglages = options || {};
+    var livreDe = recette.livre ? Lv.parId(recette.livre) : null;
+
+    // Pas de liseret de couleur : la pastille de categorie porte deja cette
+    // information, et l'encoder deux fois n'ajoute rien. Sans photo, la carte
+    // tient en texte seul, ce qui est le cas de dix-neuf recettes sur vingt.
+    return el('a', { class: 'carte', href: '#/recette/' + recette.id }, [
+      vignetteRecette(recette, 'vignette--carte'),
+      el('span', { class: 'carte__corps' }, [
+        el('span', { class: 'carte__haut' }, [
+          el('span', { class: classeCategorie('etiquette', recette.categorie), texte: recette.categorie }),
+          el('span', { class: 'carte__temps', texte: recette.temps.total }),
+        ]),
+        el('span', { class: 'carte__titre', texte: recette.titre }),
+        reglages.origine && livreDe
+          ? el('span', { class: 'carte__livre' }, [
+              icone('livre-ferme', { taille: 13 }),
+              el('span', { texte: livreDe.titre }),
+            ])
+          : null,
+        el('span', {
+          class: 'carte__meta',
+          texte:
+            origineCourte(recette.origine) +
+            ' · ' +
+            difficulteCourte(recette.difficulte) +
+            ' · ' +
+            recette.portions,
+        }),
+        el('span', {
+          class: 'carte__meta-faible',
+          texte: nbIngredients(recette) + ' ingrédients · ' + recette.instructions.length + ' étapes',
+        }),
+        (function () {
+          var fait = libelleRealisations(recette.id);
+          if (!fait) return null;
+          return el('span', {
+            class: 'carte__realisations' + (fait.jamais ? ' carte__realisations--jamais' : ''),
+            texte: fait.texte,
+          });
+        })(),
+      ]),
+    ]);
+  }
+
+  /** La recherche du livre, appliquee a n'importe quelle liste de recettes. */
+  function chercherDans(recettes, mot) {
+    return filterRecipes(recettes, Object.assign(criteresVides(), { recherche: mot }));
+  }
+
+  /**
+   * Le livre de cuisine, ou un livre de la bibliotheque.
+   *
+   * Un seul ecran pour les deux, parce que c'est la meme chose vue depuis deux
+   * etageres : la difference tient a la source des recettes, au titre et au bouton
+   * d'ajout. En dupliquer deux cents lignes garantirait qu'un filtre corrige d'un cote
+   * reste faux de l'autre.
+   *
+   * `livre` vaut null pour le livre de cuisine.
+   */
+  function vueLivre(livre) {
+    // Les recettes affichees, et elles seules : les filtres et la recherche ne
+    // portent jamais au-dela de l'etagere qu'on regarde.
+    var recettes = livre ? Rc.duLivre(livre.id) : Rc.duLivreDeCuisine();
     var comptes = Sm.comptes();
     var resultats = filterRecipes(recettes, etat.criteres, comptes);
     var options = optionsDisponibles(recettes);
@@ -1780,30 +1889,68 @@
     }).length;
     var fragment = document.createDocumentFragment();
 
-    fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour à l’accueil' }));
+    fragment.appendChild(
+      livre
+        ? el('a', { class: 'retour', href: '#/bibliotheque', texte: '‹ Retour à la bibliothèque' })
+        : el('a', { class: 'retour', href: '#/', texte: '‹ Retour à l’accueil' })
+    );
+
+    var nbRemontees = livre
+      ? recettes.filter(function (r) {
+          return r.auLivre;
+        }).length
+      : 0;
 
     fragment.appendChild(
       el('div', { class: 'livre__entete' }, [
         el('div', {}, [
-          el('h1', { class: 'fiche__titre', texte: 'Le livre de cuisine' }),
+          livre ? el('span', { class: 'etiquette etiquette--sobre', texte: livre.theme }) : null,
+          el('h1', { class: 'fiche__titre', texte: livre ? livre.titre : 'Le livre de cuisine' }),
           el('p', {
             class: 'accroche',
-            texte:
-              recettes.length +
-              ' recettes rassemblées, avec leurs astuces, leurs variantes et ce que leur source ne dit pas.',
+            texte: livre
+              ? (recettes.length === 0
+                  ? 'Aucune recette rattachée à ce livre pour l’instant.'
+                  : recettes.length + ' recette' + (recettes.length > 1 ? 's' : '') + ' rattachée' + (recettes.length > 1 ? 's' : '') + ' à ce livre.') +
+                ' Les recettes d’un livre restent hors du planning de la semaine' +
+                (nbRemontees > 0
+                  ? ', sauf les ' + nbRemontees + ' remontée' + (nbRemontees > 1 ? 's' : '') + ' dans le livre de cuisine.'
+                  : ' : chaque fiche propose de la remonter dans le livre de cuisine.')
+              : recettes.length +
+                ' recettes rassemblées, avec leurs astuces, leurs variantes et ce que leur source ne dit pas.',
           }),
+          livre && livre.auteur ? el('p', { class: 'accroche', texte: livre.auteur }) : null,
         ]),
         el('div', { class: 'livre__actions' }, [
           el('button', {
             type: 'button',
             class: 'bouton bouton--sobre',
             id: 'importer-recette',
-            onclick: ouvrirImport,
+            onclick: function () {
+              ouvrirImport(livre);
+            },
           }, [icone('fleche', { taille: 16 }), el('span', { texte: 'Importer depuis un site' })]),
-          el('a', { class: 'bouton', id: 'ajouter-recette', href: '#/recette/nouvelle' }, [
+          el('a', {
+            class: 'bouton',
+            id: 'ajouter-recette',
+            href: livre ? '#/bibliotheque/' + encodeURIComponent(livre.id) + '/nouvelle' : '#/recette/nouvelle',
+          }, [
             icone('plus', { taille: 18 }),
             el('span', { texte: 'Ajouter une recette' }),
           ]),
+          // La suppression n'est proposee que sur un livre vide : un livre garni
+          // laisserait ses recettes sans etagere, donc invisibles. Le dire ici plutot
+          // que de proposer un bouton qui refuse.
+          livre && recettes.length === 0
+            ? el('button', {
+                type: 'button',
+                class: 'bouton bouton--secondaire',
+                id: 'supprimer-livre',
+                onclick: function () {
+                  supprimerLivre(livre);
+                },
+              }, [icone('croix', { taille: 16 }), el('span', { texte: 'Supprimer ce livre' })])
+            : null,
         ]),
       ])
     );
@@ -1926,41 +2073,7 @@
           'div',
           { class: 'grille' },
           resultats.map(function (recette) {
-            // Pas de liseret de couleur : la pastille de categorie porte deja cette
-            // information, et l'encoder deux fois n'ajoute rien. Sans photo, la carte
-            // tient en texte seul, ce qui est le cas de dix-neuf recettes sur vingt.
-            var carte = el('a', { class: 'carte', href: '#/recette/' + recette.id }, [
-              vignetteRecette(recette, 'vignette--carte'),
-              el('span', { class: 'carte__corps' }, [
-                el('span', { class: 'carte__haut' }, [
-                  el('span', { class: classeCategorie('etiquette', recette.categorie), texte: recette.categorie }),
-                  el('span', { class: 'carte__temps', texte: recette.temps.total }),
-                ]),
-                el('span', { class: 'carte__titre', texte: recette.titre }),
-                el('span', {
-                  class: 'carte__meta',
-                  texte:
-                    origineCourte(recette.origine) +
-                    ' · ' +
-                    difficulteCourte(recette.difficulte) +
-                    ' · ' +
-                    recette.portions,
-                }),
-                el('span', {
-                  class: 'carte__meta-faible',
-                  texte: nbIngredients(recette) + ' ingrédients · ' + recette.instructions.length + ' étapes',
-                }),
-                (function () {
-                  var fait = libelleRealisations(recette.id);
-                  if (!fait) return null;
-                  return el('span', {
-                    class: 'carte__realisations' + (fait.jamais ? ' carte__realisations--jamais' : ''),
-                    texte: fait.texte,
-                  });
-                })(),
-              ]),
-            ]);
-            return carte;
+            return carteRecette(recette, { origine: !livre });
           })
         )
       );
@@ -1976,7 +2089,7 @@
     var etaitDansRecherche = actif && actif.classList && actif.classList.contains('champ-recherche');
     var position = etaitDansRecherche ? actif.selectionStart : null;
 
-    monter(vueLivre());
+    monter(vueLivre(etat.livreCourant ? Lv.parId(etat.livreCourant) : null));
 
     if (etaitDansRecherche) {
       var nouveau = document.querySelector('.champ-recherche');
@@ -1991,6 +2104,199 @@
         }
       }
     }
+  }
+
+  /* --- vue : la bibliotheque ------------------------------------------------ */
+
+  function vueBibliotheque() {
+    document.title = 'Bibliothèque — Miam miam !';
+    return VBib.construire({
+      el: el,
+      icone: icone,
+      Lv: Lv,
+      Rc: Rc,
+      carteRecette: function (recette) {
+        return carteRecette(recette, { origine: true });
+      },
+      chercher: chercherDans,
+      rendre: rendreBibliothequePartiel,
+      annoncer: annoncer,
+      surCreer: ouvrirCreationLivre,
+      etat: etat,
+    });
+  }
+
+  /* Meme precaution que pour le livre : re-rendre pendant la saisie sortirait le
+     curseur du champ de recherche. */
+  function rendreBibliothequePartiel() {
+    var actif = document.activeElement;
+    var dansRecherche = actif && actif.id === 'recherche-bibliotheque';
+    var position = dansRecherche ? actif.selectionStart : null;
+
+    monter(vueBibliotheque());
+
+    if (!dansRecherche) return;
+    var nouveau = document.getElementById('recherche-bibliotheque');
+    if (!nouveau) return;
+    nouveau.focus();
+    if (position === null) return;
+    try {
+      nouveau.setSelectionRange(position, position);
+    } catch (erreur) {
+      /* certains types de champ n'acceptent pas setSelectionRange */
+    }
+  }
+
+  /**
+   * Boite de creation d'un livre.
+   *
+   * Deux champs, dont un seul est obligatoire : le titre. Le theme est propose sous
+   * forme de puces, plus un champ libre : la liste des themes n'est pas fermee, et
+   * imposer un choix parmi six obligerait a toucher au code pour un livre de
+   * conserves.
+   */
+  function ouvrirCreationLivre(themeParDefaut) {
+    var titre = '';
+    var auteur = '';
+    var theme = themeParDefaut || '';
+    var erreur = null;
+
+    function valider() {
+      if (titre.trim() === '') return;
+      Lv.creer(titre, theme, auteur).then(
+        function (livre) {
+          var echec = Lv.etatSync().erreur;
+          if (echec) {
+            // Comme partout ailleurs : une promesse tenue ne prouve pas l'envoi. Le
+            // livre est visible en local et la file le renverra, mais le dire.
+            erreur =
+              'Le livre est créé ici, mais il n’est pas encore parti vers le serveur (' +
+              echec +
+              '). Il repartira au retour du réseau.';
+            rendreCorpsVoile(corps());
+            return;
+          }
+          fermerVoile();
+          etat.themeBiblio = null;
+          window.location.hash = '#/bibliotheque/' + encodeURIComponent(livre.id);
+        },
+        function (e) {
+          erreur = e.message;
+          rendreCorpsVoile(corps());
+        }
+      );
+    }
+
+    function corps() {
+      var champTitre = el('input', {
+        type: 'text',
+        class: 'champ-edition',
+        id: 'titre-livre',
+        placeholder: 'Le grand livre de la pâtisserie',
+        'aria-label': 'Titre du livre',
+        oninput: function (evenement) {
+          titre = evenement.target.value;
+          var bouton = document.getElementById('valider-livre');
+          if (bouton) bouton.disabled = titre.trim() === '';
+        },
+      });
+      champTitre.value = titre;
+
+      var champAuteur = el('input', {
+        type: 'text',
+        class: 'champ-edition',
+        id: 'auteur-livre',
+        placeholder: 'Auteur ou éditeur (facultatif)',
+        'aria-label': 'Auteur du livre',
+        oninput: function (evenement) {
+          auteur = evenement.target.value;
+        },
+      });
+      champAuteur.value = auteur;
+
+      var champTheme = el('input', {
+        type: 'text',
+        class: 'champ-edition',
+        id: 'theme-livre',
+        placeholder: 'Thème (Pâtisserie, Plats, Boisson…)',
+        'aria-label': 'Thème du livre',
+        oninput: function (evenement) {
+          theme = evenement.target.value;
+          document.querySelectorAll('[data-theme-propose]').forEach(function (puce) {
+            puce.setAttribute('aria-pressed', puce.getAttribute('data-theme-propose') === theme ? 'true' : 'false');
+          });
+        },
+      });
+      champTheme.value = theme;
+
+      // Les themes deja utilises d'abord : un livre de plus dans un theme existant est
+      // le cas courant, et retaper « Pâtisserie » a l'identique pres serait le meilleur
+      // moyen de creer deux themes pour un seul.
+      var proposes = Lv.themes().slice();
+      Lv.THEMES_SUGGERES.forEach(function (t) {
+        if (proposes.indexOf(t) === -1) proposes.push(t);
+      });
+
+      return [
+        el('p', { class: 'accroche', texte:
+          'Un livre est une étagère : vous lui rattacherez ses recettes au fur et à mesure. ' +
+          'Un livre sans recette reste listé.' }),
+        erreur
+          ? el('div', { class: 'sync sync--config', id: 'erreur-livre' }, [
+              el('span', { class: 'sync__etat', texte: 'Livre non créé' }),
+              el('p', { class: 'sync__erreur', texte: erreur }),
+            ])
+          : null,
+        champTitre,
+        champAuteur,
+        el('h3', { class: 'boite__section', texte: 'Thème' }),
+        el('div', { class: 'rangee-filtre' }, proposes.map(function (t) {
+          return el('button', {
+            type: 'button',
+            class: 'pilule',
+            'data-theme-propose': t,
+            'aria-pressed': theme === t ? 'true' : 'false',
+            texte: t,
+            onclick: function () {
+              theme = t;
+              rendreCorpsVoile(corps());
+            },
+          });
+        })),
+        champTheme,
+        el('div', { class: 'boite__actions' }, [
+          el('button', {
+            type: 'button',
+            class: 'bouton',
+            id: 'valider-livre',
+            disabled: titre.trim() === '' ? true : null,
+            onclick: valider,
+          }, [icone('coche', { taille: 16 }), el('span', { texte: 'Créer le livre' })]),
+        ]),
+      ];
+    }
+
+    ouvrirVoile('Créer un livre', corps);
+  }
+
+  /** Supprime un livre vide, avec un retour en arriere possible. */
+  function supprimerLivre(livre) {
+    Lv.supprimer(livre.id, Rc.duLivre(livre.id).length).then(
+      function () {
+        window.location.hash = '#/bibliotheque';
+        annoncer(livre.titre + ' supprimé');
+        proposerAnnulation(livre.titre + ' supprimé', function () {
+          Lv.creer(livre.titre, livre.theme, livre.auteur).then(function () {
+            rendreBibliothequePartiel();
+          });
+        });
+      },
+      function (erreur) {
+        ouvrirVoile('Livre non supprimé', function () {
+          return [el('p', { class: 'sync__erreur', texte: erreur.message })];
+        });
+      }
+    );
   }
 
   /* --- vue : fiche recette ------------------------------------------------- */
@@ -2335,9 +2641,19 @@
     var dansListe = recetteDansListe(getShoppingList(), recette.id);
     var fragment = document.createDocumentFragment();
 
+    // Le retour ramene a l'etagere d'ou l'on vient : une recette de livre appartient
+    // a son livre, et renvoyer au livre de cuisine ferait perdre le fil.
+    var livreDeLaFiche = recette.livre ? Lv.parId(recette.livre) : null;
+
     fragment.appendChild(
       el('div', { class: 'fiche__barre' }, [
-        el('a', { class: 'retour', href: '#/livre', texte: '‹ Retour au livre' }),
+        livreDeLaFiche
+          ? el('a', {
+              class: 'retour',
+              href: '#/bibliotheque/' + encodeURIComponent(livreDeLaFiche.id),
+              texte: '‹ Retour à ' + livreDeLaFiche.titre,
+            })
+          : el('a', { class: 'retour', href: '#/livre', texte: '‹ Retour au livre' }),
         selecteurMode(recette),
       ])
     );
@@ -2350,6 +2666,17 @@
         el('span', { class: classeCategorie('etiquette', recette.categorie), texte: recette.categorie }),
         el('span', { class: 'etiquette etiquette--sobre', texte: origineCourte(recette.origine) }),
         el('span', { class: 'etiquette etiquette--sobre', texte: difficulteCourte(recette.difficulte) }),
+        // D'ou vient la fiche, et si elle compte dans le planning. Deux informations
+        // qu'on ne peut pas deviner en lisant la recette.
+        livreDeLaFiche
+          ? el('a', {
+              class: 'etiquette etiquette--livre',
+              href: '#/bibliotheque/' + encodeURIComponent(livreDeLaFiche.id),
+            }, [icone('livre-ferme', { taille: 13 }), el('span', { texte: livreDeLaFiche.titre })])
+          : null,
+        livreDeLaFiche && recette.auLivre
+          ? el('span', { class: 'etiquette etiquette--remontee', texte: 'dans le livre de cuisine' })
+          : null,
       ])
     );
 
@@ -2407,8 +2734,10 @@
               texte: faitFiche.texte,
             })
           : null,
-        // Signale une fiche qui ne correspond plus a la source citee plus bas.
-        Rc.estModifiee(id)
+        // Signale une fiche qui ne correspond plus a la source citee plus bas. Une
+        // recette ajoutee ici, ou rattachee a un livre, n'a pas d'original dont elle
+        // s'ecarterait : la marque y annoncerait une divergence imaginaire.
+        Rc.estModifiee(id) && !Rc.estAjoutee(id)
           ? el('span', { class: 'marque-modifiee', texte: 'fiche modifiée' })
           : null,
       ])
@@ -2437,6 +2766,25 @@
                 });
               },
             })
+          : null,
+        // Remonter une recette de livre, c'est la rendre planifiable : c'est le seul
+        // effet, et le libelle le dit plutot que de parler de visibilite.
+        livreDeLaFiche
+          ? el('button', {
+              type: 'button',
+              class: 'bouton bouton--secondaire',
+              id: 'basculer-livre-cuisine',
+              onclick: function () {
+                basculerVersLivreDeCuisine(recette, !recette.auLivre);
+              },
+            }, [
+              icone(recette.auLivre ? 'croix' : 'livre', { taille: 16 }),
+              el('span', {
+                texte: recette.auLivre
+                  ? 'Retirer du livre de cuisine'
+                  : 'Ajouter au livre de cuisine',
+              }),
+            ])
           : null,
         el('button', {
           type: 'button',
@@ -2832,6 +3180,35 @@
     return Rc.etatChargement().erreur || null;
   }
 
+  /**
+   * Remonte une recette de livre dans le livre de cuisine, ou la redescend.
+   *
+   * Ce qui change, et rien d'autre : elle devient (ou cesse d'etre) proposable dans
+   * la semaine et dans la reserve de plats. Elle reste dans son livre dans les deux
+   * cas, ce que le message d'annonce dit, parce que « retirer » pourrait s'entendre
+   * comme une suppression.
+   */
+  function basculerVersLivreDeCuisine(recette, dedans) {
+    Rc.remonter(recette.id, dedans).then(
+      function () {
+        var echec = erreurEcritureRecette();
+        monter(vueRecette(recette.id));
+        if (echec) {
+          annoncer('Le changement n’a pas atteint le serveur : ' + echec);
+          return;
+        }
+        annoncer(
+          dedans
+            ? recette.titre + ' est dans le livre de cuisine : elle peut aller au planning.'
+            : recette.titre + ' quitte le livre de cuisine et reste dans son livre.'
+        );
+      },
+      function (erreur) {
+        annoncer(erreur.message);
+      }
+    );
+  }
+
   /* --- partage d'une recette ------------------------------------------------ */
 
   /**
@@ -3109,7 +3486,7 @@
    * donc proposes, du plus rapide au plus universel : le marque-page, puis le
    * copier-coller de la page entiere.
    */
-  function ouvrirImport() {
+  function ouvrirImport(livre) {
     var colle = '';
     var resultat = null;
     var erreur = null;
@@ -3125,6 +3502,9 @@
 
     function enregistrer() {
       if (!resultat) return;
+      // Importee depuis un livre : elle lui est rattachee, et n'ira donc pas dans le
+      // planning tant qu'on ne l'aura pas remontee.
+      if (livre) resultat.livre = livre.id;
       Rc.creer(resultat).then(
         function (creee) {
           // La promesse tenue ne prouve pas l'envoi : voir erreurEcritureRecette().
@@ -3254,7 +3634,7 @@
       ].concat(apercu);
     }
 
-    ouvrirVoile('Importer une recette', function () {
+    ouvrirVoile(livre ? 'Importer une recette dans « ' + livre.titre + ' »' : 'Importer une recette', function () {
       return corps();
     }, { large: true });
   }
@@ -3971,7 +4351,14 @@
    * Editeur de recette. `id` valant null, c'est une creation : le meme formulaire
    * sert aux deux, ce qui evite de maintenir deux ecrans qui divergeraient.
    */
-  function vueEditeur(id) {
+  /**
+   * L'editeur d'une recette.
+   *
+   * `livre` n'a de sens qu'en creation : la nouvelle recette est alors rattachee a ce
+   * livre de la bibliotheque, et sa source prend le titre de l'ouvrage. Une recette
+   * existante garde son rattachement, qui se change depuis sa fiche.
+   */
+  function vueEditeur(id, livre) {
     var creation = id === null || id === undefined;
     var recette = creation ? null : Rc.parId(id);
 
@@ -3989,11 +4376,17 @@
     // de zero a chaque re-rendu et la saisie serait perdue. En creation, le
     // brouillon porte un identifiant vide, ce qui le distingue de toute recette.
     if (!brouillon || brouillon.id !== (creation ? '' : id)) {
-      brouillon = creation ? Rc.recetteVide() : JSON.parse(JSON.stringify(recette));
+      brouillon = creation ? Rc.recetteVide(livre) : JSON.parse(JSON.stringify(recette));
       // Section ouverte au depart : en creation il faut d'abord un titre, en
       // modification on vient le plus souvent changer le nombre de parts.
       etat.sectionEditeur = creation ? 'fiche' : 'parts';
     }
+
+    // Le livre effectif est relu dans le brouillon, et non seulement dans l'argument :
+    // les blocs de l'editeur (photo, parts, ingredients, etapes) se re-rendent par
+    // `vueEditeur(id)` sans connaitre le livre, et « Annuler » doit malgre tout
+    // ramener a l'etagere d'ou l'on vient.
+    if (!livre && brouillon && brouillon.livre) livre = Lv.parId(brouillon.livre);
 
     document.title = creation
       ? 'Nouvelle recette — Miam miam !'
@@ -4033,7 +4426,7 @@
             // refuse d'enregistrer plutot que de creer une recette sans nom.
             if (String(aEnregistrer.titre || '').trim() === '') {
               erreurEditeur = 'Le titre est obligatoire : sans lui, la recette serait introuvable dans le livre.';
-              monter(vueEditeur(id));
+              monter(vueEditeur(id, livre));
               var champTitre = document.getElementById('champ-titre');
               if (champTitre) champTitre.focus();
               return;
@@ -4049,7 +4442,7 @@
                 // survivrait pas au prochain rafraichissement.
                 if (Rc.etatChargement().erreur) {
                   brouillon = aEnregistrer;
-                  monter(vueEditeur(id));
+                  monter(vueEditeur(id, livre));
                   var noeud = document.getElementById('erreur-recettes');
                   if (noeud) noeud.scrollIntoView({ block: 'center' });
                   return;
@@ -4059,7 +4452,7 @@
               })
               .catch(function (erreur) {
                 erreurEditeur = erreur.message;
-                monter(vueEditeur(id));
+                monter(vueEditeur(id, livre));
               });
           },
         });
@@ -4072,7 +4465,11 @@
           onclick: function () {
             brouillon = null;
             erreurEditeur = null;
-            window.location.hash = creation ? '#/livre' : '#/recette/' + id;
+            window.location.hash = creation
+              ? livre
+                ? '#/bibliotheque/' + encodeURIComponent(livre.id)
+                : '#/livre'
+              : '#/recette/' + id;
           },
         });
 
@@ -4105,7 +4502,9 @@
                     el('p', {
                       class: 'boite__intro',
                       texte:
-                        'Cette recette a été ajoutée depuis l’application : la supprimer l’enlève pour tout le monde, et il n’y a pas de version d’origine à rétablir.',
+                        (Rc.livreDe(id)
+                          ? 'Cette recette est rattachée à un livre de la bibliothèque : la supprimer l’enlève pour tout le monde, et il n’y a pas de version d’origine à rétablir. Le livre, lui, reste.'
+                          : 'Cette recette a été ajoutée depuis l’application : la supprimer l’enlève pour tout le monde, et il n’y a pas de version d’origine à rétablir.'),
                     }),
                     el('div', { class: 'boite__actions' }, [
                       el('button', {
@@ -4114,6 +4513,9 @@
                         id: 'confirmer-suppression',
                         texte: 'Supprimer',
                         onclick: function () {
+                          // Le livre est releve avant la suppression : apres, la
+                          // recette n'existe plus et son rattachement avec elle.
+                          var livreOrigine = Rc.livreDe(id);
                           Rc.supprimer(id)
                             .then(function () {
                               var echec = erreurEcritureRecette();
@@ -4128,12 +4530,14 @@
                             .then(function () {
                               brouillon = null;
                               fermer();
-                              window.location.hash = '#/livre';
+                              window.location.hash = livreOrigine
+                                ? '#/bibliotheque/' + encodeURIComponent(livreOrigine)
+                                : '#/livre';
                             })
                             .catch(function (erreur) {
                               erreurEditeur = erreur.message;
                               fermer();
-                              monter(vueEditeur(id));
+                              monter(vueEditeur(id, livre));
                             });
                         },
                       }),
@@ -4159,7 +4563,7 @@
                     erreurEditeur =
                       'La version modifiée n’a pas pu être supprimée du serveur : ' + echec +
                       ' Elle reviendra à la prochaine mise à jour. Réessayez une fois le réseau revenu.';
-                    monter(vueEditeur(id));
+                    monter(vueEditeur(id, livre));
                     return;
                   }
                   brouillon = null;
@@ -4258,7 +4662,7 @@
 
     function ouvrirSection(cle) {
       etat.sectionEditeur = cle;
-      monter(vueEditeur(id));
+      monter(vueEditeur(id, livre));
       var ouverte = document.querySelector('.section-pliee--ouverte');
       if (ouverte) ouverte.scrollIntoView({ block: 'nearest' });
     }
@@ -4434,7 +4838,45 @@
     }
     if (ancre === '/livre') {
       document.title = 'Le livre de cuisine — Miam miam !';
-      afficher(vueLivre(), Rc.toutes().length + ' recettes');
+      changerDeLivre(null);
+      var nbLivre = Rc.duLivreDeCuisine().length;
+      afficher(vueLivre(null), nbLivre + ' recettes');
+      return;
+    }
+
+    if (ancre === '/bibliotheque') {
+      afficher(vueBibliotheque());
+      return;
+    }
+
+    if (ancre.indexOf('/bibliotheque/') === 0) {
+      var suite = ancre.slice('/bibliotheque/'.length);
+      var creationDansLivre = suite.match(/^(.*)\/nouvelle$/);
+      var idLivre = decodeURIComponent(creationDansLivre ? creationDansLivre[1] : suite);
+      var ouvrage = Lv.parId(idLivre);
+
+      if (!ouvrage) {
+        afficher(
+          el('div', {}, [
+            el('a', { class: 'retour', href: '#/bibliotheque', texte: '‹ Retour à la bibliothèque' }),
+            el('div', { class: 'etat-erreur' }, [
+              el('h1', { texte: 'Livre introuvable' }),
+              el('p', { texte: 'L’identifiant « ' + idLivre + ' » ne correspond à aucun livre de la bibliothèque.' }),
+            ]),
+          ])
+        );
+        return;
+      }
+
+      if (creationDansLivre) {
+        afficher(vueEditeur(null, ouvrage));
+        return;
+      }
+
+      document.title = ouvrage.titre + ' — Miam miam !';
+      changerDeLivre(ouvrage.id);
+      var nb = Rc.duLivre(ouvrage.id).length;
+      afficher(vueLivre(ouvrage), ouvrage.titre + ', ' + nb + (nb > 1 ? ' recettes' : ' recette'));
       return;
     }
 
@@ -4502,14 +4944,25 @@
     // Le livre affiche le compteur de realisations, qui est lu dans le semainier :
     // il doit suivre, sinon un rafraichissement des menus laisse des compteurs
     // perimes sur les cartes.
-    else if (route === '/livre') monter(vueLivre());
+    else if (route === '/livre') monter(vueLivre(null));
   }
 
   function surChangementPhotos() {
     if (voile || saisieEnCours()) return;
     var route = routeCourante();
     if (route === '/') monter(vueAccueil());
-    else if (route === '/livre') monter(vueLivre());
+    else if (route === '/livre') monter(vueLivre(null));
+    else if (route.indexOf('/bibliotheque') === 0) router();
+  }
+
+  /**
+   * La bibliotheque a change : un livre cree ou supprime depuis un autre appareil.
+   * Seuls les deux ecrans qui l'affichent sont re-rendus, et jamais par-dessus une
+   * boite ouverte : le re-rendu emporterait la saisie en cours.
+   */
+  function surChangementLivres() {
+    if (voile || saisieEnCours()) return;
+    if (routeCourante().indexOf('/bibliotheque') === 0) router();
   }
 
   /**
@@ -4678,6 +5131,11 @@
         // Le placard est lu une fois, comme le reste. S'il est inaccessible (regles
         // non publiees), le carnet fonctionne sans : aucun ingredient n'est ecarte.
         Pl.initialiser();
+
+        // La bibliotheque est lue une fois, comme le reste. Ses livres sont des
+        // documents minuscules : quelques lectures, une seule fois par chargement.
+        Lv.surChangement(surChangementLivres);
+        Lv.initialiser();
 
         // Les recettes modifiees sont relues une fois, au chargement. Elles changent
         // trop rarement pour justifier un sondage permanent.

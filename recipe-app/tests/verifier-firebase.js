@@ -42,6 +42,7 @@ const Storage = require(path.join(racine, 'js/storage.js'));
 const Semainier = require(path.join(racine, 'js/semainier.js'));
 const Photos = require(path.join(racine, 'js/photos.js'));
 const Placard = require(path.join(racine, 'js/placard.js'));
+const Livres = require(path.join(racine, 'js/livres.js'));
 
 const RECETTE = {
   id: '__verification__',
@@ -80,6 +81,9 @@ const JOUR_TEST = '2099-12-28';
 // ce script écrit dans la base réelle, il ne doit pas pouvoir effacer une entrée
 // posée par quelqu'un, ni laisser croire qu'il en a posé une.
 const NOM_PLACARD_TEST = 'Vérification technique du placard';
+
+// Titre de livre réservé à ce contrôle, improbable dans une vraie bibliothèque.
+const TITRE_LIVRE_TEST = 'Vérification technique de la bibliothèque';
 
 /** Supprime tout ce que ce contrôle a pu laisser derrière lui. */
 async function nettoyer() {
@@ -432,6 +436,53 @@ async function nettoyer() {
       await Sync.supprimerPlacard('verification-sans-nom');
     }
     assert.ok(refuse, 'une entrée sans nom a été acceptée : les règles publiées ne sont pas celles du dépôt');
+  });
+
+  // --- La bibliothèque -------------------------------------------------------
+  //
+  // Sixième collection, ajoutée le 12 août 2026. Ces contrôles sont les seuls qui
+  // prouvent que `firestore.rules` a bien été republié avec elle : sans eux, une
+  // bibliothèque qui reste vide passerait pour une bibliothèque qu'on n'a pas remplie.
+
+  await test('un livre est écrit, relu depuis le serveur, puis supprimé', async () => {
+    await Livres.rafraichir();
+    assert.strictEqual(
+      Livres.etatSync().enLigne,
+      true,
+      `lecture refusée : ${Livres.etatSync().erreur}. La collection « livres » de ` +
+        'firestore.rules doit être publiée.'
+    );
+
+    const livre = await Livres.creer(TITRE_LIVRE_TEST, 'Vérification');
+    assert.strictEqual(Livres.etatSync().enLigne, true, `écriture refusée : ${Livres.etatSync().erreur}`);
+    assert.strictEqual(Livres.etatSync().enAttente, 0, 'la file des livres n a pas été vidée');
+
+    // Relu depuis le serveur et non depuis le cache local : c'est ce qui prouve que la
+    // bibliothèque est bien partagée entre les appareils.
+    const distants = await Sync.lireLivres();
+    const mien = distants.find((l) => l.titre === TITRE_LIVRE_TEST);
+    assert.ok(mien, 'livre introuvable côté serveur');
+    assert.strictEqual(mien.id, livre.id);
+    assert.strictEqual(mien.theme, 'Vérification');
+
+    await Livres.supprimer(livre.id, 0);
+    const apres = await Sync.lireLivres();
+    assert.ok(!apres.find((l) => l.titre === TITRE_LIVRE_TEST), 'le livre de vérification n a pas été supprimé');
+  });
+
+  await test('les règles refusent un livre sans titre', async () => {
+    // Contrôle de la règle elle-même : `titre` doit exister et ne pas être vide. Si ce
+    // contrôle passe, les règles publiées ne sont pas celles du dépôt.
+    let refuse = false;
+    try {
+      await Sync.ecrireLivre({ id: 'verification-sans-titre', titre: '', theme: 'Vérification' });
+    } catch (erreur) {
+      refuse = true;
+    }
+    if (!refuse) {
+      await Sync.supprimerLivre('verification-sans-titre');
+    }
+    assert.ok(refuse, 'un livre sans titre a été accepté : les règles publiées ne sont pas celles du dépôt');
   });
 
   // Filet de sécurité : quoi qu'il se soit passé, on ne laisse rien.
