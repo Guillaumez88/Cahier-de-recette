@@ -66,6 +66,23 @@
       .toLowerCase();
   }
 
+  /**
+   * Cle sous laquelle la couverture d'un livre est rangee dans les photos.
+   *
+   * La couverture reutilise `photos.js` telle quelle : redimensionnement dans le
+   * navigateur, deux tailles, cache durable, lecture des vignettes en une requete
+   * masquee au chargement. Ce module traite sa cle comme opaque, et le prefixe suffit
+   * a ce qu'une couverture ne puisse jamais entrer en collision avec la photo d'une
+   * recette. Aucune collection ni aucune regle de securite de plus.
+   *
+   * L'alternative, un champ `couverture` dans le document du livre, aurait fait relire
+   * l'image entiere a chaque chargement de page pour chaque livre : c'est exactement
+   * ce que les deux tailles de photos.js evitent.
+   */
+  function clePhoto(id) {
+    return 'livre::' + String(id || '');
+  }
+
   function trier(livres) {
     return livres.slice().sort(function (a, b) {
       // Par theme puis par titre : c'est l'ordre dans lequel l'ecran les regroupe,
@@ -159,8 +176,17 @@
     var id = identifiant(propre);
     if (id === '') return Promise.reject(new Error('ce titre ne donne aucun identifiant lisible'));
 
+    // Un livre deja la sous ce titre est rendu tel quel : « Le Larousse des desserts »
+    // et « LE LAROUSSE DES DESSERTS » designent la meme etagere, et deux entrees
+    // homonymes seraient indiscernables a l'ecran comme dans les donnees.
+    //
+    // Un livre **renomme**, en revanche, garde son identifiant d'origine : il ne porte
+    // plus le titre dont cet identifiant est tire. Recreer un livre sous l'ancien titre
+    // ne doit donc pas ouvrir celui qui s'appelle maintenant autrement, mais bien creer
+    // une etagere distincte, avec un identifiant libre.
     var existant = parId(id);
-    if (existant) return Promise.resolve(existant);
+    if (existant && identifiant(existant.titre) === id) return Promise.resolve(existant);
+    if (existant) id = identifiantLibre(id);
 
     var livre = {
       id: id,
@@ -175,7 +201,22 @@
       });
   }
 
-  /** Change le titre, le theme ou l'auteur d'un livre. L'identifiant ne bouge pas. */
+  /** Premier identifiant disponible a partir d'une racine deja prise. */
+  function identifiantLibre(racine) {
+    for (var n = 2; n < 200; n += 1) {
+      if (!parId(racine + '-' + n)) return racine + '-' + n;
+    }
+    return racine + '-' + Date.now();
+  }
+
+  /**
+   * Change le titre, le theme ou l'auteur d'un livre.
+   *
+   * **L'identifiant ne bouge pas**, et c'est essentiel : les recettes citent leur livre
+   * par cet identifiant, dans leur propre document. Le changer obligerait a reecrire
+   * toutes les recettes du livre, et laisserait celles qui n'auraient pas ete reecrites
+   * rattachees a une etagere absente. Un livre renomme garde donc son adresse.
+   */
   function modifier(id, champs) {
     var livre = parId(id);
     if (!livre) return Promise.reject(new Error('ce livre n’existe pas'));
@@ -232,6 +273,7 @@
     etatSync: col.etatSync,
 
     identifiant: identifiant,
+    clePhoto: clePhoto,
     tous: tous,
     parId: parId,
     themes: themes,

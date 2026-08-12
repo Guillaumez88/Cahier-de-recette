@@ -139,15 +139,86 @@ s'écarterait. Elle est maintenant réservée aux recettes d'origine réellement
 
 ---
 
+## 7 bis. Renommer, déplacer, illustrer : trois ajouts du 12 août au soir
+
+### Renommer un livre garde son identifiant
+
+**Décidé.** `Livres.modifier()` change le titre, le thème et l'auteur. **L'identifiant
+ne bouge pas.**
+
+**Pourquoi c'est essentiel.** Les recettes citent leur livre par cet identifiant, dans
+leur propre document. Le recalculer à partir du nouveau titre obligerait à réécrire
+toutes les recettes du livre, et laisserait rattachées à une étagère absente celles dont
+la réécriture aurait échoué. Un livre renommé garde donc son adresse
+(`#/bibliotheque/ferrandi-patisserie` reste valable après un renommage en « Ferrandi, le
+grand livre »). Un test le vérifie sur une recette rattachée.
+
+**Un cas de bord traité.** L'identifiant venant du titre, un livre renommé libère son
+ancien titre sans libérer son identifiant. Créer ensuite un livre portant cet ancien
+titre ne doit pas ouvrir le livre renommé : `creer()` ne rend un livre existant que si
+son titre **actuel** produit encore cet identifiant, et prend sinon le premier
+identifiant libre (`-2`, `-3`). Sans cette règle, « créer un livre » ouvrait parfois un
+autre livre, ce qui est le genre de comportement qu'on met une heure à comprendre.
+
+### Déplacer une recette d'une étagère à une autre
+
+**Décidé.** `Rc.deplacerVersLivre(id, versLivre)`, `versLivre` valant `null` pour le
+livre de cuisine. Seul le rattachement change : la recette, ses ingrédients, sa photo et
+son historique dans le semainier ne bougent pas, la photo étant rangée sous
+l'identifiant de la recette et non sous celui du livre.
+
+**Le livre de cuisine figure dans les destinations**, et ce n'est pas la même chose que
+« Ajouter au livre de cuisine » de la fiche : celui-là remonte une recette **en la
+laissant** dans son livre, celui-ci **la sort** de la bibliothèque. Les deux libellés le
+disent, parce que la nuance ne se devine pas. Déplacer vers le livre de cuisine retire
+`auLivre`, qui n'aurait plus d'objet.
+
+**Un garde-fou.** Une recette du carnet d'origine ne peut pas être rangée dans un livre :
+elle vit dans le fichier servi avec le site et réapparaîtrait dans le livre de cuisine à
+la prochaine lecture, en double. Le module refuse, et la boîte ne propose pas le bouton.
+
+**Placement.** Dans les « actions rares » de l'éditeur, avec la suppression, et non dans
+la barre de la fiche qui en porte déjà quatre.
+
+### La couverture d'un livre réutilise photos.js, telle quelle
+
+**Décidé.** La couverture est rangée dans la collection `photos` existante, sous la clé
+`livre::<id>` (`Livres.clePhoto()`).
+
+**Pourquoi.** `photos.js` traite sa clé comme opaque : redimensionnement dans le
+navigateur, deux tailles, cache durable IndexedDB, lecture de toutes les vignettes en une
+requête masquée au chargement. Tout cela s'applique sans une ligne de plus, **sans
+collection supplémentaire et sans seconde republication des règles de sécurité**. Le
+préfixe garantit qu'une couverture ne peut jamais entrer en collision avec la photo d'une
+recette, et un test l'écrit noir sur blanc.
+
+**Contre quoi.** Un champ `couverture` dans le document du livre. Écarté : le document du
+livre est lu à chaque chargement de page, l'image entière l'aurait donc été aussi, pour
+chaque livre. C'est exactement ce que les deux tailles de photos.js évitent.
+
+**Ce qui s'affiche.** Sur la carte de la bibliothèque, la couverture remplace l'aplat de
+couleur, cadrée en `cover` et alignée sur le **haut** de l'image : le titre d'un ouvrage
+est en haut de sa couverture, et c'est lui qu'on cherche à reconnaître. Sur l'écran du
+livre, elle accompagne le titre. Dans les deux cas c'est la vignette (320 px) qui est
+utilisée : elle est déjà en cache, et la grande version n'apporterait rien à 124 px.
+
+**Un bloc d'image réutilisable.** `blocPhoto()` de l'éditeur est devenu `blocImage(cle,
+reglages)`, avec ses libellés et sa fonction de re-rendu en paramètres. Les identifiants
+de nœuds (`photo-fichier`, `retirer-photo`, `bloc-photo`) sont conservés : les tests et la
+feuille de style s'y appuient.
+
+---
+
 ## 8. Le coût, mesuré
 
 | | |
 |---|---|
 | Un document livre | quelques centaines d'octets, lus une fois par chargement |
 | Une recette de livre | un document dans `recettes`, comme une recette ajoutée à la main |
-| Code ajouté | `js/livres.js` 247 lignes, `js/vue-bibliotheque.js` 292 lignes |
-| Poids ajouté | 6,9 Ko compressés (livres 3,3 Ko, écran 3,6 Ko) |
-| Poids du site | 196 Ko compressés en 33 fichiers, contre 182 Ko en 31 |
+| Code ajouté | `js/livres.js` 289 lignes, `js/vue-bibliotheque.js` 304 lignes |
+| Poids ajouté | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
+| Poids du site | 201 Ko compressés en 33 fichiers, contre 182 Ko en 31 |
+| Une couverture | un document de la collection `photos`, deux tailles, comme une photo de recette |
 
 **Le seuil à surveiller.** Toutes les recettes de la collection `recettes` sont relues à
 chaque chargement de page. Aujourd'hui elles se comptent sur les doigts. À 500 recettes
@@ -166,5 +237,7 @@ Rien ne presse, et le dire maintenant évite de le découvrir par une panne.
 c'est fait, la bibliothèque ne peut ni lire ni écrire, et l'application le dira sans se
 bloquer : la bibliothèque paraîtra vide.
 
-**Rien n'est prévu pour renommer un livre depuis l'écran.** `Livres.modifier()` existe et
-est testé, mais aucun bouton ne l'appelle. À ajouter quand le besoin se présentera.
+**Deux choses ne sont pas faites, et n'ont pas été demandées.** Déplacer plusieurs
+recettes d'un coup (le déplacement se fait fiche par fiche), et supprimer un livre avec
+ses recettes (la suppression reste réservée aux livres vides, pour la raison donnée au
+point 1).

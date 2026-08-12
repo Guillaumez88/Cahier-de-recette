@@ -188,6 +188,51 @@
   }
 
   /**
+   * Deplace une recette d'une etagere a une autre.
+   *
+   * `versLivre` est l'identifiant du livre d'arrivee, ou null pour le livre de cuisine.
+   * Le rattachement est le seul champ touche : la recette, ses ingredients, sa photo et
+   * son historique dans le semainier ne bougent pas, la photo etant rangee sous
+   * l'identifiant de la recette et non sous celui du livre.
+   *
+   * Deux garde-fous. Une recette **d'origine** ne peut pas entrer dans un livre : elle
+   * vit dans le fichier servi avec le site, et la sortir du livre de cuisine la ferait
+   * simplement reapparaitre a la prochaine lecture, en double. Et deplacer vers le
+   * livre de cuisine retire `auLivre`, qui n'a plus d'objet : une recette du livre de
+   * cuisine y est, elle n'y est pas « remontee ».
+   */
+  function deplacerVersLivre(id, versLivre) {
+    var recette = parId(id);
+    if (!recette) return Promise.reject(new Error('cette recette n’existe pas'));
+
+    var cible = versLivre ? String(versLivre) : null;
+    var actuel = recette.livre || null;
+    if (cible === actuel) return Promise.resolve(recette);
+
+    if (!cible && idsDeBase()[id]) {
+      // Cas impossible en pratique (une recette d'origine n'a pas de livre), mais la
+      // regle est ecrite : le fichier d'origine est la reference.
+      return Promise.resolve(recette);
+    }
+    if (cible && idsDeBase()[id]) {
+      return Promise.reject(
+        new Error(
+          'cette recette vient du carnet d’origine : elle ne peut pas être rangée dans un livre, ' +
+            'elle réapparaîtrait dans le livre de cuisine à la prochaine mise à jour.'
+        )
+      );
+    }
+
+    var copie = JSON.parse(JSON.stringify(recette));
+    if (cible) copie.livre = cible;
+    else {
+      delete copie.livre;
+      delete copie.auLivre;
+    }
+    return enregistrer(copie);
+  }
+
+  /**
    * Remonte une recette de livre dans le livre de cuisine, ou la redescend.
    *
    * Refuse pour une recette qui n'est pas dans un livre : le livre de cuisine est
@@ -471,6 +516,7 @@
     deLaBibliotheque: deLaBibliotheque,
     comptesParLivre: comptesParLivre,
     remonter: remonter,
+    deplacerVersLivre: deplacerVersLivre,
     rafraichir: rafraichir,
     etatChargement: etatChargement,
     enregistrer: enregistrer,

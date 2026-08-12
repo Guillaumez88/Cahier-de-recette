@@ -40,6 +40,23 @@ function verifier(nom, condition, detail = '') {
 
 const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Attend qu'un motif apparaisse dans la page, ou rend false au bout de `limite`. */
+async function attendreTexte(page, motif, limite = 8000) {
+  const debut = Date.now();
+  while (Date.now() - debut < limite) {
+    const texte = await page.evaluate(() => document.body.textContent);
+    if (motif.test(texte)) return true;
+    await attendre(200);
+  }
+  return false;
+}
+
+// Un PNG de 4 x 4 pixels, le meme que celui du test du semainier : le
+// redimensionnement a besoin d'une image que le navigateur sache decoder.
+const PNG_ROUGE =
+  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAFklEQVR42mP8z8Dwn4EIwESMIkbi' +
+  'FAEAoQ4F/1sYzE0AAAAASUVORK5CYII=';
+
 (async () => {
   const navigateur = await chromium.launch(OPTIONS_LANCEMENT);
   const contexteA = await navigateur.newContext({ viewport: { width: 1280, height: 1100 } });
@@ -300,6 +317,16 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
     'une recette du livre de cuisine est apparue dans les résultats de la bibliothèque'
   );
 
+  // La recherche de la bibliothèque est effacée avant de repasser à la grille : elle
+  // survit à la navigation, comme les filtres du livre.
+  await pageA.click('#effacer-recherche-bibliotheque');
+  await attendre(400);
+  verifier(
+    'effacer la recherche ramène la grille des livres',
+    (await pageA.locator('.livre-carte[data-livre]').count()) === 2,
+    `${await pageA.locator('.livre-carte[data-livre]').count()} livres affichés`
+  );
+
   await pageA.goto(`${BASE}#/bibliotheque/ferrandi-patisserie`, { waitUntil: 'networkidle' });
   await attendre(600);
   const filtresDuLivre = await pageA.evaluate(() =>
@@ -355,13 +382,145 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
     'aucun bandeau d’annulation après la suppression d’un livre'
   );
 
-  // --- 11. Un livre inconnu le dit ------------------------------------------
+  // --- 11. Renommer un livre, et sa couverture ------------------------------
+
+  await pageA.goto(`${BASE}#/bibliotheque/ferrandi-patisserie`, { waitUntil: 'networkidle' });
+  await attendre(600);
+  verifier('un livre propose d’être modifié', (await pageA.locator('#modifier-livre').count()) === 1);
+  await pageA.click('#modifier-livre');
+  await attendre(400);
+  verifier('la boîte de modification s’ouvre', (await pageA.locator('#voile').count()) === 1);
+  verifier(
+    'la boîte est pré-remplie avec le livre',
+    (await pageA.locator('#titre-livre').inputValue()) === 'Ferrandi — Pâtisserie' &&
+      (await pageA.locator('#auteur-livre').inputValue()) === 'Ferrandi Paris'
+  );
+
+  // La couverture, dans la même boîte : c'est l'identité du livre.
+  verifier('la boîte propose une couverture', (await pageA.locator('#couverture-fichier').count()) === 1);
+  verifier('aucune couverture au départ', /Aucune couverture/.test(await texteDe(pageA)));
+  await pageA.locator('#couverture-fichier').setInputFiles({
+    name: 'couverture.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(PNG_ROUGE, 'base64'),
+  });
+  verifier(
+    'l’enregistrement de la couverture est confirmé',
+    await attendreTexte(pageA, /Couverture enregistrée et partagée/, 12000),
+    await texteDe(pageA)
+  );
+
+  const etatCouverture = await (await pageA.request.get(new URL('__stub/etat', BASE).href)).json();
+  const couverture = etatCouverture.photos.find((p) => p.recetteId === 'livre::ferrandi-patisserie');
+  verifier(
+    'la couverture est rangée sous la clé du livre',
+    Boolean(couverture) && couverture.tailleVignette > 0 && couverture.tailleGrande > 0,
+    JSON.stringify(etatCouverture.photos.map((p) => p.recetteId))
+  );
+
+  await pageA.fill('#titre-livre', 'Ferrandi, le grand livre');
+  await pageA.click('[data-theme-propose="Plats"]');
+  await attendre(300);
+  await pageA.click('#valider-livre');
+  await attendre(900);
+
+  verifier('la boîte se referme après enregistrement', (await pageA.locator('#voile').count()) === 0);
+  // L'identifiant ne change pas avec le titre : les recettes citent leur livre par lui.
+  verifier(
+    'le livre garde son adresse après renommage',
+    pageA.url().includes('#/bibliotheque/ferrandi-patisserie'),
+    pageA.url()
+  );
+  const apresRenommage = await texteDe(pageA);
+  verifier('le livre porte son nouveau titre', /Ferrandi, le grand livre/.test(apresRenommage));
+  verifier('le livre porte son nouveau thème', /Plats/.test(apresRenommage));
+  verifier(
+    'la recette rattachée a survécu au renommage',
+    /Paris-Brest/.test(apresRenommage),
+    'la recette a perdu son livre au renommage'
+  );
+  verifier('la couverture s’affiche sur l’écran du livre', (await pageA.locator('.livre__couverture img').count()) === 1);
+
+  await pageA.goto(`${BASE}#/bibliotheque`, { waitUntil: 'networkidle' });
+  await attendre(700);
+  verifier(
+    'la couverture s’affiche sur la carte du livre',
+    (await pageA.locator('[data-livre="ferrandi-patisserie"] .livre-carte__image').count()) === 1
+  );
+  verifier(
+    'un livre sans couverture garde son aplat',
+    (await pageA.locator('[data-livre="recettes-de-nos-grand-meres"] .livre-carte__image').count()) === 0
+  );
+
+  // --- 12. Déplacer une recette d'un livre à un autre -----------------------
+
+  await pageA.goto(`${BASE}#/recette/paris-brest/modifier`, { waitUntil: 'networkidle' });
+  await attendre(800);
+  verifier('l’éditeur propose de déplacer la recette', (await pageA.locator('#deplacer-recette').count()) === 1);
+  await pageA.click('#deplacer-recette');
+  await attendre(400);
+  verifier('la boîte de déplacement s’ouvre', (await pageA.locator('#destinations-livre').count()) === 1);
+  verifier(
+    'le livre où elle est déjà n’est pas proposé',
+    await pageA.locator('[data-destination="ferrandi-patisserie"]').isDisabled()
+  );
+  verifier(
+    'le livre de cuisine est une destination',
+    (await pageA.locator('[data-destination="livre-de-cuisine"]').count()) === 1
+  );
+
+  await pageA.click('[data-destination="recettes-de-nos-grand-meres"]');
+  await attendre(1000);
+  const apresDeplacement = await pageA.evaluate(() => {
+    const r = window.CarnetRecettes.parId('paris-brest');
+    return { livre: r.livre, titre: r.titre };
+  });
+  verifier(
+    'la recette a changé de livre',
+    apresDeplacement.livre === 'recettes-de-nos-grand-meres' && apresDeplacement.titre === 'Paris-Brest',
+    JSON.stringify(apresDeplacement)
+  );
+
+  await pageA.goto(`${BASE}#/bibliotheque/ferrandi-patisserie`, { waitUntil: 'networkidle' });
+  await attendre(600);
+  verifier(
+    'elle a quitté son ancien livre',
+    !/Paris-Brest/.test(await texteDe(pageA)),
+    'la recette est restée dans son ancien livre'
+  );
+
+  // Vers le livre de cuisine : elle sort de la bibliothèque.
+  await pageA.goto(`${BASE}#/recette/paris-brest/modifier`, { waitUntil: 'networkidle' });
+  await attendre(800);
+  await pageA.click('#deplacer-recette');
+  await attendre(400);
+  await pageA.click('[data-destination="livre-de-cuisine"]');
+  await attendre(1000);
+  const sortie = await pageA.evaluate(() => {
+    const r = window.CarnetRecettes.parId('paris-brest');
+    return { livre: r.livre === undefined ? null : r.livre, auLivre: Boolean(r.auLivre) };
+  });
+  verifier(
+    'déplacée vers le livre de cuisine, elle quitte la bibliothèque',
+    sortie.livre === null && sortie.auLivre === false,
+    JSON.stringify(sortie)
+  );
+  await pageA.goto(`${BASE}#/livre`, { waitUntil: 'networkidle' });
+  await attendre(600);
+  verifier(
+    'elle est alors dans le livre de cuisine',
+    /Paris-Brest/.test(await texteDe(pageA)),
+    'la recette sortie de la bibliothèque n’est pas dans le livre de cuisine'
+  );
+
+  // --- 13. Un livre inconnu le dit ------------------------------------------
+
 
   await pageA.goto(`${BASE}#/bibliotheque/livre-qui-n-existe-pas`, { waitUntil: 'networkidle' });
   await attendre(500);
   verifier('un identifiant de livre inconnu affiche un message clair', /Livre introuvable/.test(await texteDe(pageA)));
 
-  // --- 12. Pas de débordement sur un écran de téléphone ---------------------
+  // --- 14. Pas de débordement sur un écran de téléphone ---------------------
 
   await pageA.setViewportSize({ width: 360, height: 780 });
   await pageA.goto(`${BASE}#/bibliotheque`, { waitUntil: 'networkidle' });
@@ -371,7 +530,7 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   verifier('aucun débordement horizontal en 360 px', debordement <= 1, `${debordement} px`);
 
-  // --- 13. Aucune erreur JavaScript ----------------------------------------
+  // --- 15. Aucune erreur JavaScript ----------------------------------------
 
   verifier('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
 

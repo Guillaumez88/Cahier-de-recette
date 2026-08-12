@@ -1737,7 +1737,138 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     assert.strictEqual(Object.keys(lues).length, 305, 'des recettes ont ete perdues a la pagination');
   });
 
+  await test('un livre se renomme sans changer d identifiant', async () => {
+    const { Livres } = neuf();
+    await Livres.initialiser();
+    const livre = await Livres.creer('Ferrandi — Pâtisserie', 'Pâtisserie');
+
+    const renomme = await Livres.modifier(livre.id, {
+      titre: 'Ferrandi, le grand livre',
+      theme: 'Plats',
+      auteur: 'Ferrandi Paris',
+    });
+    // L identifiant ne bouge pas : les recettes citent leur livre par lui.
+    assert.strictEqual(renomme.id, 'ferrandi-patisserie');
+    assert.strictEqual(renomme.titre, 'Ferrandi, le grand livre');
+    assert.strictEqual(renomme.theme, 'Plats');
+    assert.strictEqual(Livres.tous().length, 1, 'le renommage a cree un second livre');
+
+    const champs = [...stub.etat.livres.values()][0].fields;
+    assert.strictEqual(champs.titre.stringValue, 'Ferrandi, le grand livre');
+    assert.strictEqual(champs.id.stringValue, 'ferrandi-patisserie');
+  });
+
+  await test('une recette rattachee survit au renommage de son livre', async () => {
+    const { Livres, Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    await Livres.initialiser();
+    const livre = await Livres.creer('Ferrandi — Pâtisserie', 'Pâtisserie');
+    const creee = await Recettes.creer(
+      Object.assign(Recettes.recetteVide(livre), { titre: 'Paris-Brest' })
+    );
+
+    await Livres.modifier(livre.id, { titre: 'Tout autre chose' });
+    // Le rattachement est intact : c est tout l objet de ne pas toucher a l identifiant.
+    assert.strictEqual(Recettes.livreDe(creee.id), 'ferrandi-patisserie');
+    assert.deepStrictEqual(Recettes.duLivre('ferrandi-patisserie').map((r) => r.titre), ['Paris-Brest']);
+  });
+
+  await test('recreer un livre sous l ancien titre d un livre renomme cree une etagere distincte', async () => {
+    const { Livres } = neuf();
+    await Livres.initialiser();
+    await Livres.creer('Ferrandi — Pâtisserie', 'Pâtisserie');
+    await Livres.modifier('ferrandi-patisserie', { titre: 'Autre chose' });
+
+    // L identifiant « ferrandi-patisserie » est pris par un livre qui ne porte plus ce
+    // titre : le nouveau livre doit exister a part, pas ouvrir le precedent.
+    const second = await Livres.creer('Ferrandi — Pâtisserie', 'Pâtisserie');
+    assert.strictEqual(second.id, 'ferrandi-patisserie-2');
+    assert.strictEqual(Livres.tous().length, 2);
+  });
+
+  await test('deplacer une recette d un livre a un autre ne change que son rattachement', async () => {
+    const { Livres, Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    await Livres.initialiser();
+    const un = await Livres.creer('Livre un', 'Plats');
+    const deux = await Livres.creer('Livre deux', 'Pâtisserie');
+
+    const creee = await Recettes.creer(
+      Object.assign(Recettes.recetteVide(un), { titre: 'Tarte aux prunes' })
+    );
+    await Recettes.remonter(creee.id, true);
+
+    await Recettes.deplacerVersLivre(creee.id, deux.id);
+    assert.strictEqual(Recettes.livreDe(creee.id), 'livre-deux');
+    assert.deepStrictEqual(Recettes.duLivre('livre-un'), []);
+    // Elle reste remontee : deplacer une etagere n est pas la sortir du livre de cuisine.
+    assert.strictEqual(Recettes.estRemontee(creee.id), true);
+    // Et rien d autre n a change.
+    assert.strictEqual(Recettes.parId(creee.id).titre, 'Tarte aux prunes');
+  });
+
+  await test('deplacer vers le livre de cuisine sort la recette de la bibliotheque', async () => {
+    const { Livres, Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    await Livres.initialiser();
+    const un = await Livres.creer('Livre un', 'Plats');
+    const creee = await Recettes.creer(
+      Object.assign(Recettes.recetteVide(un), { titre: 'Tarte aux prunes' })
+    );
+    await Recettes.remonter(creee.id, true);
+
+    await Recettes.deplacerVersLivre(creee.id, null);
+    assert.strictEqual(Recettes.livreDe(creee.id), null);
+    assert.deepStrictEqual(Recettes.deLaBibliotheque(), []);
+    assert.ok(Recettes.duLivreDeCuisine().some((r) => r.id === creee.id));
+
+    // `auLivre` n a plus d objet et ne doit pas trainer dans le document.
+    const enBase = JSON.parse([...stub.etat.recettes.values()][0].fields.json.stringValue);
+    assert.strictEqual('auLivre' in enBase, false);
+    assert.strictEqual('livre' in enBase, false);
+  });
+
+  await test('une recette du carnet d origine ne peut pas etre rangee dans un livre', async () => {
+    const { Livres, Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    await Livres.initialiser();
+    const un = await Livres.creer('Livre un', 'Plats');
+
+    let message = '';
+    try {
+      await Recettes.deplacerVersLivre(ID_LASAGNES, un.id);
+    } catch (erreur) {
+      message = erreur.message;
+    }
+    assert.ok(/carnet d’origine/.test(message), message);
+    assert.strictEqual(Recettes.livreDe(ID_LASAGNES), null);
+  });
+
+  await test('la couverture d un livre se range dans les photos, sans collision', async () => {
+    const { Livres, Sync, Photos } = neuf();
+    await Livres.initialiser();
+    const livre = await Livres.creer('Ferrandi — Pâtisserie', 'Pâtisserie');
+    const cle = Livres.clePhoto(livre.id);
+    assert.strictEqual(cle, 'livre::ferrandi-patisserie');
+
+    // La couverture emprunte le mecanisme des photos de recettes, tel quel : deux
+    // tailles, un document, et la cle traitee comme opaque.
+    await Photos.enregistrer(cle, { vignette: 'data:image/jpeg;base64,couverture', grande: 'data:image/jpeg;base64,grande' });
+    await Photos.enregistrer('paris-brest', { vignette: 'data:image/jpeg;base64,recette', grande: 'data:image/jpeg;base64,g2' });
+
+    assert.strictEqual(stub.etat.photos.size, 2, 'la couverture et la photo se sont ecrasees');
+    const vignettes = await Sync.lireVignettes();
+    assert.strictEqual(vignettes[cle], 'data:image/jpeg;base64,couverture');
+    assert.strictEqual(vignettes['paris-brest'], 'data:image/jpeg;base64,recette');
+
+    await Photos.supprimer(cle);
+    const apres = await Sync.lireVignettes();
+    assert.strictEqual(apres[cle], undefined);
+    assert.strictEqual(apres['paris-brest'], 'data:image/jpeg;base64,recette', 'la photo de la recette a ete emportee');
+  });
+
   // --- Restitution -----------------------------------------------------------
+
 
 
   serveur.close();

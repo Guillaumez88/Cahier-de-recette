@@ -167,11 +167,11 @@ qu'en une fois.
 | Ingrédients | 209 occurrences, 133 noms distincts, tous classés par rayon |
 | Étapes | 145, dont 107 portent un rappel d'ingrédients |
 | Couverture du déroulé reconstitué | 193 / 209, soit 92 % |
-| Code | 23 modules, 12 482 lignes de JavaScript |
-| Poids transféré au chargement | 196 Ko compressés, 33 fichiers |
+| Code | 23 modules, 12 868 lignes de JavaScript |
+| Poids transféré au chargement | 201 Ko compressés, 33 fichiers |
 | Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
-| Coût de la bibliothèque | 6,9 Ko compressés (livres 3,3 Ko, écran 3,6 Ko) |
-| Tests | 161 + 125 sous Node, 426 vérifications navigateur, 20 contre le vrai Firebase |
+| Coût de la bibliothèque | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
+| Tests | 161 + 132 sous Node, 450 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -224,12 +224,12 @@ sans voir ce qu'elle protégeait.
     │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
     └── tests/
         ├── run-tests.js           161 tests de la logique métier
-        ├── run-sync-tests.js      125 tests de la synchronisation
+        ├── run-sync-tests.js      132 tests de la synchronisation
         ├── test-web.js             98 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
         ├── test-edition.js         72 vérifications navigateur, modification, parts, accordéon
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
-        ├── test-bibliotheque.js    43 vérifications navigateur, livres et périmètres
+        ├── test-bibliotheque.js    67 vérifications navigateur, livres, périmètres, couvertures
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -268,7 +268,7 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 - **La bibliothèque** : les livres de cuisine « en vrai » de la maison, classés par thème, auxquels on rattache des recettes au fil de leur saisie. Leurs recettes ont toutes les fonctions des autres mais restent hors du planning de la semaine, sauf celles qu'on remonte dans le livre de cuisine (voir plus bas).
 - **Partager une recette** : le texte entier de la recette, prêt à coller dans un message, ou un lien vers la fiche (voir plus bas).
 - **Le menu de la semaine en PDF**, une feuille A4 à imprimer, fabriquée dans le navigateur sans aucune dépendance (voir plus bas).
-- **Le carnet s'ouvre sans réseau.** Un *service worker* (`sw.js`) met en cache les 33 fichiers du site, soit 196 Ko compressés, et les sert en priorité avec mise à jour en arrière-plan : un fichier modifié est récupéré immédiatement et s'affiche au chargement suivant, une version périmée ne survivant jamais plus d'une ouverture. Incrémenter `VERSION` dans `sw.js` force une purge immédiate, et devient nécessaire quand un fichier est retiré de la liste, qui resterait sinon en cache. Sans lui, une page ouverte hors ligne n'affichait rien du tout : les données survivaient dans le stockage local, mais il n'y avait plus d'application pour les afficher. Un `manifest.webmanifest` permet « Ajouter à l'écran d'accueil », qui donne une icône et un lancement sans barre d'URL.
+- **Le carnet s'ouvre sans réseau.** Un *service worker* (`sw.js`) met en cache les 33 fichiers du site, soit 201 Ko compressés, et les sert en priorité avec mise à jour en arrière-plan : un fichier modifié est récupéré immédiatement et s'affiche au chargement suivant, une version périmée ne survivant jamais plus d'une ouverture. Incrémenter `VERSION` dans `sw.js` force une purge immédiate, et devient nécessaire quand un fichier est retiré de la liste, qui resterait sinon en cache. Sans lui, une page ouverte hors ligne n'affichait rien du tout : les données survivaient dans le stockage local, mais il n'y avait plus d'application pour les afficher. Un `manifest.webmanifest` permet « Ajouter à l'écran d'accueil », qui donne une icône et un lancement sans barre d'URL.
 - **Annuler le retrait d'un plat.** La croix retire sans confirmation, parce que demander « êtes-vous sûr ? » à chaque geste est plus pénible que le geste. La contrepartie est un bandeau « Plat retiré — Annuler » pendant sept secondes, qui repose le plat **avec sa clé d'origine** : il retrouve sa place dans l'ordre du repas, alors qu'une clé neuve l'enverrait en fin de liste, ce qui ne serait pas une annulation. Si la clé a été reprise entre-temps par un autre appareil, le plat présent gagne : écraser serait pire que de ne pas annuler.
 - **Navigation adaptée à l'écran.** Sur ordinateur, l'en-tête porte les liens « Le livre » et « Liste de courses », chacun avec son pictogramme, l'état actif visible, le compteur d'articles restants et le bouton de rafraîchissement, qui affiche l'âge de la donnée en trois caractères (« 4min », « 3h », « 2j »). Sur téléphone, l'en-tête n'a plus de liens : une **barre d'onglets** en bas de l'écran (Semaine, Le livre, Courses) met les trois destinations sous le pouce, avec un retrait pour l'encoche du bas, et le rafraîchissement se fait en **tirant la page vers le bas**.
 - **Pictogrammes** en SVG écrit dans la page, dans `js/icones.js` : aucune police d'icônes ni CDN, donc rien à charger et rien qui casse en cuisine sans connexion. Ils se colorent par `currentColor` et suivent la palette sans code supplémentaire.
@@ -500,6 +500,32 @@ distincts. La liste des thèmes n'est pas fermée : les puces de filtre sont dé
 livres présents, un livre de conserves fait donc apparaître « Conserves » sans qu'on
 touche au code. La couleur d'une couverture vient d'une empreinte du nom du thème sur
 deux palettes, stable d'un chargement à l'autre ; un livre vide reste neutre.
+
+### Renommer un livre, déplacer une recette, poser une couverture
+
+**Renommer** se fait depuis « Modifier ce livre », sur l'écran du livre : titre, auteur,
+thème et couverture dans la même boîte. **L'identifiant du livre ne change pas** avec son
+titre, et c'est essentiel : les recettes citent leur livre par cet identifiant, le
+recalculer obligerait à réécrire toutes les recettes du livre. Un livre renommé garde donc
+son adresse. Corollaire traité : créer un livre portant l'ancien titre d'un livre renommé
+crée bien une étagère distincte (`-2`), il n'ouvre pas le livre renommé.
+
+**Déplacer** une recette se fait depuis son éditeur, dans les actions du bas
+(« Déplacer vers un autre livre », ou « Ranger dans un livre » pour une recette du livre
+de cuisine). Le livre de cuisine est une destination possible, et ce n'est pas la même
+chose que « Ajouter au livre de cuisine » de la fiche : celui-là remonte la recette **en
+la laissant** dans son livre, celui-ci **la sort** de la bibliothèque. Seul le
+rattachement change : la recette, sa photo et son historique dans la semaine ne bougent
+pas. Une recette du carnet d'origine ne peut pas être rangée dans un livre, elle
+réapparaîtrait en double à la prochaine lecture.
+
+**La couverture** est rangée dans la collection `photos` existante, sous la clé
+`livre::<id>`. `photos.js` traite sa clé comme opaque : le redimensionnement dans le
+navigateur, les deux tailles, le cache IndexedDB et la lecture masquée des vignettes
+s'appliquent sans une ligne de plus, sans collection supplémentaire et sans seconde
+republication des règles. Sur la carte, la couverture remplace l'aplat de couleur, cadrée
+en `cover` et alignée sur le haut de l'image : le titre d'un ouvrage est en haut de sa
+couverture.
 
 ### Le seuil de lectures à surveiller
 
@@ -809,8 +835,8 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 ```bash
 cd recipe-app
 node tests/run-tests.js           # 161 tests de la logique métier
-node tests/run-sync-tests.js      # 125 tests de la synchronisation
-node tests/run-browser-tests.js   # 426 vérifications dans un vrai Chromium
+node tests/run-sync-tests.js      # 132 tests de la synchronisation
+node tests/run-browser-tests.js   # 450 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

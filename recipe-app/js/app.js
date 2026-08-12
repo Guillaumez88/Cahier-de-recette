@@ -1901,9 +1901,19 @@
         }).length
       : 0;
 
+    // La couverture, a gauche du titre. La vignette suffit : elle est deja en cache au
+    // chargement, et l'afficher a 110 px n'a pas besoin des 1200 px de la grande.
+    var couverture = livre ? Ph.vignette(Lv.clePhoto(livre.id)) : null;
+
     fragment.appendChild(
       el('div', { class: 'livre__entete' }, [
-        el('div', {}, [
+        el('div', { class: livre ? 'livre__identite' : null }, [
+          couverture
+            ? el('figure', { class: 'livre__couverture' }, [
+                el('img', { src: couverture, alt: 'Couverture de ' + livre.titre }),
+              ])
+            : null,
+          el('div', {}, [
           livre ? el('span', { class: 'etiquette etiquette--sobre', texte: livre.theme }) : null,
           el('h1', { class: 'fiche__titre', texte: livre ? livre.titre : 'Le livre de cuisine' }),
           el('p', {
@@ -1920,6 +1930,7 @@
                 ' recettes rassemblées, avec leurs astuces, leurs variantes et ce que leur source ne dit pas.',
           }),
           livre && livre.auteur ? el('p', { class: 'accroche', texte: livre.auteur }) : null,
+          ]),
         ]),
         el('div', { class: 'livre__actions' }, [
           el('button', {
@@ -1938,6 +1949,16 @@
             icone('plus', { taille: 18 }),
             el('span', { texte: 'Ajouter une recette' }),
           ]),
+          livre
+            ? el('button', {
+                type: 'button',
+                class: 'bouton bouton--sobre',
+                id: 'modifier-livre',
+                onclick: function () {
+                  ouvrirEditionLivre(livre);
+                },
+              }, [icone('crayon', { taille: 16 }), el('span', { texte: 'Modifier ce livre' })])
+            : null,
           // La suppression n'est proposee que sur un livre vide : un livre garni
           // laisserait ses recettes sans etagere, donc invisibles. Le dire ici plutot
           // que de proposer un bouton qui refuse.
@@ -2115,6 +2136,7 @@
       icone: icone,
       Lv: Lv,
       Rc: Rc,
+      Ph: Ph,
       carteRecette: function (recette) {
         return carteRecette(recette, { origine: true });
       },
@@ -2148,22 +2170,188 @@
   }
 
   /**
+   * Les champs communs a la creation et a la modification d'un livre.
+   *
+   * `saisie` est l'objet mute au fil de la frappe, `rendre` re-rend le corps de la
+   * boite. Les deux boites ont exactement les memes champs : les separer aurait
+   * garanti qu'un thème corrigé d'un côté reste faux de l'autre.
+   */
+  function champsLivre(saisie, rendre) {
+    var champTitre = el('input', {
+      type: 'text',
+      class: 'champ-edition',
+      id: 'titre-livre',
+      placeholder: 'Le grand livre de la pâtisserie',
+      'aria-label': 'Titre du livre',
+      oninput: function (evenement) {
+        saisie.titre = evenement.target.value;
+        var bouton = document.getElementById('valider-livre');
+        if (bouton) bouton.disabled = saisie.titre.trim() === '';
+      },
+    });
+    champTitre.value = saisie.titre;
+
+    var champAuteur = el('input', {
+      type: 'text',
+      class: 'champ-edition',
+      id: 'auteur-livre',
+      placeholder: 'Auteur ou éditeur (facultatif)',
+      'aria-label': 'Auteur du livre',
+      oninput: function (evenement) {
+        saisie.auteur = evenement.target.value;
+      },
+    });
+    champAuteur.value = saisie.auteur;
+
+    var champTheme = el('input', {
+      type: 'text',
+      class: 'champ-edition',
+      id: 'theme-livre',
+      placeholder: 'Thème (Pâtisserie, Plats, Boisson…)',
+      'aria-label': 'Thème du livre',
+      oninput: function (evenement) {
+        saisie.theme = evenement.target.value;
+        document.querySelectorAll('[data-theme-propose]').forEach(function (puce) {
+          puce.setAttribute('aria-pressed', puce.getAttribute('data-theme-propose') === saisie.theme ? 'true' : 'false');
+        });
+      },
+    });
+    champTheme.value = saisie.theme;
+
+    // Les themes deja utilises d'abord : un livre de plus dans un theme existant est
+    // le cas courant, et retaper « Pâtisserie » a l'identique pres serait le meilleur
+    // moyen de creer deux themes pour un seul.
+    var proposes = Lv.themes().slice();
+    Lv.THEMES_SUGGERES.forEach(function (t) {
+      if (proposes.indexOf(t) === -1) proposes.push(t);
+    });
+
+    // Les libelles reprennent la forme du formulaire de recette (`ligneChamp`) : dans
+    // la boite de modification, les champs sont pre-remplis, donc les indications de
+    // saisie ne se voient plus et rien ne dirait ce que chaque ligne represente.
+    return [
+      ligneChamp('Titre du livre', champTitre),
+      ligneChamp('Auteur ou éditeur', champAuteur),
+      el('h3', { class: 'boite__section', texte: 'Thème' }),
+      el('div', { class: 'rangee-filtre' }, proposes.map(function (t) {
+        return el('button', {
+          type: 'button',
+          class: 'pilule',
+          'data-theme-propose': t,
+          'aria-pressed': saisie.theme === t ? 'true' : 'false',
+          texte: t,
+          onclick: function () {
+            saisie.theme = t;
+            rendre();
+          },
+        });
+      })),
+      champTheme,
+    ];
+  }
+
+  /**
+   * Boite de modification d'un livre : son titre, son auteur, son theme, sa couverture.
+   *
+   * **L'identifiant du livre ne change pas** avec son titre, et c'est voulu : les
+   * recettes citent leur livre par cet identifiant. Le renommer obligerait a reecrire
+   * toutes ses recettes, et laisserait rattachees a une etagere absente celles qui
+   * auraient echoue. Un livre renomme garde donc son adresse.
+   */
+  function ouvrirEditionLivre(livre) {
+    var saisie = { titre: livre.titre, auteur: livre.auteur || '', theme: livre.theme || '' };
+    var erreur = null;
+    etatPhoto = { message: null, erreur: null, enCours: false };
+
+    function valider() {
+      if (saisie.titre.trim() === '') return;
+      Lv.modifier(livre.id, saisie).then(
+        function () {
+          var echec = Lv.etatSync().erreur;
+          if (echec) {
+            erreur =
+              'Le changement est visible ici, mais il n’est pas encore parti vers le serveur (' +
+              echec +
+              '). Il repartira au retour du réseau.';
+            rendreCorpsVoile(corps());
+            return;
+          }
+          fermerVoile();
+          router();
+        },
+        function (e) {
+          erreur = e.message;
+          rendreCorpsVoile(corps());
+        }
+      );
+    }
+
+    function corps() {
+      return [
+        erreur
+          ? el('div', { class: 'sync sync--config', id: 'erreur-livre' }, [
+              el('span', { class: 'sync__etat', texte: 'Changement non enregistré' }),
+              el('p', { class: 'sync__erreur', texte: erreur }),
+            ])
+          : null,
+      ]
+        .concat(champsLivre(saisie, function () {
+          rendreCorpsVoile(corps());
+        }))
+        .concat([
+          el('h3', { class: 'boite__section', texte: 'Couverture' }),
+          el('p', { class: 'apercu-import__note', texte:
+            'La photo de la couverture, prise sur l’étagère : c’est ce qui permet de reconnaître ' +
+            'le livre d’un coup d’œil dans la bibliothèque.' }),
+          blocImage(Lv.clePhoto(livre.id), {
+            nom: 'couverture',
+            alt: 'Couverture de ' + livre.titre,
+            libelleChoix: 'Choisir une couverture',
+            motVide: 'Aucune couverture',
+            motAjouter: 'Ajouter une couverture',
+            motRemplacer: 'Remplacer la couverture',
+            motRetirer: 'Retirer la couverture',
+            motRetire: 'Couverture retirée.',
+            motSucces: 'Couverture enregistrée et partagée',
+            aide:
+              'La photo est réduite dans le navigateur avant l’envoi : une photo de téléphone de ' +
+              'plusieurs mégaoctets ne passerait pas la limite d’un document Firestore.',
+            rendre: function () {
+              rendreCorpsVoile(corps());
+            },
+          }),
+          el('div', { class: 'boite__actions' }, [
+            el('button', {
+              type: 'button',
+              class: 'bouton',
+              id: 'valider-livre',
+              disabled: saisie.titre.trim() === '' ? true : null,
+              onclick: valider,
+            }, [icone('coche', { taille: 16 }), el('span', { texte: 'Enregistrer' })]),
+          ]),
+        ]);
+    }
+
+    ouvrirVoile('Modifier « ' + livre.titre + ' »', corps, { large: true });
+  }
+
+  /**
    * Boite de creation d'un livre.
    *
    * Deux champs, dont un seul est obligatoire : le titre. Le theme est propose sous
    * forme de puces, plus un champ libre : la liste des themes n'est pas fermee, et
    * imposer un choix parmi six obligerait a toucher au code pour un livre de
-   * conserves.
+   * conserves. La couverture s'ajoute ensuite, depuis la boite de modification : elle
+   * demande de trouver le livre et de le photographier, ce qui n'a pas sa place dans
+   * le geste de creation.
    */
   function ouvrirCreationLivre(themeParDefaut) {
-    var titre = '';
-    var auteur = '';
-    var theme = themeParDefaut || '';
+    var saisie = { titre: '', auteur: '', theme: themeParDefaut || '' };
     var erreur = null;
 
     function valider() {
-      if (titre.trim() === '') return;
-      Lv.creer(titre, theme, auteur).then(
+      if (saisie.titre.trim() === '') return;
+      Lv.creer(saisie.titre, saisie.theme, saisie.auteur).then(
         function (livre) {
           var echec = Lv.etatSync().erreur;
           if (echec) {
@@ -2177,7 +2365,10 @@
             return;
           }
           fermerVoile();
+          // Le filtre et la recherche sont remis a zero : on vient de creer une
+          // etagere, et la retrouver derriere un filtre herite serait absurde.
           etat.themeBiblio = null;
+          etat.rechercheBiblio = '';
           window.location.hash = '#/bibliotheque/' + encodeURIComponent(livre.id);
         },
         function (e) {
@@ -2188,55 +2379,6 @@
     }
 
     function corps() {
-      var champTitre = el('input', {
-        type: 'text',
-        class: 'champ-edition',
-        id: 'titre-livre',
-        placeholder: 'Le grand livre de la pâtisserie',
-        'aria-label': 'Titre du livre',
-        oninput: function (evenement) {
-          titre = evenement.target.value;
-          var bouton = document.getElementById('valider-livre');
-          if (bouton) bouton.disabled = titre.trim() === '';
-        },
-      });
-      champTitre.value = titre;
-
-      var champAuteur = el('input', {
-        type: 'text',
-        class: 'champ-edition',
-        id: 'auteur-livre',
-        placeholder: 'Auteur ou éditeur (facultatif)',
-        'aria-label': 'Auteur du livre',
-        oninput: function (evenement) {
-          auteur = evenement.target.value;
-        },
-      });
-      champAuteur.value = auteur;
-
-      var champTheme = el('input', {
-        type: 'text',
-        class: 'champ-edition',
-        id: 'theme-livre',
-        placeholder: 'Thème (Pâtisserie, Plats, Boisson…)',
-        'aria-label': 'Thème du livre',
-        oninput: function (evenement) {
-          theme = evenement.target.value;
-          document.querySelectorAll('[data-theme-propose]').forEach(function (puce) {
-            puce.setAttribute('aria-pressed', puce.getAttribute('data-theme-propose') === theme ? 'true' : 'false');
-          });
-        },
-      });
-      champTheme.value = theme;
-
-      // Les themes deja utilises d'abord : un livre de plus dans un theme existant est
-      // le cas courant, et retaper « Pâtisserie » a l'identique pres serait le meilleur
-      // moyen de creer deux themes pour un seul.
-      var proposes = Lv.themes().slice();
-      Lv.THEMES_SUGGERES.forEach(function (t) {
-        if (proposes.indexOf(t) === -1) proposes.push(t);
-      });
-
       return [
         el('p', { class: 'accroche', texte:
           'Un livre est une étagère : vous lui rattacherez ses recettes au fur et à mesure. ' +
@@ -2247,33 +2389,21 @@
               el('p', { class: 'sync__erreur', texte: erreur }),
             ])
           : null,
-        champTitre,
-        champAuteur,
-        el('h3', { class: 'boite__section', texte: 'Thème' }),
-        el('div', { class: 'rangee-filtre' }, proposes.map(function (t) {
-          return el('button', {
-            type: 'button',
-            class: 'pilule',
-            'data-theme-propose': t,
-            'aria-pressed': theme === t ? 'true' : 'false',
-            texte: t,
-            onclick: function () {
-              theme = t;
-              rendreCorpsVoile(corps());
-            },
-          });
-        })),
-        champTheme,
-        el('div', { class: 'boite__actions' }, [
-          el('button', {
-            type: 'button',
-            class: 'bouton',
-            id: 'valider-livre',
-            disabled: titre.trim() === '' ? true : null,
-            onclick: valider,
-          }, [icone('coche', { taille: 16 }), el('span', { texte: 'Créer le livre' })]),
-        ]),
-      ];
+      ]
+        .concat(champsLivre(saisie, function () {
+          rendreCorpsVoile(corps());
+        }))
+        .concat([
+          el('div', { class: 'boite__actions' }, [
+            el('button', {
+              type: 'button',
+              class: 'bouton',
+              id: 'valider-livre',
+              disabled: saisie.titre.trim() === '' ? true : null,
+              onclick: valider,
+            }, [icone('coche', { taille: 16 }), el('span', { texte: 'Créer le livre' })]),
+          ]),
+        ]);
     }
 
     ouvrirVoile('Créer un livre', corps);
@@ -2283,6 +2413,8 @@
   function supprimerLivre(livre) {
     Lv.supprimer(livre.id, Rc.duLivre(livre.id).length).then(
       function () {
+        // Idem : on revient a la grille, pas a une liste de resultats de recherche.
+        etat.rechercheBiblio = '';
         window.location.hash = '#/bibliotheque';
         annoncer(livre.titre + ' supprimé');
         proposerAnnulation(livre.titre + ' supprimé', function () {
@@ -3209,6 +3341,109 @@
     );
   }
 
+  /**
+   * Boite de deplacement d'une recette d'une etagere a une autre.
+   *
+   * Le livre de cuisine figure dans la liste des destinations, et ce n'est pas la meme
+   * chose que « Ajouter au livre de cuisine » de la fiche : celui-la remonte une recette
+   * en la laissant dans son livre, celui-ci la sort de la bibliotheque. Les deux
+   * libelles le disent, parce que la nuance ne se devine pas.
+   *
+   * Une recette du carnet d'origine n'est pas deplacable : elle vit dans le fichier
+   * servi avec le site, et la ranger dans un livre la ferait reapparaitre en double au
+   * prochain chargement. `Rc.deplacerVersLivre` le refuse aussi, mais la boite ne
+   * propose pas ce qu'elle sait impossible.
+   */
+  function ouvrirDeplacement(recette) {
+    var actuel = recette.livre || null;
+    var erreur = null;
+
+    function deplacer(vers) {
+      Rc.deplacerVersLivre(recette.id, vers).then(
+        function () {
+          var echec = erreurEcritureRecette();
+          if (echec) {
+            erreur =
+              'Le déplacement n’a pas atteint le serveur : ' + echec +
+              ' La recette reviendra à sa place à la prochaine mise à jour.';
+            rendreCorpsVoile(corps());
+            return;
+          }
+          brouillon = null;
+          fermerVoile();
+          window.location.hash = '#/recette/' + recette.id;
+          router();
+          annoncer(
+            vers
+              ? recette.titre + ' est maintenant dans ' + (Lv.parId(vers) || {}).titre
+              : recette.titre + ' est maintenant dans le livre de cuisine.'
+          );
+        },
+        function (e) {
+          erreur = e.message;
+          rendreCorpsVoile(corps());
+        }
+      );
+    }
+
+    function destination(cle, titre, detail) {
+      var ici = cle === actuel;
+      return el('li', {}, [
+        el('button', {
+          type: 'button',
+          class: 'choix-plat',
+          'data-destination': cle === null ? 'livre-de-cuisine' : cle,
+          disabled: ici ? true : null,
+          onclick: function () {
+            deplacer(cle);
+          },
+        }, [
+          icone(cle === null ? 'livre' : 'livre-ferme', { taille: 18 }),
+          el('span', { class: 'choix-plat__titre', texte: titre }),
+          el('span', { class: 'choix-plat__meta', texte: ici ? 'où elle est déjà' : detail }),
+        ]),
+      ]);
+    }
+
+    function corps() {
+      var livres = Lv.tous();
+
+      return [
+        el('p', { class: 'accroche', texte:
+          'Le rattachement est la seule chose qui change : la recette, ses ingrédients, sa photo ' +
+          'et son historique dans la semaine ne bougent pas.' }),
+        erreur
+          ? el('div', { class: 'sync sync--config', id: 'erreur-deplacement' }, [
+              el('span', { class: 'sync__etat', texte: 'Déplacement refusé' }),
+              el('p', { class: 'sync__erreur', texte: erreur }),
+            ])
+          : null,
+        el(
+          'ul',
+          { class: 'choix-plats', id: 'destinations-livre' },
+          [
+            destination(
+              null,
+              'Le livre de cuisine',
+              'elle quitte la bibliothèque et devient planifiable'
+            ),
+          ].concat(
+            livres.map(function (l) {
+              var nb = Rc.duLivre(l.id).length;
+              return destination(l.id, l.titre, l.theme + ' · ' + VBib.libelleCompte(nb));
+            })
+          )
+        ),
+        livres.length === 0
+          ? el('p', { class: 'boite__vide', texte:
+              'La bibliothèque n’a encore aucun livre : créez-en un depuis l’écran « Bibliothèque ».' })
+          : null,
+      ];
+    }
+
+    ouvrirVoile('Déplacer « ' + recette.titre + ' »', corps);
+  }
+
   /* --- partage d'une recette ------------------------------------------------ */
 
   /**
@@ -3993,28 +4228,47 @@
    */
   var etatPhoto = { message: null, erreur: null, enCours: false };
 
-  function blocPhoto(id) {
-    var courante = Ph.vignette(id);
+  /**
+   * Bloc d'envoi d'une image, reutilisable.
+   *
+   * `cle` est la cle sous laquelle photos.js range l'image : l'identifiant d'une
+   * recette, ou « livre::<id> » pour la couverture d'un livre. Ce module ne fait aucune
+   * difference entre les deux, ce qui evite une seconde collection et une seconde
+   * republication des regles de securite.
+   *
+   * `reglages` porte les libelles et, surtout, `rendre()` : ce bloc vit dans l'editeur
+   * d'une recette comme dans la boite d'un livre, et chacun se re-rend a sa maniere.
+   */
+  function blocImage(cle, reglages) {
+    var r = reglages || {};
+    var rendre = r.rendre || function () {};
+    var nom = r.nom || 'photo';
+    var courante = Ph.vignette(cle);
+    // Les identifiants gardent la forme qu'ils avaient quand ce bloc ne servait qu'aux
+    // recettes : « photo-fichier », « retirer-photo », « bloc-photo ». Les tests et la
+    // feuille de style s'y appuient.
+    var idChamp = nom + '-fichier';
 
     var champFichier = el('input', {
       type: 'file',
       class: 'champ-fichier',
-      id: 'photo-fichier',
+      id: idChamp,
       accept: 'image/*',
-      'aria-label': 'Choisir une photo',
+      'aria-label': r.libelleChoix || 'Choisir une image',
       onchange: function (evenement) {
         var fichier = evenement.target.files && evenement.target.files[0];
         if (!fichier) return;
 
         etatPhoto = { message: 'Préparation de l’image…', erreur: null, enCours: true };
-        monter(vueEditeur(id));
+        rendre();
 
         Ph.preparer(fichier)
           .then(function (tailles) {
-            return Ph.enregistrer(id, tailles).then(function () {
+            return Ph.enregistrer(cle, tailles).then(function () {
               etatPhoto = {
                 message:
-                  'Photo enregistrée et partagée : ' +
+                  (r.motSucces || 'Photo enregistrée et partagée') +
+                  ' : ' +
                   Math.round(tailles.poids / 1024) +
                   ' ko après compression, depuis ' +
                   tailles.largeur +
@@ -4029,44 +4283,40 @@
           .catch(function (erreur) {
             etatPhoto = { message: null, erreur: erreur.message, enCours: false };
           })
-          .then(function () {
-            monter(vueEditeur(id));
-          });
+          .then(rendre);
       },
     });
 
-    return el('div', { class: 'bloc-photo', id: 'bloc-photo' }, [
+    return el('div', { class: 'bloc-photo', id: 'bloc-' + nom }, [
       courante
         ? el('figure', { class: 'bloc-photo__apercu' }, [
-            el('img', { src: courante, alt: 'Photo actuelle de la recette' }),
+            el('img', { src: courante, alt: r.alt || 'Image actuelle' }),
           ])
         : el('div', { class: 'bloc-photo__apercu bloc-photo__apercu--vide' }, [
             icone('appareil', { taille: 28 }),
-            el('span', { texte: 'Aucune photo' }),
+            el('span', { texte: r.motVide || 'Aucune photo' }),
           ]),
       el('div', { class: 'bloc-photo__actions' }, [
-        el('label', { class: 'bouton bouton--secondaire', for: 'photo-fichier' }, [
+        el('label', { class: 'bouton bouton--secondaire', for: idChamp }, [
           icone('appareil', { taille: 16 }),
-          el('span', { texte: courante ? 'Remplacer la photo' : 'Ajouter une photo' }),
+          el('span', { texte: courante ? r.motRemplacer || 'Remplacer la photo' : r.motAjouter || 'Ajouter une photo' }),
         ]),
         champFichier,
         courante
           ? el('button', {
               type: 'button',
               class: 'bouton bouton--secondaire',
-              id: 'retirer-photo',
-              texte: 'Retirer la photo',
+              id: 'retirer-' + nom,
+              texte: r.motRetirer || 'Retirer la photo',
               onclick: function () {
-                Ph.supprimer(id)
+                Ph.supprimer(cle)
                   .then(function () {
-                    etatPhoto = { message: 'Photo retirée.', erreur: null, enCours: false };
+                    etatPhoto = { message: r.motRetire || 'Photo retirée.', erreur: null, enCours: false };
                   })
                   .catch(function (erreur) {
                     etatPhoto = { message: null, erreur: erreur.message, enCours: false };
                   })
-                  .then(function () {
-                    monter(vueEditeur(id));
-                  });
+                  .then(rendre);
               },
             })
           : null,
@@ -4074,13 +4324,26 @@
       el('p', {
         class: 'bloc-photo__aide',
         texte:
+          r.aide ||
           'L’image est réduite dans le navigateur avant l’envoi (320 px pour les listes, 1200 px pour la fiche) : une photo de téléphone de plusieurs mégaoctets ne passerait pas la limite d’un document Firestore.',
       }),
       etatPhoto.message ? el('p', { class: 'bloc-photo__message', id: 'photo-message', texte: etatPhoto.message }) : null,
       etatPhoto.erreur
-        ? el('p', { class: 'bloc-photo__erreur', id: 'photo-erreur', texte: 'La photo n’a pas été enregistrée : ' + etatPhoto.erreur })
+        ? el('p', { class: 'bloc-photo__erreur', id: 'photo-erreur', texte: 'L’image n’a pas été enregistrée : ' + etatPhoto.erreur })
         : null,
     ]);
+  }
+
+  /** La photo d'une recette, dans l'editeur. */
+  function blocPhoto(id) {
+    return blocImage(id, {
+      nom: 'photo',
+      alt: 'Photo actuelle de la recette',
+      libelleChoix: 'Choisir une photo',
+      rendre: function () {
+        monter(vueEditeur(id));
+      },
+    });
   }
 
   /** Bloc de reglage du nombre de parts, avec recalcul des quantites. */
@@ -4547,6 +4810,23 @@
                 });
               },
             })
+          : null,
+        // Deplacer est rare et structurel : sa place est ici, avec la suppression, et
+        // non dans la barre d'actions de la fiche, qui en porte deja quatre.
+        !creation && Rc.estAjoutee(id)
+          ? el('button', {
+              type: 'button',
+              class: 'bouton bouton--sobre',
+              id: 'deplacer-recette',
+              onclick: function () {
+                ouvrirDeplacement(recette);
+              },
+            }, [
+              icone('bibliotheque', { taille: 16 }),
+              el('span', {
+                texte: recette.livre ? 'Déplacer vers un autre livre' : 'Ranger dans un livre',
+              }),
+            ])
           : null,
         !creation && Rc.estModifiee(id) && !Rc.estAjoutee(id)
           ? el('button', {

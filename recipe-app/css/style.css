@@ -4190,7 +4190,7 @@ a.creneau__plat:hover .creneau__titre {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 104px;
+  height: 124px;
   color: var(--terracotta-sombre);
   background: var(--accent-100);
 }
@@ -4273,4 +4273,49 @@ a.creneau__plat:hover .creneau__titre {
   color: var(--olive);
   background: var(--sauge-100);
   border-radius: 999px;
+}
+
+/* La couverture photographiée d'un livre. Elle remplace l'aplat de couleur, et le
+   cadrage est en « cover » : une couverture est plus haute que large, le cadre de la
+   carte est plus large que haut, il faut donc rogner plutôt que déformer. */
+.livre-carte__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Le haut plutôt que le centre : le titre d'un ouvrage est en haut de sa couverture,
+     et c'est lui qu'on cherche à reconnaître. Un cadrage centré coupait justement là. */
+  object-position: center top;
+}
+.livre-carte--illustre .livre-carte__couverture {
+  padding: 0;
+  background: var(--neutre-200);
+}
+
+/* Sur l'écran d'un livre, la couverture accompagne le titre. Elle garde ses
+   proportions : c'est une photo d'objet, la déformer se voit tout de suite. */
+.livre__identite {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.livre__couverture {
+  flex: 0 0 auto;
+  margin: 0;
+  width: 88px;
+  overflow: hidden;
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-md);
+  background: var(--neutre-200);
+}
+.livre__couverture img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+@media (max-width: 560px) {
+  .livre__couverture {
+    width: 64px;
+  }
 }

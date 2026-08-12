@@ -67,6 +67,7 @@
    *   el, icone                fabriques de nœuds
    *   Lv                       le module des livres
    *   Rc                       le module des recettes
+   *   Ph                       le module des photos, pour les couvertures
    *   carteRecette(recette)    la carte d'une recette, celle du livre de cuisine
    *   chercher(recettes, mot)  la recherche, telle que le livre de cuisine la fait
    *   rendre()                 re-rend cet écran
@@ -79,6 +80,7 @@
     var icone = outils.icone;
     var Lv = outils.Lv;
     var Rc = outils.Rc;
+    var Ph = outils.Ph;
     var carteRecette = outils.carteRecette;
     var chercher = outils.chercher;
     var rendre = outils.rendre;
@@ -240,15 +242,25 @@
       var cartes = groupe.livres.map(function (livre) {
         var nb = comptes[livre.id] || 0;
         var vide = nb === 0;
+        // La couverture photographiée remplace l'aplat de couleur : c'est ce qui permet
+        // de reconnaître un ouvrage d'un coup d'œil, ce qu'un titre en petit ne fait
+        // pas dans une grille de dix. La vignette suffit, elle est déjà en cache.
+        var couverture = Ph ? Ph.vignette(Lv.clePhoto(livre.id)) : null;
         return el(
           'a',
           {
-            class: 'livre-carte' + (vide ? ' livre-carte--vide' : ' livre-carte--p' + palette(livre.theme)),
+            class:
+              'livre-carte' +
+              (couverture ? ' livre-carte--illustre' : vide ? ' livre-carte--vide' : ' livre-carte--p' + palette(livre.theme)),
             href: '#/bibliotheque/' + encodeURIComponent(livre.id),
             'data-livre': livre.id,
           },
           [
-            el('span', { class: 'livre-carte__couverture' }, [icone('livre-ferme', { taille: 30 })]),
+            couverture
+              ? el('span', { class: 'livre-carte__couverture' }, [
+                  el('img', { class: 'livre-carte__image', src: couverture, alt: 'Couverture de ' + livre.titre }),
+                ])
+              : el('span', { class: 'livre-carte__couverture' }, [icone('livre-ferme', { taille: 30 })]),
             el('span', { class: 'livre-carte__corps' }, [
               el('span', { class: 'etiquette etiquette--sobre', texte: livre.theme }),
               el('span', { class: 'livre-carte__titre', texte: livre.titre }),
