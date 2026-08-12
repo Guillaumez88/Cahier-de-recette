@@ -19,8 +19,8 @@ savoir avant de toucher à quoi que ce soit.
 ```bash
 cd recipe-app
 python3 -m http.server 8000        # puis http://localhost:8000
-node tests/run-tests.js            # 128 tests de logique, sans navigateur
-node tests/run-sync-tests.js       # 115 tests de synchronisation, contre une émulation locale
+node tests/run-tests.js            # 167 tests de logique, sans navigateur
+node tests/run-sync-tests.js       # 140 tests de synchronisation, contre une émulation locale
 ```
 
 Il n'y a **rien à installer**. Pas de `npm install`, pas de `package.json`, pas d'étape
@@ -225,9 +225,10 @@ sans voir ce qu'elle protégeait.
     ├── favicon.svg
     ├── tools/
     │   ├── importer-extraction.js       Import d'une extraction Markdown (voir plus bas)
-    │   └── ajouter-recette-au-livre.js  Écrit une recette dans un livre de la bibliothèque
+    │   ├── ajouter-recette-au-livre.js  Écrit une recette dans un livre de la bibliothèque
+    │   └── poser-illustrations.js       Pose les photos d'étapes d'une recette déjà en base
     └── tests/
-        ├── run-tests.js           166 tests de la logique métier
+        ├── run-tests.js           167 tests de la logique métier
         ├── run-sync-tests.js      140 tests de la synchronisation
         ├── test-web.js             98 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
@@ -538,6 +539,39 @@ Les fichiers de `tools/recettes/` ne sont **pas versés dans le dépôt** (voir
 `.gitignore`) : celui-ci est public, et une page de livre du commerce reproduite ici
 resterait lisible par quiconque en trouve l'adresse.
 
+#### Poser aussi la photo du plat et les illustrations d'étapes
+
+L'option `--images` prend un second fichier, celui des images déjà encodées :
+
+```bash
+node tools/ajouter-recette-au-livre.js tools/recettes/<fichier>.json <livre> \
+  --images <images>.json --ecrire
+```
+
+```json
+{ "plat": { "vignette": "data:image/jpeg;base64,…", "grande": "…" },
+  "etapes": { "1": "data:image/jpeg;base64,…", "2": "…" } }
+```
+
+`plat` devient la photo de la recette, `etapes` ses illustrations, indexées par rang. Les
+deux parties sont facultatives. L'écriture se fait dans cet ordre, jamais l'inverse :
+recette, puis photo, puis illustrations. Une image rattachée à un identifiant de recette
+absent ne s'afficherait nulle part et resterait en base.
+
+Les images sont attendues **déjà redimensionnées**, aux tailles que `photos.js`
+produirait dans le navigateur : Node n'a ni canvas ni encodeur d'image. L'outil ne
+redimensionne donc rien, contrôle les budgets (60 000 caractères pour une vignette,
+600 000 pour une grande, 600 000 pour toutes les illustrations d'une recette) et refuse
+ce qui dépasse, plutôt que de laisser Firestore échouer plus tard sans explication.
+
+Si l'écriture des illustrations est refusée (règles non publiées), la recette et sa photo
+restent acquises : l'outil le dit et donne la commande de reprise, qui les pose seules,
+sans réécrire la recette :
+
+```bash
+node tools/poser-illustrations.js <id-de-la-recette> <images>.json --ecrire
+```
+
 ### Renommer un livre, déplacer une recette, poser une couverture
 
 **Renommer** se fait depuis « Modifier ce livre », sur l'écran du livre : titre, auteur,
@@ -639,11 +673,40 @@ Dans l'éditeur, chaque étape porte un dépli replié : six blocs photo ouverts
 illisible ce qu'on vient le plus souvent y faire, corriger un texte. Le dépli ne s'ouvre
 de lui-même que si l'étape a déjà une photo.
 
+### Un intitulé par étape, facultatif
+
+Une étape peut porter un `titre`, affiché au-dessus de son texte. Les fiches HelloFresh
+nomment chacune de leurs étapes (« Top départ : on cuisine ! », « Service express ») :
+noyer ce nom dans le texte l'aurait perdu, et c'est la seule structure que la fiche donne
+à sa préparation.
+
+L'intitulé affiché est le `titre` s'il existe, sinon le `numero` quand ce n'est pas un
+entier (« Pour finir »). Jamais les deux : deux lignes d'intitulé pour une étape se
+liraient comme deux étapes.
+
+### Les fractions typographiques des fiches imprimées
+
+`Q.analyser()` lit ½, ¼, ¾, ⅓… et les nombres mixtes (« 1½ pièce »). Le texte affiché
+reste celui de la source : c'est le champ `brut`, et la fiche montre bien « ½ sachet ».
+
+Sans cela, la moitié des lignes d'une fiche HelloFresh était illisible pour
+l'application : ni additionnable dans la liste de courses, ni multipliable par le nombre
+de parts, alors que le nombre est parfaitement déterminé. Les unités `pièce`, `pot` et
+`paquet` ont rejoint les dénombrables pour la même raison. ⅓ vaut 0,333 et non un tiers
+exact : c'est assez pour une liste de courses, et cela évite un nombre à dix-sept
+chiffres après un changement de parts.
+
 ### Ce qui reste à faire côté console Firebase
 
 **`firestore.rules` doit être republié** : la collection `illustrations` s'ajoute aux six
 autres. Sans cela les photos d'étapes ne peuvent ni s'écrire ni se lire, et la fiche
 s'affiche sans elles plutôt que de ne pas s'afficher.
+
+Ce n'est pas une précaution théorique : au 12 août 2026, une lecture de `illustrations`
+sur le projet répond `403 Missing or insufficient permissions`. Les illustrations des
+cinq fiches HelloFresh importées ce jour-là attendent donc cette publication, et se
+posent ensuite en une commande par recette (`tools/poser-illustrations.js`, plus bas).
+Les collections `recettes`, `photos` et `livres`, elles, sont publiées.
 
 ## Partager une recette
 
@@ -938,7 +1001,7 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 166 tests de la logique métier
+node tests/run-tests.js           # 167 tests de la logique métier
 node tests/run-sync-tests.js      # 140 tests de la synchronisation
 node tests/run-browser-tests.js   # 460 vérifications dans un vrai Chromium
 ```

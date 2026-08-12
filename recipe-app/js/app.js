@@ -3098,10 +3098,15 @@
             // L'illustration de l'étape, si elle en a une. Indexée par rang et non par
             // `numero`, qui n'est pas toujours un entier : voir illustrations.js.
             var image = illustrations[String(rang + 1)];
+            // L'intitule de l'etape : son `titre` s'il en a un (les fiches HelloFresh
+            // en donnent un par etape, « Top depart : on cuisine ! »), sinon le
+            // `numero` quand ce n'est pas un entier. Jamais les deux : le libelle est
+            // une ligne, et le numero non entier est deja un intitule.
+            var libelle = etape.titre || (estEntier ? null : String(etape.numero));
             return el('li', { class: 'etape' }, [
               el('span', { class: 'etape__numero', texte: estEntier ? String(etape.numero) : '•' }),
               el('div', {}, [
-                estEntier ? null : el('p', { class: 'etape__libelle', texte: String(etape.numero) }),
+                libelle ? el('p', { class: 'etape__libelle', texte: libelle }) : null,
                 el('p', { class: 'etape__texte', texte: etape.texte }),
                 // Apres le texte, et non avant : on lit la consigne, puis on regarde a
                 // quoi cela doit ressembler. Un flottant a droite donnait une mise en
@@ -4756,6 +4761,11 @@
                 },
               }),
             ]),
+            // L'intitulé, facultatif : la plupart des recettes n'en ont pas, celles qui
+            // viennent d'une fiche HelloFresh en ont un par étape.
+            champ(etape.titre || '', function (valeur) {
+              etape.titre = valeur.trim() === '' ? null : valeur.trim();
+            }, { placeholder: 'Intitulé de l’étape (facultatif)', libelle: 'Intitulé de l’étape ' + (index + 1) }),
             champ(etape.texte, function (valeur) {
               etape.texte = valeur;
             }, { multiligne: true, lignes: 3, libelle: 'Texte de l’étape ' + (index + 1) }),
@@ -4777,7 +4787,12 @@
             class: 'lien-action',
             texte: 'Ajouter une étape',
             onclick: function () {
-              brouillon.instructions.push({ numero: brouillon.instructions.length + 1, texte: '', astuce: null });
+              brouillon.instructions.push({
+                numero: brouillon.instructions.length + 1,
+                titre: null,
+                texte: '',
+                astuce: null,
+              });
               monter(vueEditeur(id));
             },
           }),

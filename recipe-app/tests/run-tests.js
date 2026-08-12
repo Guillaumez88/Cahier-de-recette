@@ -338,6 +338,21 @@ test('analyser lit les nombres, unites et fractions', () => {
   assert.strictEqual(Q.analyser('1 gousse').unite, 'gousse');
 });
 
+test('analyser lit les fractions typographiques des fiches HelloFresh', () => {
+  // « ½ sachet » etait illisible : ni additionnable dans la liste de courses, ni
+  // multipliable par le nombre de parts, alors que le nombre est determine.
+  assert.strictEqual(Q.analyser('½ sachet').valeur, 0.5);
+  assert.strictEqual(Q.analyser('½ sachet').unite, 'sachet');
+  assert.strictEqual(Q.analyser('¾ pot').valeur, 0.75);
+  assert.strictEqual(Q.analyser('¼ sachet').valeur, 0.25);
+  // Un nombre mixte : l'entier qui precede la fraction est absorbe.
+  assert.strictEqual(Q.analyser('1½ pièce').valeur, 1.5);
+  assert.strictEqual(Q.analyser('1½ pièce').unite, 'pièce');
+  assert.strictEqual(Q.analyser('⅓ de bouillon').valeur, 0.333);
+  // Ce que la source ecrit reste ce que la fiche affiche.
+  assert.strictEqual(Q.analyser('½ sachet').brut, '½ sachet');
+});
+
 test('analyser conserve le texte residuel au lieu de le perdre', () => {
   const q = Q.analyser('130 g, plus pour le moule');
   assert.strictEqual(q.valeur, 130);

@@ -68,7 +68,13 @@ const PNG_ROUGE =
   [pageA, pageB].forEach((page, i) => {
     page.on('pageerror', (e) => erreurs.push(`page${i}: ${e.message}`));
     page.on('console', (m) => {
-      if (m.type() === 'error') erreurs.push(`page${i} console: ${m.text()}`);
+      // Une recette sans illustration d'étape n'a pas de document dans
+      // `illustrations` : Firestore répond 404, l'application le traite comme « aucune
+      // illustration », et le navigateur le journalise quand même. Ce 404 est attendu,
+      // ce sont les erreurs JavaScript qui ne le sont pas.
+      if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) {
+        erreurs.push(`page${i} console: ${m.text()}`);
+      }
     });
   });
 

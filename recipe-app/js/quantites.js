@@ -67,6 +67,10 @@
     'bouquet',
     'botte',
     'bâton',
+    // Les unites des fiches HelloFresh : « 1 pièce(s) », « ¾ pot(s) », « 1 paquet(s) ».
+    'pièce',
+    'pot',
+    'paquet',
   ];
 
   /** Minuscules, sans accents, espaces normalises. */
@@ -107,6 +111,37 @@
   }
 
   // --- Nombres ----------------------------------------------------------------
+
+  // Les fractions typographiques, telles que les ecrivent les fiches HelloFresh :
+  // « ½ sachet », « 1½ pièce(s) », « ¾ pot ». Sans cette table, la quantite est
+  // illisible : elle ne s'additionne pas dans la liste de courses et ne suit pas le
+  // nombre de parts, alors que le nombre est parfaitement determine.
+  var FRACTIONS = {
+    '¼': 0.25, '½': 0.5, '¾': 0.75,
+    '⅐': 1 / 7, '⅑': 1 / 9, '⅒': 0.1,
+    '⅓': 1 / 3, '⅔': 2 / 3,
+    '⅕': 0.2, '⅖': 0.4, '⅗': 0.6, '⅘': 0.8,
+    '⅙': 1 / 6, '⅚': 5 / 6,
+    '⅛': 0.125, '⅜': 0.375, '⅝': 0.625, '⅞': 0.875,
+  };
+  var MOTIF_FRACTION = /(\d+)?\s*([¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞])/g;
+
+  /**
+   * Remplace les fractions typographiques par leur valeur decimale, en absorbant
+   * l'entier qui les precede : « 1½ pièce » devient « 1.5 pièce ».
+   *
+   * Le texte d'origine n'est jamais celui qu'on affiche : `analyser` conserve `brut`,
+   * et la fiche continue de montrer « ½ sachet ». Cette reecriture ne sert qu'a lire
+   * le nombre.
+   */
+  function remplacerFractions(texte) {
+    return String(texte).replace(MOTIF_FRACTION, function (tout, entier, signe) {
+      var valeur = (entier ? Number(entier) : 0) + FRACTIONS[signe];
+      // Trois decimales : « ⅓ » donne 0.333, ce qui suffit a une liste de courses et
+      // evite un nombre a dix-sept chiffres dans une quantite affichee apres calcul.
+      return String(Math.round(valeur * 1000) / 1000);
+    });
+  }
 
   /** Lit « 200 », « 1,5 », « 1.5 », « 3/4 ». Retourne null si ce n'est pas un nombre. */
   function lireNombre(texte) {
@@ -161,8 +196,11 @@
    * toujours conserve.
    */
   function analyser(brut) {
-    var texte = String(brut === null || brut === undefined ? '' : brut).trim();
-    var vide = { valeur: null, unite: null, famille: null, base: 1, reste: texte, brut: texte, lisible: false };
+    var origine = String(brut === null || brut === undefined ? '' : brut).trim();
+    // Le nombre est lu sur une version ou les fractions typographiques sont resolues,
+    // mais `brut` reste ce que la source ecrit : c'est lui qui s'affiche.
+    var texte = remplacerFractions(origine);
+    var vide = { valeur: null, unite: null, famille: null, base: 1, reste: origine, brut: origine, lisible: false };
     if (texte === '') return vide;
     if (estFourchette(texte)) return vide;
 
@@ -191,7 +229,7 @@
 
     if (!meilleure) {
       // Un nombre suivi de texte non reconnu : on garde le nombre et tout le reste.
-      return { valeur: valeur, unite: '', famille: 'denombrable:', base: 1, reste: suite, brut: texte, lisible: true };
+      return { valeur: valeur, unite: '', famille: 'denombrable:', base: 1, reste: suite, brut: origine, lisible: true };
     }
 
     return {
@@ -200,7 +238,7 @@
       famille: meilleure.unite.famille,
       base: meilleure.unite.base,
       reste: meilleure.reste,
-      brut: texte,
+      brut: origine,
       lisible: true,
     };
   }
