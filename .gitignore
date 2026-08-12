@@ -1,0 +1,6 @@
+# Les fichiers d'import de recettes venues d'ouvrages du commerce ne sont pas versés
+# dans le dépôt : celui-ci est public, et une page de livre reproduite ici resterait
+# lisible et indexable par quiconque en trouve l'adresse. La recette, une fois écrite
+# par tools/ajouter-recette-au-livre.js, vit dans Firestore, d'où l'application la lit.
+# Gardez le fichier JSON de votre côté si vous voulez pouvoir rejouer l'import.
+recipe-app/tools/recettes/

@@ -221,7 +221,8 @@ sans voir ce qu'elle protégeait.
     ├── data/recipes.json        Les 21 recettes
     ├── favicon.svg
     ├── tools/
-    │   └── importer-extraction.js  Import d'une extraction Markdown (voir plus bas)
+    │   ├── importer-extraction.js       Import d'une extraction Markdown (voir plus bas)
+    │   └── ajouter-recette-au-livre.js  Écrit une recette dans un livre de la bibliothèque
     └── tests/
         ├── run-tests.js           161 tests de la logique métier
         ├── run-sync-tests.js      132 tests de la synchronisation
@@ -500,6 +501,39 @@ distincts. La liste des thèmes n'est pas fermée : les puces de filtre sont dé
 livres présents, un livre de conserves fait donc apparaître « Conserves » sans qu'on
 touche au code. La couleur d'une couverture vient d'une empreinte du nom du thème sur
 deux palettes, stable d'un chargement à l'autre ; un livre vide reste neutre.
+
+### Ajouter une recette de livre depuis une page photographiée
+
+Une recette de livre **ne peut pas** être ajoutée à `data/recipes.json` : ce fichier est
+le livre de cuisine, et tout ce qui y figure est par construction planifiable. Une
+recette de livre vit donc dans Firestore, comme toute recette saisie depuis
+l'application.
+
+Saisir à la main, sur un téléphone, une recette lue sur une page photographiée est long.
+`tools/ajouter-recette-au-livre.js` fait le même travail que l'écran « Ajouter une
+recette » d'un livre, depuis un fichier JSON relu :
+
+```bash
+cd recipe-app
+node tools/ajouter-recette-au-livre.js tools/recettes/<fichier>.json <id-du-livre>
+node tools/ajouter-recette-au-livre.js tools/recettes/<fichier>.json <id-du-livre> --ecrire
+```
+
+Sans `--ecrire`, rien n'est envoyé : l'outil vérifie que le livre existe, que
+l'identifiant de la recette est libre (contre `data/recipes.json` **et** Firestore), que
+la forme est complète, et il dit quelles quantités la liste de courses saura additionner.
+Avec `--ecrire`, il écrit puis **relit depuis le serveur** pour vérifier que la recette
+est arrivée et bien rattachée : une promesse tenue ne prouve pas l'envoi.
+
+Il n'invente rien : pas de temps total absent calculé, pas d'unité devinée, pas de
+difficulté complétée. Ce que la page ne donne pas va dans le champ `manquants`, que la
+fiche affiche sous « Ce que la source ne donne pas ». Il refuse d'écraser une recette
+existante : pour corriger une fiche déjà en base, l'éditeur de l'application montre ce
+qui change avant d'enregistrer.
+
+Les fichiers de `tools/recettes/` ne sont **pas versés dans le dépôt** (voir
+`.gitignore`) : celui-ci est public, et une page de livre du commerce reproduite ici
+resterait lisible par quiconque en trouve l'adresse.
 
 ### Renommer un livre, déplacer une recette, poser une couverture
 
