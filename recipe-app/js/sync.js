@@ -502,6 +502,65 @@
     }
   }
 
+  // --- Illustrations des etapes ------------------------------------------------
+  //
+  // Un document par recette, contenant toutes ses illustrations dans une seule chaine
+  // JSON indexee par rang d'etape (« {"1": "data:image/...", "4": "..."} »).
+  //
+  // Pourquoi ainsi, et pas un document par etape : ces images ne servent que sur la
+  // fiche ouverte. Un document par etape les ferait toutes lire au chargement de la
+  // page, avec les vignettes de la collection `photos`, pour rien. Ici, une seule
+  // lecture, et seulement quand on ouvre la fiche.
+
+  // Le prefixe de l'identifiant est « etapes:: » et non « illustrations:: » : un
+  // identifiant de document qui contient le nom de sa propre collection donne un chemin
+  // ou le nom apparait deux fois (« /illustrations/illustrations-tarte-x »), que tout
+  // decoupage naif lit de travers. C'est l'emulation de test qui l'a montre.
+  function cheminIllustrations() {
+    return `projects/${config.projectId}/databases/(default)/documents/illustrations`;
+  }
+
+  /** Lit les illustrations d'une recette. Rend une table { rang: dataUrl }, ou {}. */
+  async function lireIllustrations(recetteId) {
+    var id = idDocument('etapes::' + recetteId);
+    try {
+      var corps = await requete(`${cheminIllustrations()}/${encodeURIComponent(id)}`, { method: 'GET' });
+      var champs = champsVersObjet((corps && corps.fields) || {});
+      if (!champs.json) return {};
+      var table = JSON.parse(champs.json);
+      return table && typeof table === 'object' ? table : {};
+    } catch (erreur) {
+      // 404 : cette recette n'a aucune illustration, ce qui est le cas courant.
+      if (erreur.statut === 404) return {};
+      throw erreur;
+    }
+  }
+
+  async function ecrireIllustrations(recetteId, table) {
+    var id = idDocument('etapes::' + recetteId);
+    return requete(`${cheminIllustrations()}/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: objetVersChamps({
+          recetteId: recetteId,
+          json: JSON.stringify(table),
+          modifieLe: new Date().toISOString(),
+        }),
+      }),
+    });
+  }
+
+  async function supprimerIllustrations(recetteId) {
+    var id = idDocument('etapes::' + recetteId);
+    try {
+      return await requete(`${cheminIllustrations()}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch (erreur) {
+      if (erreur.statut === 404) return null;
+      throw erreur;
+    }
+  }
+
   // --- Photos des recettes -----------------------------------------------------
   //
   // Un document par recette dans `photos`, avec deux tailles dans le meme document :
@@ -606,6 +665,10 @@
     lireCreneaux: lireCreneaux,
     ecrireCreneau: ecrireCreneau,
     supprimerCreneau: supprimerCreneau,
+    cheminIllustrations: cheminIllustrations,
+    lireIllustrations: lireIllustrations,
+    ecrireIllustrations: ecrireIllustrations,
+    supprimerIllustrations: supprimerIllustrations,
     cheminPhotos: cheminPhotos,
     cheminLivres: cheminLivres,
     lireLivres: lireLivres,

@@ -24,6 +24,11 @@ const OPTIONS_LANCEMENT = process.env.CHROMIUM_PATH ? { executablePath: process.
 const BASE = process.argv[2] || 'http://127.0.0.1:8104/';
 const ID = 'lasagnes-bolognaise-la-meilleure-recette';
 
+// Un PNG de 4 x 4 pixels : le redimensionnement a besoin d'une image decodable.
+const PNG_ROUGE =
+  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAFklEQVR42mP8z8Dwn4EIwESMIkbi' +
+  'FAEAoQ4F/1sYzE0AAAAASUVORK5CYII=';
+
 const echecs = [];
 const ok = [];
 function verifier(nom, condition, detail = '') {
@@ -427,10 +432,13 @@ async function attendreTexte(page, motif, limite = 8000) {
     (await pageA.locator('[data-section-ouverte]').count()) === 1,
     String(await pageA.locator('[data-section-ouverte]').count())
   );
+  // Le decompte est deduit des raccourcis et non ecrit en dur : ajouter une section a
+  // l'editeur ne doit pas faire echouer un test qui parle d'autre chose.
+  const nbSections = await pageA.locator('[data-section]').count();
   verifier(
-    'les cinq autres sections sont pliees',
-    (await pageA.locator('[data-section-pliee]').count()) === 5,
-    String(await pageA.locator('[data-section-pliee]').count())
+    'toutes les autres sections sont pliees',
+    (await pageA.locator('[data-section-pliee]').count()) === nbSections - 1,
+    `${await pageA.locator('[data-section-pliee]').count()} pliees pour ${nbSections} sections`
   );
   verifier(
     'la section des parts est ouverte par defaut en modification',
@@ -499,7 +507,103 @@ async function attendreTexte(page, motif, limite = 8000) {
     })
   );
 
-  // --- 12. Aucune erreur JavaScript ------------------------------------------
+  // --- 12. Valeurs nutritionnelles et illustrations d'étapes -----------------
+
+  await pageA.goto(`${BASE}#/recette/${ID}/modifier`, { waitUntil: 'networkidle' });
+  await attendre(800);
+  await pageA.click('[data-section="nutrition"]');
+  await attendre(400);
+  verifier('l’éditeur propose une section Nutrition', (await pageA.locator('#ajouter-ligne-nutrition').count()) === 1);
+
+  await pageA.click('#ajouter-ligne-nutrition');
+  await attendre(400);
+  const champsNutrition = pageA.locator('.ligne-nutrition').first().locator('.champ-edition');
+  await champsNutrition.nth(0).fill('Énergie');
+  await champsNutrition.nth(1).fill('kJ / kcal');
+  await champsNutrition.nth(2).fill('2711 / 648');
+  await champsNutrition.nth(3).fill('486 / 116');
+  await pageA.click('#ajouter-ligne-nutrition');
+  await attendre(400);
+  const secondeLigne = pageA.locator('.ligne-nutrition').nth(1).locator('.champ-edition');
+  await secondeLigne.nth(0).fill('dont saturés');
+  await secondeLigne.nth(1).fill('g');
+  await secondeLigne.nth(2).fill('6,2');
+  await secondeLigne.nth(3).fill('1,1');
+  await pageA.locator('.ligne-nutrition').nth(1).locator('input[type="checkbox"]').check();
+  await attendre(300);
+
+  // Une illustration sur la première étape, avant d'enregistrer la recette : la photo
+  // part tout de suite, dans sa propre collection.
+  await pageA.click('[data-section="instructions"]');
+  await attendre(400);
+  verifier(
+    'chaque étape propose une photo',
+    (await pageA.locator('.depli--etape').count()) === (await pageA.locator('.etape-edition').count()),
+    `${await pageA.locator('.depli--etape').count()} déplis pour ${await pageA.locator('.etape-edition').count()} étapes`
+  );
+  await pageA.locator('.depli--etape').first().locator('summary').click();
+  await attendre(300);
+  await pageA.locator('#etape-1-fichier').setInputFiles({
+    name: 'etape.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(PNG_ROUGE, 'base64'),
+  });
+  verifier(
+    'l’enregistrement de la photo d’étape est confirmé',
+    await attendreTexte(pageA, /Photo de l’étape enregistrée et partagée/, 12000),
+    (await texteDe(pageA)).slice(0, 300)
+  );
+
+  const etatIll = await (await pageA.request.get(new URL('__stub/etat', BASE).href)).json();
+  verifier('un seul document porte les illustrations', etatIll.nbIllustrations === 1, `${etatIll.nbIllustrations} documents`);
+  verifier(
+    'l’illustration est rangée au rang de son étape',
+    etatIll.illustrations[0].recetteId === ID && etatIll.illustrations[0].rangs.join(',') === '1',
+    JSON.stringify(etatIll.illustrations[0])
+  );
+
+  await pageA.click('#enregistrer');
+  await attendre(1200);
+
+  const surFiche = await texteDe(pageA);
+  verifier('la fiche porte les valeurs nutritionnelles', /Valeurs nutritionnelles/.test(surFiche), surFiche.slice(0, 200));
+  await pageA.click('#pour-aller-plus-loin > summary');
+  await attendre(400);
+  const tableau = await pageA.evaluate(() => {
+    const t = document.querySelector('#nutrition');
+    if (!t) return null;
+    return {
+      colonnes: [...t.querySelectorAll('thead th')].map((n) => n.textContent),
+      lignes: [...t.querySelectorAll('tbody tr')].map((tr) => [...tr.children].map((c) => c.textContent)),
+      detail: t.querySelectorAll('.nutrition__detail').length,
+    };
+  });
+  verifier(
+    'le tableau porte ses colonnes et ses valeurs',
+    tableau &&
+      tableau.colonnes.join('|') === 'Par portion|Pour 100 g' &&
+      tableau.lignes[0].join('|') === 'Énergie (kJ / kcal)|2711 / 648|486 / 116',
+    JSON.stringify(tableau)
+  );
+  verifier('la ligne subordonnée est marquée', tableau && tableau.detail === 1, JSON.stringify(tableau && tableau.detail));
+
+  verifier(
+    'l’illustration de l’étape apparaît sur la fiche',
+    (await pageA.locator('.etape__illustration img').count()) === 1,
+    `${await pageA.locator('.etape__illustration img').count()} illustrations`
+  );
+
+  // En mode Cuisiner, l'illustration de l'étape courante est affichée avant le texte.
+  await pageA.click('[data-mode="cuisiner"]');
+  await attendre(700);
+  verifier(
+    'le mode Cuisiner montre l’illustration de l’étape',
+    (await pageA.locator('.etape-cuisson__illustration img').count()) === 1,
+    `${await pageA.locator('.etape-cuisson__illustration img').count()} illustrations`
+  );
+
+  // --- 13. Aucune erreur JavaScript ------------------------------------------
+
 
   verifier('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
 

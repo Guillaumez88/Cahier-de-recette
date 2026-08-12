@@ -4319,3 +4319,119 @@ a.creneau__plat:hover .creneau__titre {
     width: 64px;
   }
 }
+
+/* --- Valeurs nutritionnelles ------------------------------------------------ */
+
+/* Un tableau plat, sans bandeau fusionné, qui défile sur lui-même plutôt que de
+   comprimer ses colonnes : sur un téléphone, huit lignes sur trois colonnes ne
+   tiennent pas dans 360 px. */
+.tableau-defilant {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nutrition {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+.nutrition th,
+.nutrition td {
+  padding: 7px 12px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--bordure);
+}
+.nutrition th[scope='row'] {
+  text-align: left;
+  font-weight: 600;
+  color: var(--texte-doux);
+}
+.nutrition__coin {
+  border-bottom: 1.5px solid var(--bordure-forte);
+}
+.nutrition thead th {
+  font-family: system-ui, sans-serif;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--terracotta-sombre);
+  border-bottom: 1.5px solid var(--bordure-forte);
+}
+.nutrition tbody tr:last-child th,
+.nutrition tbody tr:last-child td {
+  border-bottom: none;
+}
+/* Une ligne subordonnée (« dont saturés ») est décalée, comme sur l'étiquette d'un
+   produit : c'est ce qui dit qu'elle est comprise dans la ligne du dessus. */
+.nutrition__detail th[scope='row'] {
+  padding-left: 30px;
+  font-weight: 400;
+  color: var(--texte-faible);
+}
+
+/* --- Illustration d'une étape ----------------------------------------------- */
+
+/* L'illustration suit le texte de l'étape : on lit la consigne, puis on regarde à quoi
+   cela doit ressembler. Bornée en largeur, sinon une vignette de 320 px étirée sur la
+   fiche repousserait l'étape suivante d'un écran. */
+.etape__illustration {
+  margin: 8px 0 4px;
+  width: 100%;
+  max-width: 240px;
+  overflow: hidden;
+  border-radius: var(--rayon-md);
+  background: var(--surface-creuse);
+}
+.etape__illustration img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* En mode Cuisiner, l'illustration vient avant le texte et prend la largeur : on la
+   regarde de loin, les mains occupées. */
+.etape-cuisson__illustration {
+  margin: 0 0 16px;
+  overflow: hidden;
+  border-radius: var(--rayon-lg);
+  background: var(--surface-creuse);
+}
+.etape-cuisson__illustration img {
+  display: block;
+  width: 100%;
+  max-height: 42vh;
+  object-fit: cover;
+}
+
+/* Le dépli d'une photo d'étape dans l'éditeur : replié, il ne prend qu'une ligne. */
+.depli--etape {
+  margin-top: 6px;
+}
+.depli--etape .bloc-photo {
+  margin-top: 8px;
+}
+
+/* Une ligne du tableau nutritionnel, dans l'éditeur. */
+.ligne-nutrition {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--bordure);
+}
+.champ-edition--nutrition {
+  flex: 1 1 110px;
+  min-width: 90px;
+}
+.champ-edition--unite {
+  flex: 0 0 70px;
+}
+.case-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--texte-faible);
+}

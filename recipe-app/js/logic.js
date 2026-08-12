@@ -362,8 +362,70 @@
     return largeurs.length ? Math.max.apply(null, largeurs) : 0;
   }
 
+  /* --- Valeurs nutritionnelles ---------------------------------------------- */
+
+  /**
+   * Le tableau nutritionnel d'une recette, mis en forme, ou null.
+   *
+   * La donnee brute est celle de la source, sans transformation :
+   *
+   *   nutrition: {
+   *     colonnes: ['Par portion', 'Pour 100 g'],
+   *     lignes: [
+   *       { nom: 'Énergie', unite: 'kJ / kcal', valeurs: ['3213 / 768', '634 / 152'] },
+   *       { nom: 'Lipides total', unite: 'g', valeurs: ['22', '4'] },
+   *       { nom: 'dont saturés', unite: 'g', valeurs: ['3,1', '0,6'], detail: true },
+   *     ],
+   *   }
+   *
+   * `detail` marque une ligne subordonnee a la precedente (« dont saturés »), que
+   * l'ecran decale au lieu de l'aligner sur les autres.
+   *
+   * **Ces valeurs ne sont jamais mises a l'echelle**, et ce n'est pas un oubli : elles
+   * sont donnees par portion et pour 100 g, deux bases qui ne dependent pas du nombre
+   * de parts. Multiplier « par portion » par deux en doublant la recette donnerait un
+   * chiffre faux pour une portion qui, elle, n'a pas change.
+   *
+   * Tolerant au desordre de la source : une ligne sans nom est ignoree, une ligne dont
+   * il manque des valeurs garde des cases vides plutot que d'etre jetee.
+   */
+  function lignesNutrition(recette) {
+    var brut = recette && recette.nutrition;
+    if (!brut || !Array.isArray(brut.lignes)) return null;
+
+    var colonnes = (Array.isArray(brut.colonnes) ? brut.colonnes : [])
+      .map(function (c) {
+        return String(c === null || c === undefined ? '' : c).trim();
+      })
+      .filter(function (c) {
+        return c !== '';
+      });
+    if (colonnes.length === 0) return null;
+
+    var lignes = brut.lignes
+      .map(function (ligne) {
+        var nom = String((ligne && ligne.nom) || '').trim();
+        if (nom === '') return null;
+        var valeurs = colonnes.map(function (rien, i) {
+          var v = (ligne.valeurs || [])[i];
+          return String(v === null || v === undefined ? '' : v).trim();
+        });
+        return {
+          nom: nom,
+          unite: String((ligne && ligne.unite) || '').trim(),
+          valeurs: valeurs,
+          detail: Boolean(ligne && ligne.detail),
+        };
+      })
+      .filter(Boolean);
+
+    if (lignes.length === 0) return null;
+    return { colonnes: colonnes, lignes: lignes, base: String(brut.base || '').trim() };
+  }
+
   var api = {
     criteresVides: criteresVides,
+    lignesNutrition: lignesNutrition,
     parseMinutes: parseMinutes,
     stripTipPrefix: stripTipPrefix,
     origineCourte: origineCourte,

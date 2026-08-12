@@ -141,6 +141,32 @@ service cloud.firestore {
       allow delete: if request.auth != null;
     }
 
+    // Illustrations des étapes d'une recette : un document par recette, contenant
+    // toutes ses illustrations dans une seule chaîne JSON indexée par rang d'étape.
+    //
+    // Pourquoi un document par recette et non un par étape : ces images ne servent que
+    // sur la fiche ouverte. Un document par étape les ferait toutes lire au chargement
+    // de la page, avec les vignettes de la collection `photos`, alors qu'elles ne sont
+    // utiles qu'une fois la fiche affichée. Ici, c'est une lecture par fiche consultée.
+    //
+    // La borne de taille n'est pas décorative : un document Firestore est limité à
+    // 1 Mio. Chaque illustration est une vignette de 320 px de côté, bornée à 60 000
+    // caractères par photos.js, donc six étapes tiennent largement sous 600 000.
+    match /illustrations/{recetteId} {
+
+      function illustrationsValides() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['recetteId', 'json'])
+          && d.recetteId is string && d.recetteId.size() > 0 && d.recetteId.size() <= 200
+          && d.json is string && d.json.size() > 0 && d.json.size() <= 600000
+          && (!d.keys().hasAny(['modifieLe']) || (d.modifieLe is string && d.modifieLe.size() <= 40));
+      }
+
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && illustrationsValides();
+      allow delete: if request.auth != null;
+    }
+
     // Photos des recettes, une par recette, en deux tailles dans le même document :
     // `vignette` pour les listes et le semainier, `grande` pour la fiche.
     //

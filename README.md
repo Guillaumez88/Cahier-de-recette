@@ -78,6 +78,8 @@ qui ne se voit pas tout de suite.
 | Une collection partagée (liste, menus, placard) | `js/storage.js`, `js/semainier.js`, `js/placard.js` |
 | Recettes modifiées et ajoutées | `js/recettes.js` |
 | Photos, redimensionnement, cache IndexedDB | `js/photos.js` |
+| Illustrations des étapes | `js/illustrations.js` |
+| Le tableau nutritionnel | `js/logic.js` (`lignesNutrition`), rendu dans `js/app.js` |
 | Import depuis un site | `js/import-recette.js` |
 | Partager une recette : texte et lien | `js/partage.js` |
 | Écrire un PDF sans dépendance | `js/pdf.js` |
@@ -167,11 +169,11 @@ qu'en une fois.
 | Ingrédients | 209 occurrences, 133 noms distincts, tous classés par rayon |
 | Étapes | 145, dont 107 portent un rappel d'ingrédients |
 | Couverture du déroulé reconstitué | 193 / 209, soit 92 % |
-| Code | 23 modules, 12 868 lignes de JavaScript |
-| Poids transféré au chargement | 201 Ko compressés, 33 fichiers |
+| Code | 24 modules, 13 400 lignes de JavaScript |
+| Poids transféré au chargement | 209 Ko compressés, 34 fichiers |
 | Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
 | Coût de la bibliothèque | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
-| Tests | 161 + 132 sous Node, 450 vérifications navigateur, 20 contre le vrai Firebase |
+| Tests | 166 + 140 sous Node, 460 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -210,6 +212,7 @@ sans voir ce qu'elle protégeait.
     │   ├── placard.js           Ce qu'on a toujours et qu'il ne faut pas racheter
     │   ├── livres.js            La bibliothèque : les livres de cuisine de la maison
     │   ├── photos.js            Photos : redimensionnement, deux tailles, cache IndexedDB
+    │   ├── illustrations.js     Une photo par étape, lue à l'ouverture de la fiche
     │   ├── cuisson.js           Où l'on en est dans une recette, en local
     │   ├── import-recette.js    Lecture d'une recette schema.org trouvée sur un site
     │   ├── partage.js           Une recette en texte et par un lien
@@ -224,11 +227,11 @@ sans voir ce qu'elle protégeait.
     │   ├── importer-extraction.js       Import d'une extraction Markdown (voir plus bas)
     │   └── ajouter-recette-au-livre.js  Écrit une recette dans un livre de la bibliothèque
     └── tests/
-        ├── run-tests.js           161 tests de la logique métier
-        ├── run-sync-tests.js      132 tests de la synchronisation
+        ├── run-tests.js           166 tests de la logique métier
+        ├── run-sync-tests.js      140 tests de la synchronisation
         ├── test-web.js             98 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
-        ├── test-edition.js         72 vérifications navigateur, modification, parts, accordéon
+        ├── test-edition.js         82 vérifications navigateur, modification, parts, nutrition, illustrations
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
         ├── test-bibliotheque.js    67 vérifications navigateur, livres, périmètres, couvertures
         ├── stub-firestore.js       Émulation de Firestore pour les tests
@@ -238,7 +241,7 @@ sans voir ce qu'elle protégeait.
         └── serveur.js              Serveur statique sans dépendance
 ```
 
-Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `collection.js`, `recettes.js`, `storage.js`, `semainier.js`, `placard.js`, `livres.js`, `photos.js`, `cuisson.js`, `import-recette.js`, `partage.js`, `pdf.js`, `menu-pdf.js`, `vue-magasin.js`, `vue-bibliotheque.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
+Tous les modules s'exportent sur `window` dans le navigateur et en CommonJS sous Node, sans transpilation : les tests les chargent directement. L'ordre de chargement dans `index.html` est significatif, chaque script consommant les précédents : `firebase-config.js`, `logic.js`, `quantites.js`, `rayons.js`, `flux.js`, `semaine.js`, `icones.js`, `sync.js`, `collection.js`, `recettes.js`, `storage.js`, `semainier.js`, `placard.js`, `livres.js`, `photos.js`, `illustrations.js`, `cuisson.js`, `import-recette.js`, `partage.js`, `pdf.js`, `menu-pdf.js`, `vue-magasin.js`, `vue-bibliotheque.js`, `app.js`. Le workflow de publication vérifie cet ordre : un script oublié dans la page passerait les tests Node, qui chargent les modules directement, et casserait le site.
 
 `app.js` ne parle jamais au réseau ni au stockage : il passe par `storage.js`, `semainier.js`, `placard.js`, `recettes.js` et `photos.js`, seuls endroits décidant où sont rangées les données.
 
@@ -269,7 +272,7 @@ Un double-clic sur `index.html` ne fonctionne pas : la page lit `data/recipes.js
 - **La bibliothèque** : les livres de cuisine « en vrai » de la maison, classés par thème, auxquels on rattache des recettes au fil de leur saisie. Leurs recettes ont toutes les fonctions des autres mais restent hors du planning de la semaine, sauf celles qu'on remonte dans le livre de cuisine (voir plus bas).
 - **Partager une recette** : le texte entier de la recette, prêt à coller dans un message, ou un lien vers la fiche (voir plus bas).
 - **Le menu de la semaine en PDF**, une feuille A4 à imprimer, fabriquée dans le navigateur sans aucune dépendance (voir plus bas).
-- **Le carnet s'ouvre sans réseau.** Un *service worker* (`sw.js`) met en cache les 33 fichiers du site, soit 201 Ko compressés, et les sert en priorité avec mise à jour en arrière-plan : un fichier modifié est récupéré immédiatement et s'affiche au chargement suivant, une version périmée ne survivant jamais plus d'une ouverture. Incrémenter `VERSION` dans `sw.js` force une purge immédiate, et devient nécessaire quand un fichier est retiré de la liste, qui resterait sinon en cache. Sans lui, une page ouverte hors ligne n'affichait rien du tout : les données survivaient dans le stockage local, mais il n'y avait plus d'application pour les afficher. Un `manifest.webmanifest` permet « Ajouter à l'écran d'accueil », qui donne une icône et un lancement sans barre d'URL.
+- **Le carnet s'ouvre sans réseau.** Un *service worker* (`sw.js`) met en cache les 34 fichiers du site, soit 209 Ko compressés, et les sert en priorité avec mise à jour en arrière-plan : un fichier modifié est récupéré immédiatement et s'affiche au chargement suivant, une version périmée ne survivant jamais plus d'une ouverture. Incrémenter `VERSION` dans `sw.js` force une purge immédiate, et devient nécessaire quand un fichier est retiré de la liste, qui resterait sinon en cache. Sans lui, une page ouverte hors ligne n'affichait rien du tout : les données survivaient dans le stockage local, mais il n'y avait plus d'application pour les afficher. Un `manifest.webmanifest` permet « Ajouter à l'écran d'accueil », qui donne une icône et un lancement sans barre d'URL.
 - **Annuler le retrait d'un plat.** La croix retire sans confirmation, parce que demander « êtes-vous sûr ? » à chaque geste est plus pénible que le geste. La contrepartie est un bandeau « Plat retiré — Annuler » pendant sept secondes, qui repose le plat **avec sa clé d'origine** : il retrouve sa place dans l'ordre du repas, alors qu'une clé neuve l'enverrait en fin de liste, ce qui ne serait pas une annulation. Si la clé a été reprise entre-temps par un autre appareil, le plat présent gagne : écraser serait pire que de ne pas annuler.
 - **Navigation adaptée à l'écran.** Sur ordinateur, l'en-tête porte les liens « Le livre » et « Liste de courses », chacun avec son pictogramme, l'état actif visible, le compteur d'articles restants et le bouton de rafraîchissement, qui affiche l'âge de la donnée en trois caractères (« 4min », « 3h », « 2j »). Sur téléphone, l'en-tête n'a plus de liens : une **barre d'onglets** en bas de l'écran (Semaine, Le livre, Courses) met les trois destinations sous le pouce, avec un retrait pour l'encoche du bas, et le rafraîchissement se fait en **tirant la page vers le bas**.
 - **Pictogrammes** en SVG écrit dans la page, dans `js/icones.js` : aucune police d'icônes ni CDN, donc rien à charger et rien qui casse en cuisine sans connexion. Ils se colorent par `currentColor` et suivent la palette sans code supplémentaire.
@@ -575,6 +578,73 @@ le champ `livre`. Rien ne presse aux volumes actuels.
 autres. Tant que ce n'est pas fait, la bibliothèque paraît vide et l'application
 continue de fonctionner sans elle.
 
+## Valeurs nutritionnelles et photos d'étapes
+
+Deux champs facultatifs, tous deux absents de la quasi-totalité des recettes et présents
+sur celles qui viennent d'une fiche de box repas.
+
+### Le tableau nutritionnel
+
+Il vit dans le champ `nutrition` de la recette, donc dans le même document, et se lit
+par `L.lignesNutrition(recette)` :
+
+```js
+nutrition: {
+  colonnes: ['Par portion', 'Pour 100 g'],
+  lignes: [
+    { nom: 'Énergie', unite: 'kJ / kcal', valeurs: ['3213 / 768', '634 / 152'] },
+    { nom: 'dont saturés', unite: 'g', valeurs: ['3,1', '0,6'], detail: true },
+  ],
+}
+```
+
+`detail` marque une ligne subordonnée à la précédente, que l'écran décale comme sur
+l'étiquette d'un produit. Le lecteur tolère le désordre de la source : une colonne vide
+n'est pas une colonne, une ligne sans nom est ignorée, une valeur manquante laisse une
+case vide plutôt que de jeter la ligne.
+
+**Ces valeurs ne sont jamais mises à l'échelle**, et ce n'est pas un oubli : elles sont
+données par portion et pour 100 g, deux bases qui ne dépendent pas du nombre de parts.
+Multiplier « par portion » en doublant la recette donnerait un chiffre faux pour une
+portion qui, elle, n'a pas changé. La fiche le dit sous le tableau.
+
+Le tableau est dans le dépli « Pour aller plus loin », dont le libellé le mentionne
+quand la recette en porte un : la fiche est longue, et huit lignes de chiffres avant la
+source repousseraient ce qu'on lit en cuisinant.
+
+### Une photo par étape
+
+Elles vivent dans leur **propre collection** `illustrations`, un document par recette,
+qui porte toutes ses illustrations dans une chaîne JSON indexée par rang d'étape.
+
+Pourquoi pas dans la collection `photos` avec les vignettes de recettes : ce n'est pas le
+même besoin de lecture. Une vignette de recette sert dans les listes, il faut donc les
+connaître toutes dès le chargement. Une illustration d'étape ne sert que sur la fiche
+ouverte : cinq recettes de six étapes rangées dans `photos`, ce seraient trente documents
+et environ 600 Ko lus à chaque chargement pour n'en afficher aucun. Ici, c'est **une
+lecture par fiche consultée**, et une recette sans illustration n'est demandée qu'une
+fois, son absence étant mémorisée.
+
+Ce qui est réutilisé de `photos.js` : tout le reste. `Ph.preparer()` redimensionne dans
+le navigateur et rend une vignette de 320 px bornée à 60 000 caractères, qui est la
+taille d'affichage d'une illustration. La grande version n'est pas conservée. Six étapes
+font environ 120 Ko dans un document limité à 1 Mio.
+
+**Le rang, pas le numéro.** Une illustration est indexée par le rang de l'étape, pas par
+son champ `numero`, qui vaut « Pour finir » dans une des recettes. Supprimer une étape
+dans l'éditeur décale donc les illustrations suivantes (`Ill.retirerEtape`), sinon la
+photo de l'étape 4 se retrouverait sur l'étape 3, en silence.
+
+Dans l'éditeur, chaque étape porte un dépli replié : six blocs photo ouverts rendraient
+illisible ce qu'on vient le plus souvent y faire, corriger un texte. Le dépli ne s'ouvre
+de lui-même que si l'étape a déjà une photo.
+
+### Ce qui reste à faire côté console Firebase
+
+**`firestore.rules` doit être republié** : la collection `illustrations` s'ajoute aux six
+autres. Sans cela les photos d'étapes ne peuvent ni s'écrire ni se lire, et la fiche
+s'affiche sans elles plutôt que de ne pas s'afficher.
+
 ## Partager une recette
 
 Le bouton « Partager » de la fiche ouvre une boîte qui propose deux choses distinctes,
@@ -868,9 +938,9 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 
 ```bash
 cd recipe-app
-node tests/run-tests.js           # 161 tests de la logique métier
-node tests/run-sync-tests.js      # 132 tests de la synchronisation
-node tests/run-browser-tests.js   # 450 vérifications dans un vrai Chromium
+node tests/run-tests.js           # 166 tests de la logique métier
+node tests/run-sync-tests.js      # 140 tests de la synchronisation
+node tests/run-browser-tests.js   # 460 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

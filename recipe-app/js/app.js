@@ -27,6 +27,7 @@
   var Lv = window.CarnetLivres;
   var VBib = window.CarnetVueBibliotheque;
   var MPdf = window.CarnetMenuPdf;
+  var Ill = window.CarnetIllustrations;
 
   var criteresVides = L.criteresVides;
   var origineCourte = L.origineCourte;
@@ -37,6 +38,7 @@
   var filterRecipes = L.filterRecipes;
   var isFlowTableInformative = L.isFlowTableInformative;
   var largeurGrille = L.largeurGrille;
+  var lignesNutrition = L.lignesNutrition;
 
   var getShoppingList = S.getShoppingList;
   var addRecipeToList = S.addRecipeToList;
@@ -2433,6 +2435,54 @@
 
   /* --- vue : fiche recette ------------------------------------------------- */
 
+  /**
+   * Le tableau des valeurs nutritionnelles, tel que la source le donne.
+   *
+   * Rien n'est recalcule, et surtout **rien n'est mis a l'echelle** : les valeurs sont
+   * par portion et pour 100 g, deux bases qui ne dependent pas du nombre de parts.
+   * Doubler la recette ne change pas ce qu'il y a dans une portion. Voir
+   * L.lignesNutrition.
+   *
+   * Un tableau plat, sans bandeau fusionne : il doit se lire sur un telephone, ou la
+   * feuille de style le fait defiler horizontalement plutot que de comprimer les
+   * colonnes.
+   */
+  function sectionNutrition(nutrition) {
+    // La premiere case de l'en-tete reste vide : elle surplombe les noms de lignes, qui
+    // ne sont pas une colonne de donnees. Y ecrire un mot inventerait un intitule.
+    var entete = el('tr', {}, [el('td', { class: 'nutrition__coin' })].concat(
+      nutrition.colonnes.map(function (colonne) {
+        return el('th', { scope: 'col', texte: colonne });
+      })
+    ));
+
+    var corps = nutrition.lignes.map(function (ligne) {
+      var libelle = ligne.nom + (ligne.unite ? ' (' + ligne.unite + ')' : '');
+      return el('tr', { class: ligne.detail ? 'nutrition__detail' : null }, [
+        el('th', { scope: 'row', texte: libelle }),
+      ].concat(
+        ligne.valeurs.map(function (valeur) {
+          return el('td', { texte: valeur });
+        })
+      ));
+    });
+
+    return section('Valeurs nutritionnelles', nutrition.base || null, [
+      el('div', { class: 'tableau-defilant' }, [
+        el('table', { class: 'nutrition', id: 'nutrition' }, [
+          el('thead', {}, [entete]),
+          el('tbody', {}, corps),
+        ]),
+      ]),
+      el('p', {
+        class: 'section__soustitre',
+        texte:
+          'Valeurs de la source, reprises telles quelles. Elles ne suivent pas le nombre de parts : ' +
+          'une portion reste une portion.',
+      }),
+    ]);
+  }
+
   function section(titre, sousTitre, contenu) {
     return el('section', { class: 'section' }, [
       el('h2', { class: 'section__titre', texte: titre }),
@@ -2644,6 +2694,16 @@
     fragment.appendChild(
       el('article', { class: 'etape-cuisson', id: 'etape-cuisson' }, [
         el('p', { class: 'etape-cuisson__numero', texte: estEntier ? String(etape.numero) : String(etape.numero) }),
+        // En cuisine, l'illustration vient avant le texte : elle dit d'un coup d'œil à
+        // quoi doit ressembler ce qu'on a sous les yeux.
+        Ill.pour(recette.id)[String(rang + 1)]
+          ? el('figure', { class: 'etape-cuisson__illustration' }, [
+              el('img', {
+                src: Ill.pour(recette.id)[String(rang + 1)],
+                alt: 'Illustration de l’étape ' + (rang + 1),
+              }),
+            ])
+          : null,
         el('p', { class: 'etape-cuisson__texte', texte: etape.texte }),
         etape.astuce
           ? el('div', { class: 'astuce astuce--cuisson' }, [
@@ -2768,6 +2828,18 @@
 
     document.title = recette.titre + ' — Miam miam !';
 
+    // Les illustrations des étapes sont lues à l'ouverture de la fiche, et seulement
+    // là : elles ne servent nulle part ailleurs. Une lecture par fiche consultée, une
+    // seule fois, puis le re-rendu les affiche. Voir illustrations.js.
+    var illustrations = Ill.pour(recette.id);
+    if (!Ill.dejaLue(recette.id)) {
+      Ill.charger(recette.id).then(function (table) {
+        if (Object.keys(table).length === 0) return;
+        if (routeCourante() === '/recette/' + recette.id) monter(vueRecette(recette.id));
+      });
+    }
+
+    // Avant le mode Cuisiner, qui affiche lui aussi l'illustration de l'étape courante.
     if (Cu.mode(id) === Cu.MODE_CUISINER) return vueCuisiner(recette);
 
     var dansListe = recetteDansListe(getShoppingList(), recette.id);
@@ -3019,15 +3091,26 @@
         el(
           'ol',
           { class: 'etapes' },
-          recette.instructions.map(function (etape) {
+          recette.instructions.map(function (etape, rang) {
             // `numero` vaut parfois un libellé plutôt qu'un entier
             // (« Pour finir » dans la source des lasagnes bolognaise).
             var estEntier = typeof etape.numero === 'number';
+            // L'illustration de l'étape, si elle en a une. Indexée par rang et non par
+            // `numero`, qui n'est pas toujours un entier : voir illustrations.js.
+            var image = illustrations[String(rang + 1)];
             return el('li', { class: 'etape' }, [
               el('span', { class: 'etape__numero', texte: estEntier ? String(etape.numero) : '•' }),
               el('div', {}, [
                 estEntier ? null : el('p', { class: 'etape__libelle', texte: String(etape.numero) }),
                 el('p', { class: 'etape__texte', texte: etape.texte }),
+                // Apres le texte, et non avant : on lit la consigne, puis on regarde a
+                // quoi cela doit ressembler. Un flottant a droite donnait une mise en
+                // page irreguliere d'une etape a l'autre.
+                image
+                  ? el('figure', { class: 'etape__illustration' }, [
+                      el('img', { src: image, alt: 'Illustration de l’étape ' + (rang + 1), loading: 'lazy' }),
+                    ])
+                  : null,
                 etape.astuce
                   ? el('div', { class: 'astuce' }, [
                       el('span', { class: 'astuce__marque', texte: 'Astuce' }),
@@ -3092,6 +3175,9 @@
         recette.calories ? el('p', { class: 'section__soustitre', texte: 'Calories : ' + recette.calories }) : null,
       ])
     );
+
+    var nutrition = lignesNutrition(recette);
+    if (nutrition) contexte.appendChild(sectionNutrition(nutrition));
 
     // Un tableau fourni avec la recette est toujours prefere : il porte une
     // interpretation (les sous-preparations qui convergent) que la generation ne
@@ -3162,7 +3248,13 @@
       el('details', { class: 'pour-aller-plus-loin', id: 'pour-aller-plus-loin' }, [
         el('summary', { class: 'pour-aller-plus-loin__titre' }, [
           icone('fleche', { taille: 16 }),
-          el('span', { texte: 'Pour aller plus loin : temps, origine, déroulé, astuces, variantes, source' }),
+          // Le libelle enumere ce qu'il y a dedans : un depli qui ne dit pas ce qu'il
+          // cache ne se deplie pas. La nutrition n'y figure que si la recette en porte.
+          el('span', {
+            texte:
+              'Pour aller plus loin : temps, origine, déroulé, astuces, variantes, source' +
+              (nutrition ? ', valeurs nutritionnelles' : ''),
+          }),
         ]),
         contexte,
       ])
@@ -4238,12 +4330,26 @@
    *
    * `reglages` porte les libelles et, surtout, `rendre()` : ce bloc vit dans l'editeur
    * d'une recette comme dans la boite d'un livre, et chacun se re-rend a sa maniere.
+   *
+   * `lire`, `enregistrer` et `supprimer` permettent de ranger l'image ailleurs que dans
+   * photos.js : les illustrations d'etapes ont leur propre collection, un document par
+   * recette, parce qu'elles ne servent que sur la fiche ouverte. Sans ces trois crochets,
+   * c'est photos.js qui est utilise, sous la cle donnee.
    */
   function blocImage(cle, reglages) {
     var r = reglages || {};
     var rendre = r.rendre || function () {};
     var nom = r.nom || 'photo';
-    var courante = Ph.vignette(cle);
+    var lire = r.lire || function () {
+      return Ph.vignette(cle);
+    };
+    var deposer = r.enregistrer || function (tailles) {
+      return Ph.enregistrer(cle, tailles);
+    };
+    var effacer = r.supprimer || function () {
+      return Ph.supprimer(cle);
+    };
+    var courante = lire();
     // Les identifiants gardent la forme qu'ils avaient quand ce bloc ne servait qu'aux
     // recettes : « photo-fichier », « retirer-photo », « bloc-photo ». Les tests et la
     // feuille de style s'y appuient.
@@ -4264,7 +4370,7 @@
 
         Ph.preparer(fichier)
           .then(function (tailles) {
-            return Ph.enregistrer(cle, tailles).then(function () {
+            return Promise.resolve(deposer(tailles)).then(function () {
               etatPhoto = {
                 message:
                   (r.motSucces || 'Photo enregistrée et partagée') +
@@ -4309,7 +4415,7 @@
               id: 'retirer-' + nom,
               texte: r.motRetirer || 'Retirer la photo',
               onclick: function () {
-                Ph.supprimer(cle)
+                Promise.resolve(effacer())
                   .then(function () {
                     etatPhoto = { message: r.motRetire || 'Photo retirée.', erreur: null, enCours: false };
                   })
@@ -4524,6 +4630,103 @@
   }
 
   /** Section des etapes, editable. */
+  /**
+   * Bloc de saisie des valeurs nutritionnelles.
+   *
+   * Deux colonnes par defaut, « Par portion » et « Pour 100 g », qui sont celles de
+   * toutes les sources rencontrees, mais leurs libelles restent modifiables : une
+   * source qui ne donnerait que « pour 100 g » ne doit pas obliger a inventer une
+   * colonne.
+   *
+   * `detail` marque une ligne subordonnee (« dont saturés »). C'est une case a cocher
+   * et non une convention de nommage : ecrire « dont » dans le nom fonctionne aussi,
+   * mais l'ecran a besoin de le savoir pour decaler la ligne.
+   */
+  function blocNutrition(id) {
+    if (!brouillon.nutrition || !Array.isArray(brouillon.nutrition.lignes)) {
+      brouillon.nutrition = { colonnes: ['Par portion', 'Pour 100 g'], lignes: [] };
+    }
+    var n = brouillon.nutrition;
+    if (!Array.isArray(n.colonnes) || n.colonnes.length === 0) n.colonnes = ['Par portion', 'Pour 100 g'];
+
+    var enTetes = el('div', { class: 'ligne-edition' }, [
+      el('span', { class: 'ligne-edition__libelle', texte: 'Colonnes' }),
+    ].concat(
+      n.colonnes.map(function (colonne, i) {
+        return champ(colonne, function (valeur) {
+          n.colonnes[i] = valeur;
+        }, { classe: 'champ-edition champ-edition--nutrition', libelle: 'Libellé de la colonne ' + (i + 1) });
+      })
+    ));
+
+    var lignes = n.lignes.map(function (ligne, index) {
+      if (!Array.isArray(ligne.valeurs)) ligne.valeurs = [];
+      return el('div', { class: 'ligne-nutrition' }, [
+        champ(ligne.nom || '', function (valeur) {
+          ligne.nom = valeur;
+        }, { placeholder: 'Énergie, Lipides…', libelle: 'Nom de la ligne ' + (index + 1) }),
+        champ(ligne.unite || '', function (valeur) {
+          ligne.unite = valeur;
+        }, { classe: 'champ-edition champ-edition--unite', placeholder: 'g', libelle: 'Unité de la ligne ' + (index + 1) }),
+      ]
+        .concat(
+          n.colonnes.map(function (colonne, i) {
+            return champ(ligne.valeurs[i] || '', function (valeur) {
+              ligne.valeurs[i] = valeur;
+            }, { classe: 'champ-edition champ-edition--nutrition', placeholder: colonne, libelle: colonne + ', ligne ' + (index + 1) });
+          })
+        )
+        .concat([
+          el('label', { class: 'case-detail' }, [
+            el('input', {
+              type: 'checkbox',
+              checked: ligne.detail ? true : null,
+              'aria-label': 'Ligne subordonnée à la précédente',
+              onchange: function (evenement) {
+                ligne.detail = evenement.target.checked;
+              },
+            }),
+            el('span', { texte: 'dont' }),
+          ]),
+          el('button', {
+            type: 'button',
+            class: 'supprimer',
+            texte: '×',
+            'aria-label': 'Supprimer la ligne ' + (index + 1),
+            onclick: function () {
+              n.lignes.splice(index, 1);
+              monter(vueEditeur(id));
+            },
+          }),
+        ]));
+    });
+
+    return el('div', { class: 'bloc-edition' }, [enTetes].concat(lignes).concat([
+      el('button', {
+        type: 'button',
+        class: 'lien-action',
+        id: 'ajouter-ligne-nutrition',
+        texte: 'Ajouter une ligne',
+        onclick: function () {
+          n.lignes.push({ nom: '', unite: '', valeurs: [], detail: false });
+          monter(vueEditeur(id));
+        },
+      }),
+      n.lignes.length > 0
+        ? el('button', {
+            type: 'button',
+            class: 'lien-action',
+            id: 'vider-nutrition',
+            texte: 'Retirer toutes les valeurs',
+            onclick: function () {
+              brouillon.nutrition = null;
+              monter(vueEditeur(id));
+            },
+          })
+        : null,
+    ]));
+  }
+
   function blocInstructions(id) {
     return el(
       'div',
@@ -4541,6 +4744,14 @@
                 onclick: function () {
                   brouillon.instructions.splice(index, 1);
                   renumeroter();
+                  // L'illustration part avec son étape, et celles des étapes suivantes
+                  // remontent d'un rang : sans cela chaque photo se retrouverait sur
+                  // l'étape suivante, en silence. Voir illustrations.js.
+                  if (id) {
+                    Ill.retirerEtape(id, index + 1).catch(function () {
+                      /* l'étape est déjà retirée de la recette : on ne bloque pas là-dessus */
+                    });
+                  }
                   monter(vueEditeur(id));
                 },
               }),
@@ -4551,6 +4762,13 @@
             champ(etape.astuce || '', function (valeur) {
               etape.astuce = valeur.trim() === '' ? null : valeur;
             }, { multiligne: true, lignes: 2, placeholder: 'Astuce (facultatif)', libelle: 'Astuce de l’étape ' + (index + 1) }),
+            // L'illustration ne se propose qu'une fois la recette enregistrée : elle est
+            // rangée sous son identifiant, qu'une recette en cours de création n'a pas
+            // encore. Le dire plutôt que d'afficher un bouton qui échouerait.
+            id
+              ? blocIllustrationEtape(id, index + 1)
+              : el('p', { class: 'bloc-photo__aide', texte:
+                  'La photo de l’étape pourra être ajoutée après le premier enregistrement.' }),
           ]);
         })
         .concat([
@@ -4565,6 +4783,52 @@
           }),
         ])
     );
+  }
+
+  /**
+   * Le bloc d'envoi de l'illustration d'une etape, dans l'editeur.
+   *
+   * Replie par defaut : une recette de six etapes afficherait sinon six blocs photo
+   * ouverts, et l'editeur deviendrait illisible pour la chose qu'on vient le plus
+   * souvent y faire, corriger un texte.
+   */
+  function blocIllustrationEtape(id, rang) {
+    var image = Ill.pour(id)[String(rang)];
+
+    return el('details', { class: 'depli depli--etape', open: image ? 'open' : null }, [
+      el('summary', { class: 'depli__titre' }, [
+        icone('appareil', { taille: 15 }),
+        el('span', { texte: image ? 'Photo de cette étape' : 'Ajouter une photo à cette étape' }),
+      ]),
+      blocImage(null, {
+        nom: 'etape-' + rang,
+        alt: 'Illustration de l’étape ' + rang,
+        libelleChoix: 'Choisir une photo pour l’étape ' + rang,
+        motVide: 'Aucune photo pour cette étape',
+        motAjouter: 'Ajouter la photo',
+        motRemplacer: 'Remplacer la photo',
+        motRetirer: 'Retirer la photo',
+        motRetire: 'Photo de l’étape retirée.',
+        motSucces: 'Photo de l’étape enregistrée et partagée',
+        aide:
+          'Une seule taille est conservée pour une étape, 320 px de côté : c’est la taille ' +
+          'd’affichage, et une illustration par étape ne doit pas peser plus que la fiche.',
+        // Les illustrations ne passent pas par photos.js pour l'enregistrement : elles
+        // ont leur propre collection, un document par recette. Voir illustrations.js.
+        lire: function () {
+          return Ill.pour(id)[String(rang)] || null;
+        },
+        enregistrer: function (tailles) {
+          return Ill.enregistrer(id, rang, tailles.vignette);
+        },
+        supprimer: function () {
+          return Ill.retirer(id, rang);
+        },
+        rendre: function () {
+          monter(vueEditeur(id));
+        },
+      }),
+    ]);
   }
 
   /**
@@ -4684,6 +4948,15 @@
             aEnregistrer.instructions = aEnregistrer.instructions.filter(function (etape) {
               return String(etape.texte || '').trim() !== '';
             });
+
+            // Un tableau nutritionnel sans ligne nommee n'est pas un tableau vide, c'est
+            // l'absence de tableau : la fiche afficherait sinon une section sans contenu.
+            if (aEnregistrer.nutrition) {
+              aEnregistrer.nutrition.lignes = (aEnregistrer.nutrition.lignes || []).filter(function (ligne) {
+                return String(ligne.nom || '').trim() !== '';
+              });
+              if (aEnregistrer.nutrition.lignes.length === 0) aEnregistrer.nutrition = null;
+            }
 
             // Un titre vide rendrait la fiche introuvable dans le livre : on
             // refuse d'enregistrer plutot que de creer une recette sans nom.
@@ -4936,6 +5209,19 @@
           brouillon.instructions.length + (brouillon.instructions.length > 1 ? ' étapes' : ' étape'),
         contenu: function () {
           return blocInstructions(id);
+        },
+      },
+      {
+        cle: 'nutrition',
+        titre: 'Nutrition',
+        sousTitre: 'Les valeurs de la source, telles quelles. Elles ne suivent pas le nombre de parts.',
+        resume: (function () {
+          var lu = lignesNutrition(brouillon);
+          if (!lu) return 'aucune valeur';
+          return lu.lignes.length + (lu.lignes.length > 1 ? ' lignes' : ' ligne');
+        })(),
+        contenu: function () {
+          return blocNutrition(id);
         },
       },
     ];

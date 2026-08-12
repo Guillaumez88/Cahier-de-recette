@@ -19,6 +19,7 @@ const Pt = require(path.join(racine, 'js/partage.js'));
 const Pdf = require(path.join(racine, 'js/pdf.js'));
 const MPdf = require(path.join(racine, 'js/menu-pdf.js'));
 const Lv = require(path.join(racine, 'js/livres.js'));
+const Ill = require(path.join(racine, 'js/illustrations.js'));
 const VBib = require(path.join(racine, 'js/vue-bibliotheque.js'));
 
 const recettes = JSON.parse(fs.readFileSync(path.join(racine, 'data/recipes.json'), 'utf8'));
@@ -2007,7 +2008,79 @@ test('le livre de cuisine et les livres partagent le meme jeu de recettes', () =
   assert.strictEqual(R.estRemontee(recettes[0].id), false);
 });
 
+// --- Valeurs nutritionnelles -------------------------------------------------
+
+const NUTRITION = {
+  colonnes: ['Par portion', 'Pour 100 g'],
+  lignes: [
+    { nom: 'Énergie', unite: 'kJ / kcal', valeurs: ['3213 / 768', '634 / 152'] },
+    { nom: 'Lipides total', unite: 'g', valeurs: ['22', '4'] },
+    { nom: 'dont saturés', unite: 'g', valeurs: ['3,1', '0,6'], detail: true },
+  ],
+};
+
+test('le tableau nutritionnel est rendu tel quel, colonnes comprises', () => {
+  const lu = L.lignesNutrition({ nutrition: NUTRITION });
+  assert.deepStrictEqual(lu.colonnes, ['Par portion', 'Pour 100 g']);
+  assert.strictEqual(lu.lignes.length, 3);
+  assert.deepStrictEqual(lu.lignes[0].valeurs, ['3213 / 768', '634 / 152']);
+  assert.strictEqual(lu.lignes[2].detail, true, 'la ligne subordonnée doit être marquée');
+  assert.strictEqual(lu.lignes[1].detail, false);
+});
+
+test('une recette sans tableau nutritionnel rend null', () => {
+  assert.strictEqual(L.lignesNutrition({}), null);
+  assert.strictEqual(L.lignesNutrition({ nutrition: null }), null);
+  assert.strictEqual(L.lignesNutrition({ nutrition: { lignes: [] } }), null);
+  // Des lignes sans colonne ne s afficheraient nulle part : autant le dire par null.
+  assert.strictEqual(L.lignesNutrition({ nutrition: { colonnes: [], lignes: [{ nom: 'Sel' }] } }), null);
+  // Toutes les lignes anonymes : il ne reste rien a montrer.
+  assert.strictEqual(
+    L.lignesNutrition({ nutrition: { colonnes: ['Par portion'], lignes: [{ nom: '  ', valeurs: ['1'] }] } }),
+    null
+  );
+});
+
+test('le tableau nutritionnel tolere le desordre de la source', () => {
+  const lu = L.lignesNutrition({
+    nutrition: {
+      colonnes: ['Par portion', '  ', 'Pour 100 g'],
+      lignes: [
+        { nom: 'Sel', unite: 'g', valeurs: ['3,6'] },
+        { nom: '', valeurs: ['ignorée'] },
+        { nom: 'Fibres' },
+      ],
+    },
+  });
+  // Une colonne vide n est pas une colonne.
+  assert.deepStrictEqual(lu.colonnes, ['Par portion', 'Pour 100 g']);
+  // Une valeur manquante laisse une case vide plutôt que de jeter la ligne.
+  assert.deepStrictEqual(lu.lignes[0].valeurs, ['3,6', '']);
+  assert.deepStrictEqual(lu.lignes.map((l) => l.nom), ['Sel', 'Fibres']);
+  assert.deepStrictEqual(lu.lignes[1].valeurs, ['', '']);
+});
+
+// --- Illustrations des étapes ------------------------------------------------
+
+test('les illustrations n acceptent que des rangs entiers et des images non vides', () => {
+  assert.deepStrictEqual(Ill.normaliser({ 1: 'a', 3: 'b' }), { 1: 'a', 3: 'b' });
+  // Un rang qui n est pas un entier positif ne désigne aucune étape.
+  assert.deepStrictEqual(Ill.normaliser({ 0: 'a', '-2': 'b', x: 'c', 2: 'd' }), { 2: 'd' });
+  // Une image vide vaut une absence d image.
+  assert.deepStrictEqual(Ill.normaliser({ 1: '', 2: null, 3: 'c' }), { 3: 'c' });
+  assert.deepStrictEqual(Ill.normaliser(null), {});
+});
+
+test('une recette sans illustration en rend une table vide, sans lever', () => {
+  Ill.oublier();
+  assert.deepStrictEqual(Ill.pour('inexistante'), {});
+  assert.strictEqual(Ill.nombre('inexistante'), 0);
+  assert.strictEqual(Ill.aUne('inexistante', 1), false);
+  assert.strictEqual(Ill.dejaLue('inexistante'), false);
+});
+
 // --- Restitution -------------------------------------------------------------
+
 
 
 

@@ -18,6 +18,7 @@ const etat = {
   photos: new Map(), // idDocument -> { fields }, collection photos
   placard: new Map(), // idDocument -> { fields }, collection placard
   livres: new Map(), // idDocument -> { fields }, collection livres (la bibliotheque)
+  illustrations: new Map(), // idDocument -> { fields }, illustrations des etapes
   sessions: new Map(), // refreshToken -> compteur
   panne: false, // quand vrai, toute requete Firestore repond 503
   // Quand vrai, seule la collection `recettes` est refusee, comme le ferait un
@@ -33,6 +34,7 @@ function reinitialiser() {
   etat.photos.clear();
   etat.placard.clear();
   etat.livres.clear();
+  etat.illustrations.clear();
   etat.sessions.clear();
   etat.panne = false;
   etat.refuserRecettes = false;
@@ -117,12 +119,20 @@ async function traiter(requete, reponse) {
       nbPhotos: etat.photos.size,
       nbPlacard: etat.placard.size,
       nbLivres: etat.livres.size,
+      nbIllustrations: etat.illustrations.size,
       appels: etat.appels,
       articles: [...etat.articles.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
       recettes: [...etat.recettes.keys()],
       creneaux: [...etat.creneaux.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
       placard: [...etat.placard.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
       livres: [...etat.livres.entries()].map(([id, doc]) => ({ id, fields: doc.fields })),
+      // Les illustrations sont volumineuses : on n'expose que leur nombre et leur poids.
+      illustrations: [...etat.illustrations.entries()].map(([id, doc]) => ({
+        id,
+        recetteId: doc.fields.recetteId ? doc.fields.recetteId.stringValue : null,
+        rangs: doc.fields.json ? Object.keys(JSON.parse(doc.fields.json.stringValue)) : [],
+        taille: doc.fields.json ? String(doc.fields.json.stringValue).length : 0,
+      })),
       // Les photos sont volumineuses : on n'expose que leur taille, pas leur contenu.
       photos: [...etat.photos.entries()].map(([id, doc]) => ({
         id,
@@ -187,17 +197,29 @@ async function traiter(requete, reponse) {
     return true;
   }
 
-  // Six collections sont emulees : les articles de la liste, les recettes modifiees,
-  // les creneaux du semainier, les photos, le placard et les livres. On ne verifie pas
-  // la structure complete du chemin, seulement le nom de la collection visee.
+  // Sept collections sont emulees : les articles de la liste, les recettes modifiees,
+  // les creneaux du semainier, les photos, les illustrations d'etapes, le placard et les
+  // livres. On ne verifie pas la structure complete du chemin, seulement le nom de la
+  // collection visee. L'ordre compte : « illustrations » avant « recettes », sinon le
+  // chemin /illustrations/... ne serait jamais reconnu comme tel.
   let collection = null;
   let reste = null;
-  ['articles', 'recettes', 'creneaux', 'photos', 'placard', 'livres'].forEach((nom) => {
+  ['articles', 'illustrations', 'recettes', 'creneaux', 'photos', 'placard', 'livres'].forEach((nom) => {
     if (collection) return;
-    const morceaux = chemin.split('/' + nom);
-    if (morceaux.length >= 2) {
+    // Deux formes possibles : le chemin de la collection, qui finit par son nom, et
+    // celui d'un document, ou le nom est suivi de l'identifiant. On coupe sur la
+    // derniere occurrence : un identifiant qui contiendrait le nom de sa collection
+    // ferait sinon lire une requete de document comme une requete de collection.
+    if (chemin.endsWith('/' + nom)) {
       collection = etat[nom];
-      reste = morceaux[1].replace(/^\//, '');
+      reste = '';
+      return;
+    }
+    const marque = '/' + nom + '/';
+    const position = chemin.lastIndexOf(marque);
+    if (position !== -1) {
+      collection = etat[nom];
+      reste = chemin.slice(position + marque.length);
     }
   });
 

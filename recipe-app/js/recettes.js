@@ -375,6 +375,10 @@
       portions: '4 personnes',
       temps: { preparation: 'Non indiqué', cuisson: 'Non indiqué', repos: 'Non indiqué', total: 'Non indiqué' },
       calories: null,
+      // Tableau nutritionnel : absent par defaut. La plupart des recettes n'en ont pas,
+      // et un tableau vide s'afficherait comme une section sans contenu. Voir
+      // L.lignesNutrition pour la forme attendue.
+      nutrition: null,
       source: { label: livre && livre.titre ? livre.titre : 'Recette de la maison', url: '' },
       ingredients: [{ groupe: null, items: [] }],
       instructions: [],

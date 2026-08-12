@@ -52,6 +52,7 @@ function chargerModules() {
     'js/semainier.js',
     'js/placard.js',
     'js/livres.js',
+    'js/illustrations.js',
     'js/photos.js',
   ].forEach((relatif) => {
     delete require.cache[require.resolve(path.join(racine, relatif))];
@@ -67,8 +68,9 @@ function chargerModules() {
   const Semainier = require(path.join(racine, 'js/semainier.js'));
   const Placard = require(path.join(racine, 'js/placard.js'));
   const Livres = require(path.join(racine, 'js/livres.js'));
+  const Illustrations = require(path.join(racine, 'js/illustrations.js'));
   const Photos = require(path.join(racine, 'js/photos.js'));
-  return { config, Sync, Recettes, Storage, Semainier, Placard, Livres, Photos };
+  return { config, Sync, Recettes, Storage, Semainier, Placard, Livres, Illustrations, Photos };
 }
 
 function neuf() {
@@ -1867,7 +1869,136 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     assert.strictEqual(apres['paris-brest'], 'data:image/jpeg;base64,recette', 'la photo de la recette a ete emportee');
   });
 
+  // --- Illustrations des etapes ----------------------------------------------
+
+  const IMAGE_A = 'data:image/jpeg;base64,etapeA';
+  const IMAGE_B = 'data:image/jpeg;base64,etapeB';
+
+  await test('les illustrations d une recette tiennent dans un seul document', async () => {
+    const { Illustrations, Sync } = neuf();
+    await Illustrations.enregistrer('tarte', 1, IMAGE_A);
+    await Illustrations.enregistrer('tarte', 3, IMAGE_B);
+
+    // Un document par recette, et non un par etape : ces images ne servent que sur la
+    // fiche ouverte, les lire toutes au chargement serait du gaspillage.
+    assert.strictEqual(stub.etat.illustrations.size, 1, `${stub.etat.illustrations.size} documents`);
+    assert.deepStrictEqual(await Sync.lireIllustrations('tarte'), { 1: IMAGE_A, 3: IMAGE_B });
+    assert.deepStrictEqual(Illustrations.pour('tarte'), { 1: IMAGE_A, 3: IMAGE_B });
+    assert.strictEqual(Illustrations.nombre('tarte'), 2);
+    assert.strictEqual(Illustrations.aUne('tarte', 1), true);
+    assert.strictEqual(Illustrations.aUne('tarte', 2), false);
+  });
+
+  await test('une recette sans illustration n est demandee qu une fois', async () => {
+    const { Illustrations } = neuf();
+    const avant = stub.etat.appels.lectures;
+    assert.deepStrictEqual(await Illustrations.charger('sans-image'), {});
+    assert.strictEqual(Illustrations.dejaLue('sans-image'), true);
+    const apresPremiere = stub.etat.appels.lectures;
+    // La seconde ouverture de la fiche ne doit pas redemander un document absent :
+    // ce serait une lecture facturee par visite pour la plupart des recettes.
+    await Illustrations.charger('sans-image');
+    assert.strictEqual(stub.etat.appels.lectures, apresPremiere, 'une seconde lecture a eu lieu');
+    assert.ok(apresPremiere > avant, 'la premiere lecture n a pas eu lieu');
+  });
+
+  await test('un second appareil voit les illustrations', async () => {
+    const { Illustrations } = neuf();
+    await Illustrations.enregistrer('tarte', 2, IMAGE_A);
+
+    global.localStorage = faireLocalStorage();
+    const autre = chargerModules().Illustrations;
+    assert.deepStrictEqual(autre.pour('tarte'), {}, 'le cache memoire devrait partir vide');
+    assert.deepStrictEqual(await autre.charger('tarte'), { 2: IMAGE_A });
+  });
+
+  await test('retirer une illustration ne touche pas aux autres, et vide le document au besoin', async () => {
+    const { Illustrations } = neuf();
+    await Illustrations.enregistrer('tarte', 1, IMAGE_A);
+    await Illustrations.enregistrer('tarte', 2, IMAGE_B);
+
+    await Illustrations.retirer('tarte', 1);
+    assert.deepStrictEqual(Illustrations.pour('tarte'), { 2: IMAGE_B });
+    assert.strictEqual(stub.etat.illustrations.size, 1);
+
+    // La derniere retiree, le document part : un document vide ne serait qu'une lecture
+    // de plus a chaque ouverture de la fiche.
+    await Illustrations.retirer('tarte', 2);
+    assert.deepStrictEqual(Illustrations.pour('tarte'), {});
+    assert.strictEqual(stub.etat.illustrations.size, 0);
+  });
+
+  await test('supprimer une etape decale les illustrations suivantes', async () => {
+    const { Illustrations } = neuf();
+    await Illustrations.enregistrer('tarte', 1, 'un');
+    await Illustrations.enregistrer('tarte', 2, 'deux');
+    await Illustrations.enregistrer('tarte', 4, 'quatre');
+
+    // L'etape 2 disparait : « quatre » doit remonter au rang 3, pas rester au 4 ni
+    // ecraser « un ». Sans ce decalage, chaque photo se retrouverait sur l'etape
+    // suivante, en silence.
+    await Illustrations.retirerEtape('tarte', 2);
+    assert.deepStrictEqual(Illustrations.pour('tarte'), { 1: 'un', 3: 'quatre' });
+  });
+
+  await test('une illustration qui n est pas partie n est pas annoncee comme enregistree', async () => {
+    const { Illustrations } = neuf();
+    await Illustrations.enregistrer('tarte', 1, IMAGE_A);
+
+    stub.etat.panne = true;
+    let leve = false;
+    try {
+      await Illustrations.enregistrer('tarte', 2, IMAGE_B);
+    } catch (erreur) {
+      leve = true;
+    }
+    stub.etat.panne = false;
+
+    assert.ok(leve, 'l echec reseau a ete avale');
+    // Le cache est revenu a son etat d avant : l ecran ne doit pas montrer une image
+    // que le serveur n a pas.
+    assert.deepStrictEqual(Illustrations.pour('tarte'), { 1: IMAGE_A });
+  });
+
+  await test('les illustrations ne sont pas lues avec les vignettes de recettes', async () => {
+    const { Illustrations, Photos, Sync } = neuf();
+    await Photos.enregistrer('tarte', { vignette: 'v', grande: 'g' });
+    await Illustrations.enregistrer('tarte', 1, IMAGE_A);
+
+    // Deux collections distinctes : c est ce qui garantit que les illustrations ne
+    // pesent rien au chargement de la page.
+    const vignettes = await Sync.lireVignettes();
+    assert.deepStrictEqual(Object.keys(vignettes), ['tarte']);
+    assert.strictEqual(vignettes.tarte, 'v');
+    assert.strictEqual(stub.etat.photos.size, 1);
+    assert.strictEqual(stub.etat.illustrations.size, 1);
+  });
+
+  await test('une recette porte ses valeurs nutritionnelles telles quelles', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const nutrition = {
+      colonnes: ['Par portion', 'Pour 100 g'],
+      lignes: [
+        { nom: 'Énergie', unite: 'kJ / kcal', valeurs: ['3213 / 768', '634 / 152'] },
+        { nom: 'dont saturés', unite: 'g', valeurs: ['3,1', '0,6'], detail: true },
+      ],
+    };
+    const creee = await Recettes.creer(
+      Object.assign(Recettes.recetteVide(), { titre: 'Avec nutrition', nutrition })
+    );
+
+    const enBase = JSON.parse([...stub.etat.recettes.values()][0].fields.json.stringValue);
+    assert.deepStrictEqual(enBase.nutrition, nutrition);
+
+    // La mise a l echelle ne touche pas ces valeurs : elles sont par portion et pour
+    // 100 g, deux bases qui ne dependent pas du nombre de parts.
+    const double = Recettes.echelonner(Recettes.parId(creee.id), 8);
+    if (double.possible) assert.deepStrictEqual(double.recette.nutrition, nutrition);
+  });
+
   // --- Restitution -----------------------------------------------------------
+
 
 
 
