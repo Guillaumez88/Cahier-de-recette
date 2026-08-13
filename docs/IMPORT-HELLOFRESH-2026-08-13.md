@@ -34,19 +34,18 @@ nutritionnel, aucune étape sans intitulé.
 Chaque recette porte sa photo de plat, extraite de la page de couverture, écrite puis
 relue depuis le serveur.
 
-## Ce qui reste en attente
+## Les illustrations d'étapes
 
-**Les 92 illustrations d'étapes** de ce lot (plus les 26 du 12 août) sont découpées et
-encodées, mais **non écrites** : la collection `illustrations` de `firestore.rules`
-n'est pas publiée sur le projet, une lecture répond `403 Missing or insufficient
-permissions`. Après publication, une commande par recette :
+Écrites, après publication des règles Firestore de la collection `illustrations` le
+13 août. **124 illustrations pour 23 recettes**, une par étape, posées avec
+`tools/poser-illustrations.js` puis relues depuis le serveur : aucun écart entre les
+rangs présents et le nombre d'étapes de chaque recette.
 
-```bash
-node tools/poser-illustrations.js <id-de-la-recette> <images>.json --ecrire
-```
+Répartition : 26 pour les 5 fiches du 12 août, 98 pour les 18 de ce lot.
 
-Les fichiers d'images ont été envoyés en archive : ils ne vivent que dans le répertoire
-de travail de la session, qui ne survit pas à celle-ci.
+Les fichiers d'images (data URLs déjà redimensionnées) ont été envoyés en archive : ils
+ne vivent que dans le répertoire de travail de la session, qui ne survit pas à celle-ci.
+Pour les régénérer, les deux PDF suffisent (`reperer.py`, puis `exporter2.py`).
 
 ## Ce que la source ne dit pas, et qui n'a pas été deviné
 

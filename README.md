@@ -698,15 +698,16 @@ chiffres après un changement de parts.
 
 ### Ce qui reste à faire côté console Firebase
 
-**`firestore.rules` doit être republié** : la collection `illustrations` s'ajoute aux six
-autres. Sans cela les photos d'étapes ne peuvent ni s'écrire ni se lire, et la fiche
-s'affiche sans elles plutôt que de ne pas s'afficher.
+**Rien.** Les sept collections sont publiées, `illustrations` comprise depuis le 13 août
+2026.
 
-Ce n'est pas une précaution théorique : au 12 août 2026, une lecture de `illustrations`
-sur le projet répond `403 Missing or insufficient permissions`. Les illustrations des
-cinq fiches HelloFresh importées ce jour-là attendent donc cette publication, et se
-posent ensuite en une commande par recette (`tools/poser-illustrations.js`, plus bas).
-Les collections `recettes`, `photos` et `livres`, elles, sont publiées.
+C'est la seule étape de ce chantier qui ne pouvait pas se faire depuis le dépôt :
+`firestore.rules` y décrit les règles, mais leur publication passe par la console
+Firebase. Tant qu'elle n'avait pas eu lieu, une lecture de `illustrations` répondait
+`403 Missing or insufficient permissions`, et les fiches s'affichaient sans leurs photos
+d'étapes plutôt que de ne pas s'afficher. Le symptôme à reconnaître si la situation se
+reproduit après l'ajout d'une collection : tout fonctionne **sauf** la nouveauté, et
+c'est un 403, pas un 404.
 
 ## Partager une recette
 
