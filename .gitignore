@@ -4,3 +4,7 @@
 # par tools/ajouter-recette-au-livre.js, vit dans Firestore, d'où l'application la lit.
 # Gardez le fichier JSON de votre côté si vous voulez pouvoir rejouer l'import.
 recipe-app/tools/recettes/
+
+# Caches Python des outils d’illustration
+__pycache__/
+*.pyc
