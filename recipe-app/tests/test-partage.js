@@ -48,11 +48,24 @@ async function attendreTexte(page, motif, limite = 8000) {
   return false;
 }
 
-  // Ces suites testent un appareil de la maison, celui qui a saisi le code une fois.
-  // Le drapeau est posé avant le premier rendu, comme le ferait un appareil déjà
-  // déverrouillé : sans lui, l'application s'ouvre en lecture seule et aucun bouton de
-  // modification n'existe. Voir js/acces.js et tests/test-acces.js.
-  const DEVERROUILLE = () => window.localStorage.setItem('carnet-de-recettes:maison', 'oui');
+  // Ces suites testent un carnet ouvert par quelqu'un de connecté et autorisé : c'est
+  // l'usage normal. La session est posée avant le premier rendu, comme le ferait une
+  // connexion faite la veille ; sans elle l'application s'ouvre en lecture seule et
+  // aucun bouton de modification n'existe. Voir js/acces.js et tests/test-acces.js.
+  const CONNECTE = () => {
+    window.localStorage.setItem(
+      'carnet-de-recettes:session-compte',
+      JSON.stringify({
+        idToken:
+          'jeton-compte-test.eyJ1c2VyX2lkIjogImNvbXB0ZS10ZXN0IiwgInN1YiI6ICJjb21wdGUtdGVzdCIsICJlbWFpbCI6ICJ0ZXN0QG1haXNvbi5mciJ9.signature',
+        refreshToken: 'refresh-compte-compte-test',
+        expireLe: Date.now() + 3600000,
+        uid: 'compte-test',
+        email: 'test@maison.fr',
+      })
+    );
+    window.localStorage.setItem('carnet-de-recettes:compte-autorise', 'oui');
+  };
 
 (async () => {
   const navigateur = await chromium.launch(OPTIONS_LANCEMENT);
@@ -72,9 +85,9 @@ async function attendreTexte(page, motif, limite = 8000) {
 
   // Deux contextes = deux stockages locaux = deux appareils distincts.
   const contexteA = await navigateur.newContext({ viewport: { width: 1000, height: 900 } });
-  await contexteA.addInitScript(DEVERROUILLE);
+  await contexteA.addInitScript(CONNECTE);
   const contexteB = await navigateur.newContext({ viewport: { width: 1000, height: 900 } });
-  await contexteB.addInitScript(DEVERROUILLE);
+  await contexteB.addInitScript(CONNECTE);
   const pageA = await contexteA.newPage();
   const pageB = await contexteB.newPage();
 

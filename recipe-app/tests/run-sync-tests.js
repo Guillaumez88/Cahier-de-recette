@@ -2015,55 +2015,81 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     Sync.definirLectureSeule(false);
   });
 
-  await test('le code de la maison inscrit l appareil, un mauvais code le refuse', async () => {
+  await test('un compte se cree, s ouvre, et le code de la maison l autorise', async () => {
     const { Sync } = neuf();
-    await stub.etat; // le stub est deja pret, la ligne documente l ordre
     stub.etat.exigerMaison = true;
     stub.etat.codeMaison = 'chataigne-42';
 
-    assert.strictEqual(await Sync.appareilAutorise(), false, 'inconnu au depart');
-    await assert.rejects(() => Sync.inscrireAppareil('mauvais'), (e) => e.statut === 403);
-    assert.strictEqual(await Sync.appareilAutorise(), false, 'toujours inconnu');
+    assert.strictEqual(Sync.compteCourant(), null, 'personne au depart');
+    await Sync.creerCompte('cuisine@maison.fr', 'motdepasse');
+    assert.strictEqual(Sync.compteCourant().email, 'cuisine@maison.fr');
+    assert.strictEqual(await Sync.compteAutorise(), false, 'un compte neuf ne peut rien');
 
-    await Sync.inscrireAppareil('chataigne-42');
-    assert.strictEqual(await Sync.appareilAutorise(), true, 'inscrit apres le bon code');
-    assert.strictEqual(stub.etat.appareils.size, 1);
+    await assert.rejects(() => Sync.inscrireCompte('mauvais'), (e) => e.statut === 403);
+    assert.strictEqual(await Sync.compteAutorise(), false, 'toujours rien');
+
+    await Sync.inscrireCompte('chataigne-42');
+    assert.strictEqual(await Sync.compteAutorise(), true, 'autorise apres le bon code');
   });
 
-  await test('sans inscription, le serveur refuse l ecriture meme sans verrou local', async () => {
+  await test('sans compte autorise, le serveur refuse l ecriture', async () => {
     const { Sync, Storage } = neuf();
     stub.etat.exigerMaison = true;
     stub.etat.codeMaison = 'chataigne-42';
 
-    // Le verrou d'interface est levé : c'est le serveur qu'on teste ici.
+    // Le verrou d'interface est leve : c'est le serveur qu'on teste.
     Sync.definirLectureSeule(false);
     await Storage.addFreeItem('Sel', '1 pincée');
-    assert.strictEqual(stub.etat.articles.size, 0, 'le serveur a refuse');
+    assert.strictEqual(stub.etat.articles.size, 0, 'la session anonyme n ecrit plus');
     assert.strictEqual(Storage.etatSync().statut, 403);
 
-    await Sync.inscrireAppareil('chataigne-42');
-    // Un autre nom : le premier article est resté dans la liste locale, le rajouter
-    // ne ferait qu'une mise à jour d'un document que le serveur n'a jamais reçu.
+    await Sync.creerCompte('cuisine@maison.fr', 'motdepasse');
+    await Sync.inscrireCompte('chataigne-42');
     await Storage.addFreeItem('Poivre', '1 pincée');
-    assert.strictEqual(stub.etat.articles.size, 1, 'ecrit une fois inscrit');
+    assert.strictEqual(stub.etat.articles.size, 1, 'ecrit une fois le compte autorise');
   });
 
-  await test('l identifiant de l appareil survit au renouvellement du jeton', async () => {
+  await test('se deconnecter retire les droits, se reconnecter les rend', async () => {
     const { Sync } = neuf();
     stub.etat.exigerMaison = true;
     stub.etat.codeMaison = 'chataigne-42';
-    await Sync.inscrireAppareil('chataigne-42');
+
+    await Sync.creerCompte('cuisine@maison.fr', 'motdepasse');
+    await Sync.inscrireCompte('chataigne-42');
+    Sync.deconnecter();
+    assert.strictEqual(Sync.compteCourant(), null);
+    assert.strictEqual(await Sync.compteAutorise(), false, 'deconnecte, plus de droits');
+
+    // Le compte, lui, reste autorise : c'est la personne qui l'est, pas l'appareil.
+    await Sync.connecter('cuisine@maison.fr', 'motdepasse');
+    assert.strictEqual(await Sync.compteAutorise(), true);
+  });
+
+  await test('un mot de passe faux ne connecte personne', async () => {
+    const { Sync } = neuf();
+    await Sync.creerCompte('cuisine@maison.fr', 'motdepasse');
+    Sync.deconnecter();
+    await assert.rejects(
+      () => Sync.connecter('cuisine@maison.fr', 'autre-chose'),
+      (e) => /INVALID_LOGIN_CREDENTIALS/.test(e.message)
+    );
+    assert.strictEqual(Sync.compteCourant(), null);
+  });
+
+  await test('l identifiant du compte survit au renouvellement du jeton', async () => {
+    const { Sync } = neuf();
+    stub.etat.exigerMaison = true;
+    stub.etat.codeMaison = 'chataigne-42';
+    await Sync.creerCompte('cuisine@maison.fr', 'motdepasse');
+    await Sync.inscrireCompte('chataigne-42');
     const avant = Sync.uidCourant();
 
-    // On force l'expiration : le jeton sera renouvelé avec le refresh token, donc
-    // le jeton change et l'appareil non. L'ordre compte : oublierSession() efface
-    // aussi le stockage, il faut donc réécrire le jeton expiré après elle.
-    const brut = JSON.parse(global.localStorage.getItem('carnet-de-recettes:jeton-anonyme'));
+    // On force l'expiration : le jeton change, le compte non.
+    const brut = JSON.parse(global.localStorage.getItem('carnet-de-recettes:session-compte'));
     brut.expireLe = 0;
-    Sync.oublierSession();
-    global.localStorage.setItem('carnet-de-recettes:jeton-anonyme', JSON.stringify(brut));
+    global.localStorage.setItem('carnet-de-recettes:session-compte', JSON.stringify(brut));
 
-    assert.strictEqual(await Sync.appareilAutorise(), true, 'toujours de la maison');
+    assert.strictEqual(await Sync.compteAutorise(), true, 'toujours autorise');
     assert.strictEqual(Sync.uidCourant(), avant, 'meme identifiant');
   });
 

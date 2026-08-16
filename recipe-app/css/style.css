@@ -4489,6 +4489,20 @@ a.creneau__plat:hover .creneau__titre {
   flex-wrap: wrap;
   gap: 10px;
 }
+/* La connexion demande deux champs et deux boutons : en colonne, chaque champ prend
+   toute la largeur, ce qui vaut mieux qu'un e-mail dans un champ de six centimètres. */
+.ecran-acces__forme--colonne {
+  flex-direction: column;
+  align-items: stretch;
+}
+.ecran-acces__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ecran-acces__note {
+  font-size: 14px;
+}
 .ecran-acces__forme .champ-edition {
   flex: 1 1 200px;
 }

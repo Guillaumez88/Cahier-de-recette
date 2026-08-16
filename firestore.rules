@@ -44,12 +44,19 @@ service cloud.firestore {
 
     // --- Qui a le droit d'écrire ---------------------------------------------
     //
-    // Un appareil de la maison est un appareil qui possède son document dans
-    // `appareils`. Il l'obtient en présentant le code de la maison, une fois.
+    // Une personne connectée avec un compte autorisé, et personne d'autre. Un compte
+    // est autorisé quand il possède son document dans `comptes`, qu'il obtient en
+    // présentant le code de la maison, une fois.
+    //
+    // Pourquoi le compte et non l'appareil : l'appareil se prête, se réinitialise et
+    // se remplace ; la personne, non. Se connecter ailleurs suffit désormais à
+    // retrouver ses droits, et effacer les données du site ne les fait plus perdre.
+    //
+    // La session anonyme, elle, ne sert plus qu'à lire.
 
     function estMaison() {
       return request.auth != null
-        && exists(/databases/$(database)/documents/appareils/$(request.auth.uid));
+        && exists(/databases/$(database)/documents/comptes/$(request.auth.uid));
     }
 
     // Le code de la maison. Personne ne peut le lire ni l'écrire depuis un client :
@@ -59,17 +66,25 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Un appareil, nommé par son identifiant anonyme. Il ne peut créer que le sien,
-    // et seulement avec le bon code. Ni modification ni suppression : retirer un
-    // appareil se fait dans la console, pour qu'aucun appareil ne puisse en exclure
-    // un autre.
-    match /appareils/{uid} {
+    // Un compte autorisé, nommé par son identifiant Firebase. Il ne peut créer que le
+    // sien, et seulement avec le bon code. Ni modification ni suppression : retirer un
+    // compte se fait dans la console, pour qu'aucun compte ne puisse en exclure un
+    // autre.
+    match /comptes/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow create: if request.auth != null
         && request.auth.uid == uid
         && request.resource.data.code is string
         && request.resource.data.code == get(/databases/$(database)/documents/menage/secret).data.code;
       allow update, delete: if false;
+    }
+
+    // L'ancienne collection des appareils déverrouillés. Elle ne donne plus aucun
+    // droit : elle reste déclarée le temps que les appareils encore inscrits soient
+    // passés aux comptes, puis elle disparaîtra avec ses documents.
+    match /appareils/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
     }
 
     match /listes/{listeId}/articles/{articleId} {

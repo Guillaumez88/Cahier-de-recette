@@ -16,6 +16,9 @@
     typeof module !== 'undefined' && module.exports ? require('./firebase-config.js') : global.CarnetConfig;
 
   var CLE_JETON = 'carnet-de-recettes:jeton-anonyme';
+  // La session d'un compte, quand quelqu'un est connecté. Rangée à part de la session
+  // anonyme : se déconnecter doit rendre le carnet lisible, pas inaccessible.
+  var CLE_COMPTE = 'carnet-de-recettes:session-compte';
 
   // --- Conversion entre valeurs Firestore et valeurs JavaScript --------------
   //
@@ -94,7 +97,11 @@
   // identite. Le jeton dure une heure ; on garde le jeton de rafraichissement pour
   // en obtenir un nouveau sans recreer de compte.
 
-  var jeton = null; // { idToken, refreshToken, expireLe }
+  var jeton = null; // { idToken, refreshToken, expireLe } : la session anonyme
+  // { idToken, refreshToken, expireLe, uid, email } : la session d'un compte. Quand
+  // elle existe, c'est elle qui signe toutes les requêtes : les règles ne voient plus
+  // un visiteur anonyme mais une personne.
+  var session = undefined;
 
   function lireJetonEnregistre() {
     try {
@@ -116,6 +123,119 @@
 
   function maintenant() {
     return Date.now();
+  }
+
+  // --- Session d'un compte ----------------------------------------------------
+  //
+  // Même API REST que la session anonyme (Identity Toolkit), donc aucune dépendance
+  // nouvelle : accounts:signUp pour créer, accounts:signInWithPassword pour ouvrir,
+  // le jeton de renouvellement pour tenir dans le temps.
+
+  function lireSessionEnregistree() {
+    if (session !== undefined) return session;
+    try {
+      var brut = global.localStorage && global.localStorage.getItem(CLE_COMPTE);
+      session = brut ? JSON.parse(brut) : null;
+    } catch (erreur) {
+      session = null;
+    }
+    return session;
+  }
+
+  function enregistrerSession(valeur) {
+    session = valeur;
+    try {
+      if (!global.localStorage) return;
+      if (valeur) global.localStorage.setItem(CLE_COMPTE, JSON.stringify(valeur));
+      else global.localStorage.removeItem(CLE_COMPTE);
+    } catch (erreur) {
+      /* stockage indisponible : la session ne vaudra que pour cet onglet */
+    }
+  }
+
+  /** Le compte connecté, ou null. Synchrone : c'est l'état d'écran. */
+  function compteCourant() {
+    var s = lireSessionEnregistree();
+    return s ? { uid: s.uid, email: s.email } : null;
+  }
+
+  function depuisIdentity(corps) {
+    return {
+      idToken: corps.idToken,
+      refreshToken: corps.refreshToken,
+      expireLe: maintenant() + (Number(corps.expiresIn || 3600) - 60) * 1000,
+      uid: corps.localId,
+      email: corps.email,
+    };
+  }
+
+  /** Crée un compte et l'ouvre. L'appelant traite EMAIL_EXISTS et WEAK_PASSWORD. */
+  async function creerCompte(email, motDePasse) {
+    var corps = await appelJson(`${config.baseAuth}/accounts:signUp?key=${config.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, password: motDePasse, returnSecureToken: true }),
+    });
+    enregistrerSession(depuisIdentity(corps));
+    return compteCourant();
+  }
+
+  /** Ouvre une session. L'appelant traite INVALID_LOGIN_CREDENTIALS. */
+  async function connecter(email, motDePasse) {
+    var corps = await appelJson(`${config.baseAuth}/accounts:signInWithPassword?key=${config.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, password: motDePasse, returnSecureToken: true }),
+    });
+    enregistrerSession(depuisIdentity(corps));
+    return compteCourant();
+  }
+
+  /**
+   * Ferme la session du compte. La session anonyme reprend la main : le carnet reste
+   * lisible, il n'est plus modifiable. Rien n'est supprimé côté serveur.
+   */
+  function deconnecter() {
+    enregistrerSession(null);
+  }
+
+  /** Envoie un courriel de réinitialisation du mot de passe. */
+  async function reinitialiserMotDePasse(email) {
+    return appelJson(`${config.baseAuth}/accounts:sendOobCode?key=${config.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestType: 'PASSWORD_RESET', email: email }),
+    });
+  }
+
+  /**
+   * Le jeton du compte connecté, renouvelé si besoin.
+   *
+   * Un renouvellement refusé (mot de passe changé ailleurs, compte supprimé) ferme la
+   * session plutôt que de boucler : l'écran demandera de se reconnecter.
+   */
+  async function jetonDuCompte() {
+    var s = lireSessionEnregistree();
+    if (!s) return null;
+    if (s.idToken && s.expireLe > maintenant()) return s.idToken;
+    try {
+      var corps = await appelJson(`${config.baseSecureToken}/token?key=${config.apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(s.refreshToken)}`,
+      });
+      enregistrerSession({
+        idToken: corps.id_token,
+        refreshToken: corps.refresh_token,
+        expireLe: maintenant() + (Number(corps.expires_in || 3600) - 60) * 1000,
+        uid: corps.user_id || s.uid,
+        email: s.email,
+      });
+      return session.idToken;
+    } catch (erreur) {
+      enregistrerSession(null);
+      return null;
+    }
   }
 
   async function appelJson(url, options) {
@@ -223,7 +343,8 @@
       refus.lectureSeule = true;
       throw refus;
     }
-    var idToken = await obtenirJeton();
+    // Signée par le compte si quelqu'un est connecté, par la session anonyme sinon.
+    var idToken = (await jetonDuCompte()) || (await obtenirJeton());
     var entetes = Object.assign({ Authorization: `Bearer ${idToken}` }, (options && options.headers) || {});
     return appelJson(`${config.baseFirestore}/${chemin}`, Object.assign({}, options, { headers: entetes }));
   }
@@ -239,8 +360,56 @@
     return `projects/${config.projectId}/databases/(default)/documents/appareils`;
   }
 
-  /** L'identifiant anonyme de cet appareil, lu dans le jeton. Null si pas de session. */
+  function cheminComptes() {
+    return `projects/${config.projectId}/databases/(default)/documents/comptes`;
+  }
+
+  /** Vrai si le compte connecté est autorisé à modifier le carnet. */
+  async function compteAutorise() {
+    var courant = compteCourant();
+    if (!courant) return false;
+    try {
+      await requete(`${cheminComptes()}/${encodeURIComponent(courant.uid)}`, { method: 'GET' });
+      return true;
+    } catch (erreur) {
+      if (erreur.statut === 404 || erreur.statut === 403) return false;
+      throw erreur;
+    }
+  }
+
+  /**
+   * Autorise le compte connecté en présentant le code de la maison.
+   *
+   * L'écriture part avec le verrou local levé : c'est la seule requête qu'un compte
+   * non autorisé doit pouvoir tenter. Le serveur, lui, refuse si le code est faux.
+   */
+  async function inscrireCompte(code) {
+    var courant = compteCourant();
+    if (!courant) throw new Error('Aucun compte connecté.');
+    var avant = lectureSeule;
+    lectureSeule = false;
+    try {
+      await requete(`${cheminComptes()}/${encodeURIComponent(courant.uid)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: objetVersChamps({
+            code: String(code || ''),
+            email: courant.email || '',
+            inscritLe: new Date().toISOString(),
+          }),
+        }),
+      });
+    } finally {
+      lectureSeule = avant;
+    }
+    return true;
+  }
+
+  /** L'identifiant qui signe les requêtes : celui du compte, sinon celui de l'appareil. */
   function uidCourant() {
+    var s = lireSessionEnregistree();
+    if (s && s.uid) return s.uid;
     if (!jeton) jeton = lireJetonEnregistre();
     if (!jeton || !jeton.idToken) return null;
     try {
@@ -777,8 +946,17 @@
     ecrirePhoto: ecrirePhoto,
     supprimerPhoto: supprimerPhoto,
     definirLectureSeule: definirLectureSeule,
+    compteCourant: compteCourant,
+    creerCompte: creerCompte,
+    connecter: connecter,
+    deconnecter: deconnecter,
+    reinitialiserMotDePasse: reinitialiserMotDePasse,
+    jetonDuCompte: jetonDuCompte,
     estLectureSeule: estLectureSeule,
     cheminAppareils: cheminAppareils,
+    cheminComptes: cheminComptes,
+    compteAutorise: compteAutorise,
+    inscrireCompte: inscrireCompte,
     uidCourant: uidCourant,
     appareilAutorise: appareilAutorise,
     inscrireAppareil: inscrireAppareil,

@@ -23,6 +23,10 @@ const etat = {
   // production. Le code n'est comparé qu'ici, comme les règles le font avec un
   // document que le client ne peut pas lire.
   appareils: new Map(),
+  // Les comptes autorisés à écrire, et les comptes tout court : le stub tient les deux,
+  // comme Firebase tient l'authentification d'un côté et Firestore de l'autre.
+  comptes: new Map(),
+  utilisateurs: new Map(), // email -> { uid, motDePasse }
   codeMaison: 'code-de-la-maison',
   // Quand vrai, l'écriture est refusée aux appareils non inscrits : c'est le
   // comportement réel des règles. Faux par défaut, pour que les suites écrites avant
@@ -45,6 +49,8 @@ function reinitialiser() {
   etat.livres.clear();
   etat.illustrations.clear();
   etat.appareils.clear();
+  etat.comptes.clear();
+  etat.utilisateurs.clear();
   etat.sessions.clear();
   etat.panne = false;
   etat.refuserRecettes = false;
@@ -59,6 +65,16 @@ function reinitialiser() {
  * nom l'inscrire. Un jeton opaque « jeton-3 » suffisait tant que personne ne le
  * décodait ; il ne suffit plus.
  */
+/** Un jeton signé par un compte : sa charge utile porte l'identifiant du compte. */
+function jetonDeCompte(uid, email) {
+  const charge = Buffer.from(JSON.stringify({ user_id: uid, sub: uid, email }))
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  return `jeton-${uid}.${charge}.signature`;
+}
+
 function jetonFactice(n, suffixe) {
   const charge = Buffer.from(JSON.stringify({ user_id: `anonyme-${n}`, sub: `anonyme-${n}` }))
     .toString('base64')
@@ -156,6 +172,8 @@ async function traiter(requete, reponse) {
       refuserRecettes: etat.refuserRecettes,
       exigerMaison: etat.exigerMaison,
       nbAppareils: etat.appareils.size,
+      nbComptes: etat.comptes.size,
+      nbUtilisateurs: etat.utilisateurs.size,
       nbArticles: etat.articles.size,
       nbRecettes: etat.recettes.size,
       nbCreneaux: etat.creneaux.size,
@@ -190,9 +208,43 @@ async function traiter(requete, reponse) {
   // --- Authentification anonyme ---------------------------------------------
 
   if (chemin === '/__auth/v1/accounts:signUp') {
-    await lireCorps(requete);
+    const corpsInscription = await lireCorps(requete);
     if (!url.searchParams.get('key')) {
       repondre(reponse, 400, { error: { code: 400, message: 'API key manquante' } });
+      return true;
+    }
+
+    // Avec une adresse : c'est la création d'un compte. Sans : la session anonyme.
+    let demandeCompte = {};
+    try {
+      demandeCompte = corpsInscription ? JSON.parse(corpsInscription) : {};
+    } catch (erreur) {
+      demandeCompte = {};
+    }
+    if (demandeCompte.email) {
+      const email = String(demandeCompte.email).trim().toLowerCase();
+      const motDePasse = String(demandeCompte.password || '');
+      if (!/.+@.+\..+/.test(email)) {
+        repondre(reponse, 400, { error: { code: 400, message: 'INVALID_EMAIL' } });
+        return true;
+      }
+      if (motDePasse.length < 6) {
+        repondre(reponse, 400, { error: { code: 400, message: 'WEAK_PASSWORD : Password should be at least 6 characters' } });
+        return true;
+      }
+      if (etat.utilisateurs.has(email)) {
+        repondre(reponse, 400, { error: { code: 400, message: 'EMAIL_EXISTS' } });
+        return true;
+      }
+      const uid = 'compte-' + (etat.utilisateurs.size + 1);
+      etat.utilisateurs.set(email, { uid, motDePasse });
+      repondre(reponse, 200, {
+        idToken: jetonDeCompte(uid, email),
+        refreshToken: 'refresh-compte-' + uid,
+        expiresIn: '3600',
+        localId: uid,
+        email,
+      });
       return true;
     }
     etat.appels.sessions += 1;
@@ -204,6 +256,36 @@ async function traiter(requete, reponse) {
       expiresIn: '3600',
       localId: `anonyme-${etat.appels.sessions}`,
     });
+    return true;
+  }
+
+  if (chemin === '/__auth/v1/accounts:signInWithPassword') {
+    const corpsConnexion = await lireCorps(requete);
+    let demandeConnexion = {};
+    try {
+      demandeConnexion = corpsConnexion ? JSON.parse(corpsConnexion) : {};
+    } catch (erreur) {
+      demandeConnexion = {};
+    }
+    const email = String(demandeConnexion.email || '').trim().toLowerCase();
+    const utilisateur = etat.utilisateurs.get(email);
+    if (!utilisateur || utilisateur.motDePasse !== String(demandeConnexion.password || '')) {
+      repondre(reponse, 400, { error: { code: 400, message: 'INVALID_LOGIN_CREDENTIALS' } });
+      return true;
+    }
+    repondre(reponse, 200, {
+      idToken: jetonDeCompte(utilisateur.uid, email),
+      refreshToken: 'refresh-compte-' + utilisateur.uid,
+      expiresIn: '3600',
+      localId: utilisateur.uid,
+      email,
+    });
+    return true;
+  }
+
+  if (chemin === '/__auth/v1/accounts:sendOobCode') {
+    await lireCorps(requete);
+    repondre(reponse, 200, { email: 'envoye' });
     return true;
   }
 
@@ -220,6 +302,16 @@ async function traiter(requete, reponse) {
     // Le jeton change à chaque renouvellement, l'identité de l'appareil non : c'est
     // le même appareil, sinon son inscription dans la maison serait perdue à chaque
     // heure. Le numéro de session est celui du refresh token, « refresh-3 ».
+    if (String(refreshToken).startsWith('refresh-compte-')) {
+      const uidCompte = String(refreshToken).replace('refresh-compte-', '');
+      repondre(reponse, 200, {
+        id_token: jetonDeCompte(uidCompte, ''),
+        refresh_token: refreshToken,
+        expires_in: '3600',
+        user_id: uidCompte,
+      });
+      return true;
+    }
     const numeroSession = Number(String(refreshToken).replace('refresh-', '')) || 0;
     repondre(reponse, 200, {
       id_token: jetonFactice(numeroSession, `renouvele-${n}`),
@@ -251,7 +343,7 @@ async function traiter(requete, reponse) {
   // chemin /illustrations/... ne serait jamais reconnu comme tel.
   let collection = null;
   let reste = null;
-  ['appareils', 'articles', 'illustrations', 'recettes', 'creneaux', 'photos', 'placard', 'livres'].forEach((nom) => {
+  ['appareils', 'comptes', 'articles', 'illustrations', 'recettes', 'creneaux', 'photos', 'placard', 'livres'].forEach((nom) => {
     if (collection) return;
     // Deux formes possibles : le chemin de la collection, qui finit par son nom, et
     // celui d'un document, ou le nom est suivi de l'identifiant. On coupe sur la
@@ -283,6 +375,45 @@ async function traiter(requete, reponse) {
     appareil = JSON.parse(Buffer.from(charge, 'base64').toString('utf8')).user_id || '';
   } catch (erreur) {
     appareil = '';
+  }
+
+  if (collection === etat.comptes) {
+    if (requete.method === 'GET') {
+      etat.appels.lectures += 1;
+      if (!etat.exigerMaison) {
+        repondre(reponse, 200, { name: reste, fields: {} });
+        return true;
+      }
+      const inscrit = etat.comptes.get(decodeURIComponent(reste));
+      if (!inscrit) {
+        repondre(reponse, 404, { error: { code: 404, message: 'compte non autorisé' } });
+        return true;
+      }
+      repondre(reponse, 200, { name: reste, fields: inscrit.fields });
+      return true;
+    }
+    if (requete.method === 'PATCH') {
+      const corpsCompte = await lireCorps(requete);
+      let demandeCompte2 = {};
+      try {
+        demandeCompte2 = JSON.parse(corpsCompte || '{}');
+      } catch (erreur) {
+        demandeCompte2 = {};
+      }
+      const code = ((demandeCompte2.fields || {}).code || {}).stringValue;
+      if (code !== etat.codeMaison) {
+        repondre(reponse, 403, {
+          error: { code: 403, status: 'PERMISSION_DENIED', message: 'Missing or insufficient permissions.' },
+        });
+        return true;
+      }
+      etat.appels.ecritures += 1;
+      etat.comptes.set(decodeURIComponent(reste), { fields: demandeCompte2.fields || {} });
+      repondre(reponse, 200, { name: reste, fields: demandeCompte2.fields || {} });
+      return true;
+    }
+    repondre(reponse, 403, { error: { code: 403, message: 'interdit' } });
+    return true;
   }
 
   if (collection === etat.appareils) {
@@ -329,7 +460,7 @@ async function traiter(requete, reponse) {
   }
 
   // Le verrou des règles : écrire exige un appareil inscrit.
-  if (etat.exigerMaison && requete.method !== 'GET' && !etat.appareils.has(appareil)) {
+  if (etat.exigerMaison && requete.method !== 'GET' && !etat.comptes.has(appareil)) {
     repondre(reponse, 403, {
       error: { code: 403, status: 'PERMISSION_DENIED', message: 'Missing or insufficient permissions.' },
     });

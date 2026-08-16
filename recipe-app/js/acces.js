@@ -1,32 +1,27 @@
-/* Qui a le droit de modifier le carnet, et comment un appareil le devient.
+/* Qui a le droit de modifier le carnet : un compte connecté, et lui seul.
 
-   ## Le problème
+   ## Le modèle
 
-   Le carnet est un site public : son adresse suffit à l'ouvrir. Tant que les règles
-   Firestore acceptaient l'écriture de n'importe quel visiteur authentifié
-   anonymement, partager l'adresse revenait à partager les droits de modification, et
-   masquer les boutons n'y aurait rien changé : la console du navigateur reste ouverte
-   à tous.
+   Le carnet se lit sans rien demander. Le **modifier** exige d'être connecté avec un
+   compte autorisé, c'est-à-dire un compte qui possède son document dans la collection
+   `comptes`. Les règles Firestore refusent toute écriture aux autres, y compris depuis
+   la console du navigateur : c'est le seul verrou qui compte.
 
-   ## Ce qui a été retenu
+   Un compte s'autorise une fois, en présentant le code de la maison. Une fois, pour la
+   personne, pas pour l'appareil : se connecter ailleurs suffit à retrouver ses droits.
 
-   **Deux verrous, dont un seul compte.**
+   ## Ce que ce module tient
 
-   1. Les **règles Firestore** n'autorisent l'écriture qu'aux appareils inscrits dans la
-      collection `appareils`, un document par appareil, nommé par son identifiant
-      anonyme. C'est le verrou réel : la console n'y peut rien.
-   2. Ce module tient le verrou **d'interface** : un appareil qui ne s'est pas
-      déverrouillé ne voit aucun bouton de modification, et `sync.js` refuse d'envoyer
-      quoi que ce soit. C'est du confort et de la clarté, pas de la sécurité.
+   1. L'état d'écran : `peutModifier()`, consulté partout dans `app.js` pour décider si
+      une commande de modification existe.
+   2. Le verrou d'interface, via `Sync.definirLectureSeule()`, qui empêche un bouton
+      oublié d'envoyer quoi que ce soit. Du confort, pas de la sécurité.
 
-   **Un code, saisi une fois.** L'appareil se déverrouille à l'adresse `#/acces`, en
-   saisissant le code de la maison. Le code n'est comparé qu'au serveur, contre un
-   document que personne ne peut lire : il ne se trouve nulle part dans le site.
+   ## Ce qu'il ne fait pas
 
-   **La mémoire est locale, la vérité est distante.** Le drapeau rangé ici évite de
-   redemander le code à chaque ouverture. Il est reverifié auprès du serveur au
-   démarrage, en tâche de fond : un appareil retiré de la maison redevient lecteur, et
-   un appareil déjà inscrit se reconnaît tout seul.
+   Aucune lecture Firestore pour un visiteur. Un carnet qui se partage ne doit pas
+   coûter une lecture par ouverture à des gens qui ne s'y connecteront jamais. La
+   vérification de l'autorisation n'a lieu que si une session de compte existe.
 
    Expose window.CarnetAcces dans le navigateur, module.exports sous Node. */
 
@@ -36,11 +31,13 @@
   var estNode = typeof module !== 'undefined' && module.exports;
   var Sync = estNode ? require('./sync.js') : global.CarnetSync;
 
-  var CLE = 'carnet-de-recettes:maison';
+  // Ce que cet appareil a retenu du dernier contrôle, pour ne pas repartir en lecture
+  // seule le temps d'un aller-retour réseau à chaque chargement.
+  var CLE = 'carnet-de-recettes:compte-autorise';
 
-  // Sous Node, ce module ne sert qu'aux tests et aux outils, qui écrivent en connaissance
-  // de cause : rien n'est verrouillé.
-  var deverrouille = estNode;
+  // Sous Node, ce module ne sert qu'aux tests et aux outils, qui écrivent en
+  // connaissance de cause : rien n'est verrouillé.
+  var autorise = estNode;
   var abonnes = [];
 
   function surChangement(rappel) {
@@ -71,113 +68,178 @@
       if (valeur) global.localStorage.setItem(CLE, 'oui');
       else global.localStorage.removeItem(CLE);
     } catch (erreur) {
-      /* navigation privée saturée : le mode reste celui de la session */
+      /* navigation privée saturée : l'état ne vaudra que pour cette session */
     }
   }
 
   function appliquer() {
-    if (Sync && Sync.definirLectureSeule) Sync.definirLectureSeule(!deverrouille);
+    if (Sync && Sync.definirLectureSeule) Sync.definirLectureSeule(!autorise);
     if (global.document && global.document.body) {
-      global.document.body.classList.toggle('lecture-seule', !deverrouille);
+      global.document.body.classList.toggle('lecture-seule', !autorise);
     }
   }
 
-  /** Vrai si cet appareil peut modifier le carnet. Synchrone : c'est l'état d'écran. */
-  function peutModifier() {
-    return deverrouille;
+  /** Le compte connecté, ou null. */
+  function compte() {
+    return Sync.compteCourant ? Sync.compteCourant() : null;
   }
 
-  /** Lit l'état mémorisé et l'applique. À appeler avant le premier rendu. */
-  function initialiser() {
-    if (!estNode) deverrouille = lireDrapeau();
-    appliquer();
-    return deverrouille;
+  /** Vrai si le carnet est modifiable depuis cet écran. */
+  function peutModifier() {
+    return autorise;
   }
 
   /**
-   * Recontrôle auprès du serveur, sans bloquer l'affichage.
+   * Lit l'état mémorisé et l'applique, sans rien demander au serveur.
    *
-   * Deux cas utiles : un appareil de la maison qui a effacé son stockage local se
-   * reconnaît sans ressaisir le code, et un appareil retiré de la collection
-   * `appareils` repasse en lecture seule tout seul.
+   * Personne de connecté : lecture seule, sans discussion. Quelqu'un de connecté : on
+   * repart de ce que l'appareil avait retenu, et `verifier()` tranchera.
+   */
+  function initialiser() {
+    if (!estNode) autorise = Boolean(compte()) && lireDrapeau();
+    appliquer();
+    return autorise;
+  }
+
+  /**
+   * Demande au serveur si le compte connecté est autorisé. Une lecture, et seulement
+   * pour un compte : un visiteur n'en déclenche aucune.
    */
   async function verifier() {
     if (estNode) return true;
-    var autorise;
-    try {
-      autorise = await Sync.appareilAutorise();
-    } catch (erreur) {
-      // Hors ligne ou serveur muet : on garde l'état mémorisé plutôt que de verrouiller
-      // une cuisine au milieu d'une recette.
-      return deverrouille;
+    if (!compte()) {
+      if (autorise) {
+        autorise = false;
+        ecrireDrapeau(false);
+        appliquer();
+        notifier();
+      }
+      return false;
     }
-    if (autorise !== deverrouille) {
-      deverrouille = autorise;
-      ecrireDrapeau(autorise);
+    var resultat;
+    try {
+      resultat = await Sync.compteAutorise();
+    } catch (erreur) {
+      // Hors ligne : on garde ce qui était mémorisé plutôt que de verrouiller une
+      // cuisine au milieu d'une recette.
+      return autorise;
+    }
+    if (resultat !== autorise) {
+      autorise = resultat;
+      ecrireDrapeau(resultat);
       appliquer();
       notifier();
     }
-    return deverrouille;
+    return autorise;
+  }
+
+  /** Crée un compte, puis ouvre sa session. Rend { ok, raison }. */
+  async function creerCompte(email, motDePasse) {
+    return tenter(function () {
+      return Sync.creerCompte(String(email || '').trim(), String(motDePasse || ''));
+    });
+  }
+
+  /** Ouvre la session d'un compte existant. Rend { ok, raison }. */
+  async function connecter(email, motDePasse) {
+    return tenter(function () {
+      return Sync.connecter(String(email || '').trim(), String(motDePasse || ''));
+    });
+  }
+
+  // Les messages d'Identity Toolkit sont des codes en majuscules : ils ne se montrent
+  // pas tels quels à quelqu'un qui cherche à faire ses courses.
+  var MESSAGES = {
+    EMAIL_EXISTS: 'Un compte existe déjà avec cette adresse. Se connecter plutôt.',
+    INVALID_EMAIL: 'Cette adresse ne ressemble pas à une adresse e-mail.',
+    MISSING_PASSWORD: 'Saisir un mot de passe.',
+    WEAK_PASSWORD: 'Mot de passe trop court : six caractères au minimum.',
+    EMAIL_NOT_FOUND: 'Aucun compte à cette adresse.',
+    INVALID_PASSWORD: 'Mot de passe incorrect.',
+    INVALID_LOGIN_CREDENTIALS: 'Adresse ou mot de passe incorrect.',
+    USER_DISABLED: 'Ce compte a été désactivé.',
+    TOO_MANY_ATTEMPTS_TRY_LATER: 'Trop de tentatives : réessayer dans quelques minutes.',
+    OPERATION_NOT_ALLOWED: 'La connexion par e-mail n’est pas activée sur le projet Firebase.',
+  };
+
+  async function tenter(action) {
+    try {
+      await action();
+    } catch (erreur) {
+      var code = String(erreur.message || '').split(' : ')[0].trim();
+      return { ok: false, raison: MESSAGES[code] || 'Échec : ' + erreur.message };
+    }
+    // Se connecter ne donne pas les droits : il faut que le compte soit autorisé.
+    await verifier();
+    return { ok: true, autorise: autorise };
   }
 
   /**
-   * Déverrouille cet appareil avec le code de la maison.
+   * Autorise le compte connecté avec le code de la maison.
    *
-   * Rend { ok: true } ou { ok: false, raison }. Le code n'est jamais conservé : seul le
-   * fait d'être inscrit l'est, et il l'est côté serveur.
+   * Le code n'est comparé qu'au serveur, contre un document que personne ne peut lire.
+   * Une fois par compte : les autres appareils de la même personne en héritent.
    */
-  async function deverrouiller(code) {
+  async function autoriserAvecCode(code) {
+    if (!compte()) return { ok: false, raison: 'Il faut d’abord se connecter.' };
     if (!code || String(code).trim() === '') {
       return { ok: false, raison: 'Saisir le code de la maison.' };
     }
     try {
-      await Sync.inscrireAppareil(String(code).trim());
+      await Sync.inscrireCompte(String(code).trim());
     } catch (erreur) {
       if (erreur.statut === 403 || erreur.statut === 400) {
-        // Deux causes possibles, et l'une n'est pas une faute de frappe : tant que les
-        // règles ne sont pas publiées, ou que le code de la maison n'est pas posé dans
-        // `menage/secret`, le serveur refuse toute inscription. Le dire évite de
-        // chercher une heure une erreur de saisie qui n'existe pas.
         return {
           ok: false,
           raison:
-            'Code refusé. Cet appareil reste en lecture seule. Si le code est le bon, ' +
-            'vérifier que les règles Firestore sont publiées et que le code est bien ' +
-            'posé dans menage/secret.',
+            'Code refusé. Si le code est le bon, vérifier que les règles Firestore sont ' +
+            'publiées et que le code est bien posé dans menage/secret.',
         };
       }
       return { ok: false, raison: 'Le serveur n’a pas répondu : ' + erreur.message };
     }
-    deverrouille = true;
+    autorise = true;
     ecrireDrapeau(true);
     appliquer();
     notifier();
     return { ok: true };
   }
 
-  /**
-   * Repasse cet appareil en lecture seule.
-   *
-   * Local seulement : le document de l'appareil reste côté serveur, et une nouvelle
-   * saisie du code le rouvrira. Retirer durablement un appareil se fait en supprimant
-   * son document dans la console Firebase, ce que l'application ne propose pas : elle
-   * ne doit pas permettre à un appareil d'en exclure un autre.
-   */
-  function verrouiller() {
-    deverrouille = false;
+  /** Ferme la session. Le carnet redevient lisible et non modifiable. */
+  function deconnecter() {
+    Sync.deconnecter();
+    autorise = false;
     ecrireDrapeau(false);
     appliquer();
     notifier();
   }
 
+  /** Demande le courriel de réinitialisation du mot de passe. */
+  async function motDePasseOublie(email) {
+    if (!email || String(email).trim() === '') {
+      return { ok: false, raison: 'Saisir l’adresse du compte.' };
+    }
+    try {
+      await Sync.reinitialiserMotDePasse(String(email).trim());
+    } catch (erreur) {
+      var code = String(erreur.message || '').split(' : ')[0].trim();
+      return { ok: false, raison: MESSAGES[code] || 'Échec : ' + erreur.message };
+    }
+    return { ok: true };
+  }
+
   var api = {
     CLE: CLE,
     surChangement: surChangement,
+    compte: compte,
     peutModifier: peutModifier,
     initialiser: initialiser,
     verifier: verifier,
-    deverrouiller: deverrouiller,
-    verrouiller: verrouiller,
+    creerCompte: creerCompte,
+    connecter: connecter,
+    deconnecter: deconnecter,
+    autoriserAvecCode: autoriserAvecCode,
+    motDePasseOublie: motDePasseOublie,
   };
 
   if (estNode) module.exports = api;

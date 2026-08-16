@@ -1424,8 +1424,8 @@
     if (!peutModifier()) {
       fragment.appendChild(
         el('p', { class: 'mention-lecture' }, [
-          el('span', { texte: 'Carnet en lecture seule. ' }),
-          el('a', { href: '#/acces', texte: 'Déverrouiller cet appareil' }),
+          el('span', { texte: Acc.compte() ? 'Compte non autorisé : lecture seule. ' : 'Carnet en lecture seule. ' }),
+          el('a', { href: '#/compte', texte: Acc.compte() ? 'Autoriser ce compte' : 'Se connecter' }),
         ])
       );
     }
@@ -1440,30 +1440,46 @@
    * un appareil de la maison n'y passe qu'une fois. Le code n'est comparé qu'au
    * serveur, contre un document que personne ne peut lire.
    */
-  function vueAcces() {
-    document.title = 'Accès — Miam miam !';
+  /**
+   * L'écran de compte, à l'adresse #/compte.
+   *
+   * Trois états, et un seul visible à la fois : personne n'est connecté, quelqu'un
+   * l'est mais son compte n'est pas encore autorisé, ou tout est en ordre. Le code de
+   * la maison n'est demandé qu'au deuxième, une fois par compte.
+   */
+  function vueCompte() {
+    document.title = 'Mon compte — Miam miam !';
     var fragment = document.createDocumentFragment();
     fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour à l’accueil' }));
 
-    if (peutModifier()) {
+    var compte = Acc.compte();
+    var message = el('p', { class: 'ecran-acces__message', id: 'acces-message' });
+
+    function apresChangement(annonce) {
+      annoncer(annonce);
+      monter(vueCompte());
+    }
+
+    // --- Connecté et autorisé : il n'y a plus rien à demander ------------------
+    if (compte && peutModifier()) {
       fragment.appendChild(
         el('section', { class: 'ecran-acces' }, [
-          el('h1', { texte: 'Cet appareil est un appareil de la maison' }),
+          el('h1', { texte: 'Connecté' }),
+          el('p', { texte: compte.email + ' peut modifier les recettes, la liste de courses et le semainier.' }),
           el('p', {
+            class: 'ecran-acces__note',
             texte:
-              'Il peut modifier les recettes, la liste de courses et le semainier. ' +
-              'Le repasser en lecture seule ne concerne que cet appareil, et se défait ' +
-              'en ressaisissant le code.',
+              'Se déconnecter ne concerne que cet appareil : le carnet y redevient ' +
+              'lisible sans être modifiable, et rien n’est perdu.',
           }),
           el('button', {
             type: 'button',
             class: 'bouton bouton--secondaire',
-            id: 'verrouiller-appareil',
-            texte: 'Repasser cet appareil en lecture seule',
+            id: 'deconnecter',
+            texte: 'Se déconnecter',
             onclick: function () {
-              Acc.verrouiller();
-              monter(vueAcces());
-              annoncer('Cet appareil est repassé en lecture seule');
+              Acc.deconnecter();
+              apresChangement('Déconnecté');
             },
           }),
         ])
@@ -1471,70 +1487,137 @@
       return fragment;
     }
 
-    var message = el('p', { class: 'ecran-acces__message', id: 'acces-message' });
-
-    /** Demande au serveur si cet appareil est déjà inscrit. Une lecture, à la demande. */
-    function verifierInscription() {
-      message.textContent = 'Vérification…';
-      Acc.verifier().then(function (autorise) {
-        if (autorise) {
-          annoncer('Cet appareil est déjà un appareil de la maison');
-          window.location.hash = '#/';
-          router();
-          return;
-        }
-        message.textContent = 'Cet appareil n’est pas inscrit. Saisir le code pour l’inscrire.';
+    // --- Connecté mais pas encore autorisé : le code de la maison --------------
+    if (compte) {
+      var champCode = el('input', {
+        type: 'password',
+        class: 'champ-edition',
+        id: 'code-maison',
+        autocomplete: 'one-time-code',
+        'aria-label': 'Code de la maison',
+        placeholder: 'Code de la maison',
       });
+
+      fragment.appendChild(
+        el('section', { class: 'ecran-acces' }, [
+          el('h1', { texte: 'Autoriser ce compte' }),
+          el('p', {
+            texte:
+              compte.email +
+              ' est connecté, mais ce compte ne peut encore que lire. Le code de la ' +
+              'maison l’autorise à modifier, une fois pour toutes : les autres appareils ' +
+              'où vous vous connecterez en hériteront.',
+          }),
+          el('form', {
+            class: 'ecran-acces__forme',
+            onsubmit: function (evenement) {
+              evenement.preventDefault();
+              message.textContent = 'Vérification…';
+              Acc.autoriserAvecCode(champCode.value).then(function (resultat) {
+                if (resultat.ok) {
+                  window.location.hash = '#/';
+                  router();
+                  annoncer('Ce compte peut désormais modifier le carnet');
+                  return;
+                }
+                message.textContent = resultat.raison;
+              });
+            },
+          }, [
+            champCode,
+            el('button', { type: 'submit', class: 'bouton', id: 'valider-code', texte: 'Autoriser' }),
+          ]),
+          message,
+          el('button', {
+            type: 'button',
+            class: 'lien-action',
+            id: 'deconnecter',
+            texte: 'Se déconnecter',
+            onclick: function () {
+              Acc.deconnecter();
+              apresChangement('Déconnecté');
+            },
+          }),
+        ])
+      );
+      return fragment;
     }
-    var champCode = el('input', {
+
+    // --- Personne de connecté : connexion, ou création de compte ---------------
+    var champEmail = el('input', {
+      type: 'email',
+      class: 'champ-edition',
+      id: 'email-compte',
+      autocomplete: 'email',
+      'aria-label': 'Adresse e-mail',
+      placeholder: 'Adresse e-mail',
+    });
+    var champMotDePasse = el('input', {
       type: 'password',
       class: 'champ-edition',
-      id: 'code-maison',
+      id: 'mot-de-passe',
       autocomplete: 'current-password',
-      'aria-label': 'Code de la maison',
-      placeholder: 'Code de la maison',
+      'aria-label': 'Mot de passe',
+      placeholder: 'Mot de passe',
     });
 
-    function tenter() {
-      message.textContent = 'Vérification…';
-      Acc.deverrouiller(champCode.value).then(function (resultat) {
-        if (resultat.ok) {
-          annoncer('Cet appareil peut désormais modifier le carnet');
-          window.location.hash = '#/';
-          router();
-          return;
-        }
+    function terminer(resultat) {
+      if (!resultat.ok) {
         message.textContent = resultat.raison;
-      });
+        return;
+      }
+      // Connecté, mais pas forcément autorisé : l'écran suivant le dira.
+      monter(vueCompte());
+      annoncer(peutModifier() ? 'Connecté' : 'Connecté : ce compte doit encore être autorisé');
     }
 
     fragment.appendChild(
       el('section', { class: 'ecran-acces' }, [
-        el('h1', { texte: 'Déverrouiller cet appareil' }),
+        el('h1', { texte: 'Se connecter' }),
         el('p', {
           texte:
-            'Le carnet se lit sans rien saisir. Le modifier demande le code de la ' +
-            'maison, une fois par appareil : celui-ci s’en souviendra.',
+            'Le carnet se lit sans compte. Le modifier demande une connexion : les ' +
+            'recettes, la liste de courses et le semainier ne changent que depuis un ' +
+            'compte autorisé.',
         }),
         el('form', {
-          class: 'ecran-acces__forme',
+          class: 'ecran-acces__forme ecran-acces__forme--colonne',
           onsubmit: function (evenement) {
             evenement.preventDefault();
-            tenter();
+            message.textContent = 'Connexion…';
+            Acc.connecter(champEmail.value, champMotDePasse.value).then(terminer);
           },
         }, [
-          champCode,
-          el('button', { type: 'submit', class: 'bouton', id: 'valider-code', texte: 'Déverrouiller' }),
+          champEmail,
+          champMotDePasse,
+          el('div', { class: 'ecran-acces__actions' }, [
+            el('button', { type: 'submit', class: 'bouton', id: 'valider-connexion', texte: 'Se connecter' }),
+            el('button', {
+              type: 'button',
+              class: 'bouton bouton--secondaire',
+              id: 'creer-compte',
+              texte: 'Créer un compte',
+              onclick: function () {
+                message.textContent = 'Création…';
+                Acc.creerCompte(champEmail.value, champMotDePasse.value).then(terminer);
+              },
+            }),
+          ]),
         ]),
         message,
-        // Utile après un effacement des données du site : l'appareil a perdu sa
-        // mémoire, pas forcément son inscription.
         el('button', {
           type: 'button',
           class: 'lien-action',
-          id: 'verifier-inscription',
-          texte: 'Cet appareil a peut-être déjà été inscrit : vérifier',
-          onclick: verifierInscription,
+          id: 'mot-de-passe-oublie',
+          texte: 'Mot de passe oublié',
+          onclick: function () {
+            message.textContent = 'Envoi…';
+            Acc.motDePasseOublie(champEmail.value).then(function (resultat) {
+              message.textContent = resultat.ok
+                ? 'Un courriel de réinitialisation est parti à cette adresse. Regarder aussi les indésirables.'
+                : resultat.raison;
+            });
+          },
         }),
       ])
     );
@@ -5563,8 +5646,9 @@
       annoncer(document.title.replace(' — Miam miam !', '') + (complement ? ', ' + complement : ''));
     };
 
-    if (ancre === '/acces') {
-      afficher(vueAcces());
+    // #/compte est l'adresse ; #/acces reste acceptée, elle a circulé.
+    if (ancre === '/compte' || ancre === '/acces') {
+      afficher(vueCompte());
       return;
     }
 
@@ -5896,6 +5980,9 @@
     Acc.surChangement(function () {
       router();
     });
+    // Une lecture, et seulement pour un compte connecté : un lecteur de passage n'en
+    // déclenche aucune. Voir js/acces.js.
+    if (Acc.compte()) Acc.verifier();
 
     fetch('data/recipes.json')
       .then(function (reponse) {

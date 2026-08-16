@@ -20,7 +20,7 @@ savoir avant de toucher à quoi que ce soit.
 cd recipe-app
 python3 -m http.server 8000        # puis http://localhost:8000
 node tests/run-tests.js            # 167 tests de logique, sans navigateur
-node tests/run-sync-tests.js       # 144 tests de synchronisation, contre une émulation locale
+node tests/run-sync-tests.js       # 146 tests de synchronisation, contre une émulation locale
 ```
 
 Il n'y a **rien à installer**. Pas de `npm install`, pas de `package.json`, pas d'étape
@@ -173,7 +173,7 @@ qu'en une fois.
 | Poids transféré au chargement | 209 Ko compressés, 34 fichiers |
 | Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
 | Coût de la bibliothèque | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
-| Tests | 167 + 144 sous Node, 497 vérifications navigateur, 20 contre le vrai Firebase |
+| Tests | 167 + 146 sous Node, 489 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -229,13 +229,13 @@ sans voir ce qu'elle protégeait.
     │   └── poser-illustrations.js       Pose les photos d'étapes d'une recette déjà en base
     └── tests/
         ├── run-tests.js           167 tests de la logique métier
-        ├── run-sync-tests.js      144 tests de la synchronisation
+        ├── run-sync-tests.js      146 tests de la synchronisation
         ├── test-web.js            103 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
         ├── test-edition.js         82 vérifications navigateur, modification, parts, nutrition, illustrations
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
         ├── test-bibliotheque.js    67 vérifications navigateur, livres, périmètres, couvertures
-        ├── test-acces.js           32 vérifications navigateur, lecture seule et déverrouillage
+        ├── test-acces.js           24 vérifications navigateur, comptes, connexion et droits
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -728,17 +728,26 @@ d'étapes plutôt que de ne pas s'afficher. Le symptôme à reconnaître si la s
 reproduit après l'ajout d'une collection : tout fonctionne **sauf** la nouveauté, et
 c'est un 403, pas un 404.
 
-## Partager le carnet en lecture seule
+## Se connecter pour modifier
 
 Le site est public : son adresse suffit à tout lire, et c'est voulu, un lien se partage.
-**Écrire est autre chose.** Un appareil ne peut modifier le carnet que s'il est inscrit
-dans la collection `appareils`, un document par appareil nommé par son identifiant
-anonyme. Les règles Firestore refusent l'écriture à tous les autres, console du
-navigateur comprise.
+**Écrire demande un compte.** Une personne se connecte à l'adresse `#/compte`, avec une
+adresse e-mail et un mot de passe, par la même API REST que la session anonyme : aucune
+dépendance ajoutée, pas de SDK Firebase.
 
-Un appareil s'inscrit à l'adresse `#/acces`, en saisissant le code de la maison, une
-fois. Le code n'est comparé qu'au serveur, contre `menage/secret`, dont la lecture est
-refusée à tout le monde : il n'apparaît nulle part dans le site.
+Se connecter ne suffit pas : le compte doit être **autorisé**, c'est-à-dire posséder son
+document dans la collection `comptes`. Il l'obtient en présentant le code de la maison,
+une fois par compte. Le code n'est comparé qu'au serveur, contre `menage/secret`, dont
+la lecture est refusée à tout le monde : il n'apparaît nulle part dans le site.
+
+**C'est la personne qui est autorisée, pas la machine.** Se connecter sur un autre
+appareil y rend les droits sans ressaisir le code ; se déconnecter les retire de cet
+appareil seulement. C'est ce qui distingue ce modèle du déverrouillage par appareil
+qu'il remplace : un téléphone prêté, réinitialisé ou perdu ne pose plus de question.
+
+La suite est spécifiée dans `docs/COMPTES-2026-08-16.md` : des foyers qui possèdent les
+données, plusieurs comptes par foyer avec un rôle, et le partage d'un livre à une autre
+adresse. Le code de la maison disparaîtra alors.
 
 `js/acces.js` tient le second verrou, celui de l'interface : un appareil en lecture
 seule ne voit aucune commande de modification, les écrans d'édition atteints par une
@@ -1058,7 +1067,7 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 cd recipe-app
 node tests/run-tests.js           # 167 tests de la logique métier
 node tests/run-sync-tests.js      # 140 tests de la synchronisation
-node tests/run-browser-tests.js   # 497 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 489 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.
