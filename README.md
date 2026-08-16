@@ -715,7 +715,8 @@ chiffres après un changement de parts.
 ### Ce qui reste à faire côté console Firebase
 
 **Republier `firestore.rules`**, pour les foyers du 16 août 2026, puis lancer
-`tools/migrer-vers-foyer.js`. Dans cet ordre, et pas l'inverse : les nouvelles règles
+`tools/migrer-vers-foyer.js`, puis `tools/comparer-foyer.js` qui compare les deux côtés
+champ par champ sans rien modifier. Dans cet ordre, et pas l'inverse : les nouvelles règles
 sont ce qui autorise l'écriture sous `foyers/…`. Entre les deux, l'application déployée
 ne montre rien, elle cherche un foyer qui n'existe pas encore. Voir
 `docs/FOYERS-2026-08-16.md`.
