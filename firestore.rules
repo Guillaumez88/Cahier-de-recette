@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Règles de sécurité de la liste de courses commune.
+// Règles de sécurité du carnet de recettes.
 //
 // À coller dans la console Firebase : Firestore Database → Règles → Publier.
 // Tant que ces règles ne sont pas publiées, Firestore applique les règles par
@@ -8,87 +8,146 @@ rules_version = '2';
 // refusé et l'application affichera « Hors ligne » en permanence ; en mode test
 // tout est ouvert pendant 30 jours puis tout se ferme d'un coup.
 //
-// Ce que ces règles autorisent, et pourquoi :
+// Le modèle, en trois phrases :
 //
-// - Une session est exigée (request.auth != null). L'application ouvre une session
-//   anonyme automatiquement, sans rien demander à l'utilisateur. Sans cette
-//   condition, n'importe quel robot ayant lu la clé publique dans la page pourrait
-//   écrire dans la base : les clés d'API Firebase sont scannées en masse sur les
-//   sites publics. Avec cette condition, il faut au moins ouvrir une session.
+// - **Un foyer possède les données.** Toutes les collections de contenu vivent sous
+//   `foyers/{foyerId}/…`. L'identifiant du foyer est celui du compte qui l'a créé :
+//   pas de tirage aléatoire, pas de collision, et une règle triviale à écrire.
 //
-// - Seules les collections nommées ici sont accessibles. Tout autre chemin
-//   est refusé par défaut, y compris un chemin créé par erreur plus tard.
+// - **Un membre est un document du foyer**, nommé par l'identifiant de son compte et
+//   portant son rôle : « modification » ou « lecture ». Le compte qui crée un foyer
+//   s'y inscrit lui-même en modification : c'est le seul membre qui s'auto-inscrit,
+//   et seulement dans le foyer qui porte son propre identifiant. Tous les autres sont
+//   inscrits par un membre qui peut modifier, depuis la page des membres du foyer.
 //
-// - La forme des articles est contrôlée. Cela ne protège pas contre un utilisateur
-//   mal intentionné qui aurait ouvert une session, mais cela empêche qu'un bogue
-//   ou un appel malformé remplisse la base de documents inexploitables.
+// - **`utilisateurs/{uid}` dit à quel foyer un compte appartient.** C'est la première
+//   chose lue à l'ouverture : sans elle, l'application ne sait pas quoi afficher.
 //
-// - **La lecture est ouverte, l'écriture ne l'est pas.** Le site est public : son
-//   adresse suffit à le consulter, et c'est voulu, un lien peut se partager. Écrire,
-//   en revanche, exige que l'appareil soit inscrit dans la collection `appareils`,
-//   un document par appareil, nommé par son identifiant anonyme. Un visiteur peut
-//   donc tout lire et ne rien changer, y compris depuis la console du navigateur.
+// Il n'y a plus de code de la maison : rien à retenir, rien à se transmettre, rien à
+// deviner par tâtonnement. Entrer dans un foyer suppose qu'un membre vous y inscrive.
 //
-// - **Le code de la maison ne se lit pas.** Il vit dans `menage/secret`, dont la
-//   lecture est refusée à tout le monde. Seules ces règles le consultent, avec
-//   get(), pour valider l'inscription d'un nouvel appareil. Il n'apparaît donc
-//   nulle part dans le site ni dans la base lisible.
+// Ce que ces règles ne font pas, et qu'il faut savoir :
 //
-// Limite assumée : rien ne limite le nombre de tentatives d'inscription. Un code
-// court se devinerait à force d'essais ; en choisir un long, d'au moins douze
-// caractères. Et un appareil qui efface les données du site perd son identité
-// anonyme : il faut ressaisir le code une fois.
+// - **Elles n'empêchent pas de créer un compte.** N'importe qui peut s'inscrire et
+//   obtenir son propre foyer, vide. Le bloquer demanderait une fonction de blocage
+//   Identity Platform, qui est payante. Un compte inconnu ne voit rien du vôtre.
+//
+// - **La lecture d'un foyer est réservée à ses membres.** Contrairement à la version
+//   précédente, un visiteur non inscrit ne lit rien : le partage se fera par des
+//   documents dédiés, pas en ouvrant la lecture à tout le monde.
+//
+// - **Chaque requête de contenu déclenche un `get()` sur le document de membre**, qui
+//   est facturé comme une lecture. C'est le prix du cloisonnement : une lecture de
+//   plus par requête, pas par document lu.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Qui a le droit d'écrire ---------------------------------------------
+    // --- Appartenance et rôles -----------------------------------------------
+
+    function estConnecte() {
+      return request.auth != null;
+    }
+
+    function membre(foyerId) {
+      return get(/databases/$(database)/documents/foyers/$(foyerId)/membres/$(request.auth.uid)).data;
+    }
+
+    function estMembre(foyerId) {
+      return estConnecte()
+        && exists(/databases/$(database)/documents/foyers/$(foyerId)/membres/$(request.auth.uid));
+    }
+
+    function peutModifier(foyerId) {
+      return estMembre(foyerId) && membre(foyerId).role == 'modification';
+    }
+
+    // --- La fiche d'un compte : son foyer -------------------------------------
     //
-    // Une personne connectée avec un compte autorisé, et personne d'autre. Un compte
-    // est autorisé quand il possède son document dans `comptes`, qu'il obtient en
-    // présentant le code de la maison, une fois.
+    // Chacun lit et écrit la sienne. Un membre qui peut modifier écrit aussi celle du
+    // compte qu'il vient d'inscrire, à condition qu'elle désigne son propre foyer : il
+    // ne peut donc pas déplacer quelqu'un d'autre vers un foyer tiers.
+
+    match /utilisateurs/{uid} {
+      function ficheValide() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['email', 'foyer'])
+          && d.email is string && d.email.size() <= 320
+          && d.foyer is string && d.foyer.size() > 0 && d.foyer.size() <= 200;
+      }
+
+      allow read: if estConnecte() && request.auth.uid == uid;
+      allow create, update: if estConnecte()
+        && ficheValide()
+        && (request.auth.uid == uid || peutModifier(request.resource.data.foyer));
+      allow delete: if false;
+    }
+
+    // --- Le foyer --------------------------------------------------------------
     //
-    // Pourquoi le compte et non l'appareil : l'appareil se prête, se réinitialise et
-    // se remplace ; la personne, non. Se connecter ailleurs suffit désormais à
-    // retrouver ses droits, et effacer les données du site ne les fait plus perdre.
+    // On ne crée que le foyer qui porte son propre identifiant de compte : un compte,
+    // un foyer au plus, et aucune façon de créer un foyer au nom d'un autre. Le
+    // supprimer n'est pas possible depuis l'application : cela laisserait des sous-
+    // collections orphelines qu'aucun client ne saurait nettoyer.
+
+    match /foyers/{foyerId} {
+      function foyerValide() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['nom', 'proprietaire'])
+          && d.nom is string && d.nom.size() > 0 && d.nom.size() <= 200
+          && d.proprietaire is string && d.proprietaire == foyerId
+          && (!d.keys().hasAny(['creeLe']) || (d.creeLe is string && d.creeLe.size() <= 40));
+      }
+
+      allow read: if estMembre(foyerId);
+      allow create: if estConnecte() && request.auth.uid == foyerId && foyerValide();
+      allow update: if peutModifier(foyerId) && foyerValide();
+      allow delete: if false;
+    }
+
+    // --- Les membres du foyer ---------------------------------------------------
     //
-    // La session anonyme, elle, ne sert plus qu'à lire.
+    // Le fondateur s'inscrit lui-même, en modification, dans le foyer qui porte son
+    // identifiant : c'est l'amorçage, et la seule auto-inscription possible. Ensuite,
+    // seul un membre qui peut modifier inscrit, change ou retire quelqu'un.
+    //
+    // Personne ne peut se retirer soi-même ni se promouvoir : `peutModifier` est
+    // évalué sur le document déjà en base, pas sur celui qu'on envoie.
 
-    function estMaison() {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/comptes/$(request.auth.uid));
+    match /foyers/{foyerId}/membres/{uid} {
+      function membreValide() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['email', 'role'])
+          && d.email is string && d.email.size() <= 320
+          && d.role in ['modification', 'lecture']
+          && (!d.keys().hasAny(['ajouteLe']) || (d.ajouteLe is string && d.ajouteLe.size() <= 40));
+      }
+
+      // L'amorçage : le tout premier membre d'un foyer neuf, qui est son fondateur.
+      function amorcage() {
+        return estConnecte()
+          && request.auth.uid == uid
+          && uid == foyerId
+          && request.resource.data.role == 'modification';
+      }
+
+      allow read: if estMembre(foyerId);
+      allow create: if membreValide() && (amorcage() || peutModifier(foyerId));
+      allow update: if membreValide() && peutModifier(foyerId);
+      // Le fondateur ne se retire pas : un foyer sans personne pour y écrire serait
+      // définitivement figé, et aucun client ne saurait le rouvrir.
+      allow delete: if peutModifier(foyerId) && uid != foyerId;
     }
 
-    // Le code de la maison. Personne ne peut le lire ni l'écrire depuis un client :
-    // il se pose à la main dans la console Firebase, et seules ces règles le
-    // consultent. Le changer suffit à empêcher toute nouvelle inscription.
-    match /menage/{document} {
-      allow read, write: if false;
-    }
+    // --- Le contenu du foyer -----------------------------------------------------
+    //
+    // Sept collections, toutes sous le foyer, toutes soumises à la même règle : un
+    // membre lit, un membre en modification écrit. Les contrôles de forme, eux, sont
+    // propres à chaque collection : ils n'empêchent pas un membre mal intentionné de
+    // saboter son propre foyer, ils empêchent un bogue de remplir la base de documents
+    // inexploitables.
 
-    // Un compte autorisé, nommé par son identifiant Firebase. Il ne peut créer que le
-    // sien, et seulement avec le bon code. Ni modification ni suppression : retirer un
-    // compte se fait dans la console, pour qu'aucun compte ne puisse en exclure un
-    // autre.
-    match /comptes/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow create: if request.auth != null
-        && request.auth.uid == uid
-        && request.resource.data.code is string
-        && request.resource.data.code == get(/databases/$(database)/documents/menage/secret).data.code;
-      allow update, delete: if false;
-    }
-
-    // L'ancienne collection des appareils déverrouillés. Elle ne donne plus aucun
-    // droit : elle reste déclarée le temps que les appareils encore inscrits soient
-    // passés aux comptes, puis elle disparaîtra avec ses documents.
-    match /appareils/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow write: if false;
-    }
-
-    match /listes/{listeId}/articles/{articleId} {
-
+    match /foyers/{foyerId}/articles/{articleId} {
       function articleValide() {
         let d = request.resource.data;
         return d.keys().hasAll(['cle', 'nom', 'recetteId', 'recetteTitre', 'coche'])
@@ -102,17 +161,16 @@ service cloud.firestore {
           && (!d.keys().hasAny(['ajouteLe']) || d.ajouteLe == null || (d.ajouteLe is string && d.ajouteLe.size() <= 40));
       }
 
-      allow read: if request.auth != null;
-      allow create, update: if estMaison() && articleValide();
-      allow delete: if estMaison();
+      allow read: if estMembre(foyerId);
+      allow create, update: if peutModifier(foyerId) && articleValide();
+      allow delete: if peutModifier(foyerId);
     }
 
     // Recettes modifiées depuis l'application. Une recette est enregistrée comme
     // une seule chaîne JSON : elle n'est jamais interrogée champ par champ côté
     // serveur, seulement lue en entier. Supprimer le document rétablit la recette
     // d'origine, qui est servie avec le site et n'est jamais modifiée.
-    match /recettes/{recetteId} {
-
+    match /foyers/{foyerId}/recettes/{recetteId} {
       function recetteValide() {
         let d = request.resource.data;
         return d.keys().hasAll(['recetteId', 'json'])
@@ -125,16 +183,15 @@ service cloud.firestore {
           && (!d.keys().hasAny(['modifieLe']) || (d.modifieLe is string && d.modifieLe.size() <= 40));
       }
 
-      allow read: if request.auth != null;
-      allow create, update: if estMaison() && recetteValide();
-      allow delete: if estMaison();
+      allow read: if estMembre(foyerId);
+      allow create, update: if peutModifier(foyerId) && recetteValide();
+      allow delete: if peutModifier(foyerId);
     }
 
-    // Semainier commun : un document par créneau de repas, dont la clé porte la
+    // Semainier du foyer : un document par créneau de repas, dont la clé porte la
     // date et le moment (« 2026-08-03::dejeuner »). Un créneau vide n'est pas un
     // document vide, c'est un document absent : vider un repas est une suppression.
-    match /semainiers/{semainierId}/creneaux/{creneauId} {
-
+    match /foyers/{foyerId}/creneaux/{creneauId} {
       function creneauValide() {
         let d = request.resource.data;
         return d.keys().hasAll(['cle', 'jour', 'moment', 'type', 'titre'])
@@ -149,20 +206,15 @@ service cloud.firestore {
           && (!d.keys().hasAny(['modifieLe']) || d.modifieLe == null || (d.modifieLe is string && d.modifieLe.size() <= 40));
       }
 
-      allow read: if request.auth != null;
-      allow create, update: if estMaison() && creneauValide();
-      allow delete: if estMaison();
+      allow read: if estMembre(foyerId);
+      allow create, update: if peutModifier(foyerId) && creneauValide();
+      allow delete: if peutModifier(foyerId);
     }
 
     // Le placard : les ingrédients qu'on a toujours et qu'il ne faut pas racheter.
     // Un document par ingrédient, comme partout ailleurs : deux personnes qui
     // ajoutent chacune une entrée modifient deux documents distincts.
-    //
-    // Partagé et non local : le placard décrit la maison, pas l'appareil. S'il était
-    // local, l'un curerait sa liste et l'autre recevrait quand même le sel dans ses
-    // courses.
-    match /placard/{entreeId} {
-
+    match /foyers/{foyerId}/placard/{entreeId} {
       function entreeValide() {
         let d = request.resource.data;
         return d.keys().hasAll(['cle', 'nom'])
@@ -170,18 +222,17 @@ service cloud.firestore {
           && d.nom is string && d.nom.size() > 0 && d.nom.size() <= 200;
       }
 
-      allow read: if request.auth != null;
-      allow create, update: if estMaison() && entreeValide();
-      allow delete: if estMaison();
+      allow read: if estMembre(foyerId);
+      allow create, update: if peutModifier(foyerId) && entreeValide();
+      allow delete: if peutModifier(foyerId);
     }
 
-    // La bibliothèque : les livres de cuisine « en vrai » de la maison, chacun étant
-    // une étagère à laquelle on rattache des recettes au fil de leur import. Le livre
-    // ne porte pas ses recettes : c'est la recette qui nomme son livre, dans son
-    // propre document. Un livre est donc un document minuscule, et le supprimer ne
-    // supprime aucune recette.
-    match /livres/{livreId} {
-
+    // La bibliothèque : les livres de cuisine « en vrai » du foyer, chacun étant une
+    // étagère à laquelle on rattache des recettes au fil de leur import. Le livre ne
+    // porte pas ses recettes : c'est la recette qui nomme son livre, dans son propre
+    // document. Un livre est donc un document minuscule, et le supprimer ne supprime
+    // aucune recette.
+    match /foyers/{foyerId}/livres/{livreId} {
       function livreValide() {
         let d = request.resource.data;
         return d.keys().hasAll(['id', 'titre', 'theme'])
@@ -192,9 +243,9 @@ service cloud.firestore {
           && (!d.keys().hasAny(['modifieLe']) || d.modifieLe == null || (d.modifieLe is string && d.modifieLe.size() <= 40));
       }
 
-      allow read: if request.auth != null;
-      allow create, update: if estMaison() && livreValide();
-      allow delete: if estMaison();
+      allow read: if estMembre(foyerId);
+      allow create, update: if peutModifier(foyerId) && livreValide();
+      allow delete: if peutModifier(foyerId);
     }
 
     // Illustrations des étapes d'une recette : un document par recette, contenant
@@ -208,8 +259,7 @@ service cloud.firestore {
     // La borne de taille n'est pas décorative : un document Firestore est limité à
     // 1 Mio. Chaque illustration est une vignette de 320 px de côté, bornée à 60 000
     // caractères par photos.js, donc six étapes tiennent largement sous 600 000.
-    match /illustrations/{recetteId} {
-
+    match /foyers/{foyerId}/illustrations/{recetteId} {
       function illustrationsValides() {
         let d = request.resource.data;
         return d.keys().hasAll(['recetteId', 'json'])
@@ -218,9 +268,9 @@ service cloud.firestore {
           && (!d.keys().hasAny(['modifieLe']) || (d.modifieLe is string && d.modifieLe.size() <= 40));
       }
 
-      allow read: if request.auth != null;
-      allow create, update: if estMaison() && illustrationsValides();
-      allow delete: if estMaison();
+      allow read: if estMembre(foyerId);
+      allow create, update: if peutModifier(foyerId) && illustrationsValides();
+      allow delete: if peutModifier(foyerId);
     }
 
     // Photos des recettes, une par recette, en deux tailles dans le même document :
@@ -230,8 +280,7 @@ service cloud.firestore {
     // limité à 1 Mio, et une data URL en base64 pèse un tiers de plus que le
     // binaire. Sans ces bornes, un envoi trop lourd serait refusé par le serveur
     // avec une erreur de taille difficile à interpréter, ou remplirait la base.
-    match /photos/{photoId} {
-
+    match /foyers/{foyerId}/photos/{photoId} {
       function photoValide() {
         let d = request.resource.data;
         return d.keys().hasAll(['recetteId', 'vignette', 'grande'])
@@ -241,9 +290,57 @@ service cloud.firestore {
           && (!d.keys().hasAny(['modifieLe']) || (d.modifieLe is string && d.modifieLe.size() <= 40));
       }
 
-      allow read: if request.auth != null;
-      allow create, update: if estMaison() && photoValide();
-      allow delete: if estMaison();
+      allow read: if estMembre(foyerId);
+      allow create, update: if peutModifier(foyerId) && photoValide();
+      allow delete: if peutModifier(foyerId);
+    }
+
+    // --- Les collections d'avant les foyers --------------------------------------
+    //
+    // `listes`, `recettes`, `semainiers`, `placard`, `livres`, `illustrations`,
+    // `photos` à la racine, plus `comptes`, `appareils` et `menage` : elles ont porté
+    // les données jusqu'à la migration vers les foyers. Elles restent lisibles par un
+    // compte connecté, le temps que la copie soit vérifiée, et ne sont plus écrites
+    // par personne. Elles disparaîtront avec leurs documents.
+
+    match /listes/{listeId}/articles/{articleId} {
+      allow read: if estConnecte();
+      allow write: if false;
+    }
+    match /recettes/{recetteId} {
+      allow read: if estConnecte();
+      allow write: if false;
+    }
+    match /semainiers/{semainierId}/creneaux/{creneauId} {
+      allow read: if estConnecte();
+      allow write: if false;
+    }
+    match /placard/{entreeId} {
+      allow read: if estConnecte();
+      allow write: if false;
+    }
+    match /livres/{livreId} {
+      allow read: if estConnecte();
+      allow write: if false;
+    }
+    match /illustrations/{recetteId} {
+      allow read: if estConnecte();
+      allow write: if false;
+    }
+    match /photos/{photoId} {
+      allow read: if estConnecte();
+      allow write: if false;
+    }
+    match /comptes/{uid} {
+      allow read: if estConnecte() && request.auth.uid == uid;
+      allow write: if false;
+    }
+    match /appareils/{uid} {
+      allow read: if estConnecte() && request.auth.uid == uid;
+      allow write: if false;
+    }
+    match /menage/{document} {
+      allow read, write: if false;
     }
   }
 }

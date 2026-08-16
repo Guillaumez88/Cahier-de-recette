@@ -152,7 +152,8 @@
      * S'arrête à la première qui échoue et conserve le reste : hors ligne, la file est
      * exactement ce qu'il faut, elle repartira au retour du réseau.
      *
-     * **Sauf pour un refus.** Un 403 ne se réessaie pas : l'appareil n'a pas le droit
+     * **Sauf pour un refus.** Un 403, comme une écriture tentée sans foyer, ne se
+     * réessaie pas : l'appareil n'a pas le droit
      * d'écrire, et il ne l'aura pas davantage dans dix minutes. Garder l'opération
      * laisserait une file qui ne se vide jamais et une bannière « hors ligne »
      * permanente sur un appareil qui, lui, est parfaitement en ligne. Elle est donc
@@ -168,7 +169,9 @@
           file.shift();
           ecrireJson(cleFile, file);
         } catch (erreur) {
-          if (erreur.statut === 403 || erreur.lectureSeule) {
+          // Un refus, un verrou local, ou l'absence de foyer : trois façons de ne pas
+          // avoir le droit d'écrire, et aucune ne se répare en attendant.
+          if (erreur.statut === 403 || erreur.lectureSeule || erreur.sansFoyer) {
             file.shift();
             ecrireJson(cleFile, file);
             refus = erreur;

@@ -4506,9 +4506,58 @@ a.creneau__plat:hover .creneau__titre {
 .ecran-acces__forme .champ-edition {
   flex: 1 1 200px;
 }
+/* En colonne, `flex-basis` mesure la hauteur : sans cette remise à zéro, chaque champ
+   fait 200 px de haut, ce qui donne trois grands cadres vides sur un téléphone. */
+.ecran-acces__forme--colonne .champ-edition {
+  flex: 0 0 auto;
+}
 .ecran-acces__message {
   margin: 14px 0 0;
   min-height: 20px;
   font-size: 14px;
+  color: var(--terracotta-sombre);
+}
+
+/* La page des membres porte une liste en plus du formulaire : elle a besoin d'un peu
+   plus de largeur que l'écran de connexion, qui ne montre que deux champs. */
+.ecran-acces--large {
+  max-width: 680px;
+}
+.ecran-acces h2 {
+  margin: 28px 0 12px;
+  font-size: 18px;
+}
+.membres__liste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.membres__ligne {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--fond);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-sm);
+}
+.membres__email {
+  flex: 1 1 220px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.membres__role,
+.membres__mention {
+  font-size: 13px;
+  color: var(--texte-doux);
+}
+.membres__attente {
+  margin: 0;
+  font-size: 14px;
+  color: var(--texte-doux);
+}
+.lien-action--danger {
   color: var(--terracotta-sombre);
 }

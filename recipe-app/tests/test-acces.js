@@ -1,17 +1,16 @@
-/* Les comptes, dans un vrai navigateur.
+/* Les foyers, les comptes et les rôles, dans un vrai navigateur.
  *
  * Ce que cette suite doit prouver, et qu'aucun test unitaire ne prouve :
  *
- * 1. Sans compte, on lit tout et on ne modifie rien : aucune commande de modification
- *    à l'écran, et coller l'adresse d'un éditeur n'y mène pas.
- * 2. Une écriture forcée depuis la console est refusée par le serveur, et la file
+ * 1. Sans compte, il n'y a rien : pas de carnet, pas de liste, seulement l'écran de
+ *    connexion. Coller l'adresse d'un éditeur n'y change rien.
+ * 2. Créer un compte crée son foyer et donne tous les droits, immédiatement : c'est
+ *    le premier compte du foyer, il n'a personne pour l'autoriser.
+ * 3. Le fondateur inscrit quelqu'un en lecture seule, depuis la page des membres. Ce
+ *    compte-là voit le carnet du foyer et ne peut rien y changer.
+ * 4. Le rôle se change, et le changement se voit à l'écran suivant.
+ * 5. Une écriture forcée depuis la console est refusée par le serveur, et la file
  *    locale ne la garde pas.
- * 3. Créer un compte ne donne aucun droit. Le code de la maison, saisi une fois, les
- *    donne.
- * 4. Les droits suivent la personne, pas l'appareil : se déconnecter les retire, se
- *    reconnecter ailleurs les rend, sans ressaisir le code.
- * 5. Deux navigateurs isolés restent indépendants tant qu'ils ne partagent pas de
- *    compte.
  */
 
 function chargerChromium() {
@@ -29,9 +28,10 @@ const chromium = chargerChromium();
 const OPTIONS_LANCEMENT = process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {};
 
 const BASE = process.argv[2] || 'http://127.0.0.1:8104/';
-const CODE = 'chataigne-des-cevennes';
 const EMAIL = 'cuisine@maison.fr';
 const MOT_DE_PASSE = 'brioche-tropezienne';
+const EMAIL_INVITE = 'invite@maison.fr';
+const MOT_DE_PASSE_INVITE = 'chausson-aux-pommes';
 
 const echecs = [];
 const ok = [];
@@ -53,60 +53,50 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
   [visiteur, cuisinier].forEach((page, i) => {
     page.on('pageerror', (e) => erreurs.push(`page${i}: ${e.message}`));
     page.on('console', (m) => {
-      // Les 403 et 404 attendus (compte non autorisé, illustrations absentes) sont
-      // journalisés par le navigateur : ce sont les erreurs JavaScript qui comptent.
+      // Les 403 et 404 attendus (foyer absent, illustrations absentes) sont journalisés
+      // par le navigateur : ce sont les erreurs JavaScript qui comptent.
       if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) {
         erreurs.push(`page${i} console: ${m.text()}`);
       }
     });
   });
 
-  // Base vide, verrou serveur armé, code posé : c'est l'état d'un vrai projet.
-  await visiteur.request.get(new URL('__stub/etat?reinitialiser=1', BASE).href);
-  await visiteur.request.post(new URL('__stub/exiger-maison', BASE).href, {
-    data: { exiger: true, code: CODE },
-  });
+  // Base vide, verrou serveur armé : c'est l'état d'un vrai projet.
+  await visiteur.request.get(new URL('__stub/etat?reinitialiser=1&vide=1', BASE).href);
+  await visiteur.request.post(new URL('__stub/exiger-maison', BASE).href, { data: { exiger: true } });
 
-  // --- 1. Sans compte : on lit tout, on ne modifie rien ----------------------
+  // --- 1. Sans compte : rien, et une invitation à se connecter ----------------
 
   await visiteur.goto(BASE, { waitUntil: 'networkidle' });
   await attendre(900);
 
   const accueil = await visiteur.evaluate(() => document.body.textContent);
-  verifier('le visiteur voit l’accueil', /Les repas de la semaine/.test(accueil));
-  verifier('le visiteur voit qu’il est en lecture seule', /lecture seule/i.test(accueil));
-
-  await visiteur.goto(`${BASE}#/recette/tapenade-maison`, { waitUntil: 'networkidle' });
-  await attendre(600);
-  const fiche = await visiteur.evaluate(() => document.body.textContent);
-  verifier('le visiteur voit une fiche entière', /Tapenade maison/.test(fiche));
-  verifier('la fiche montre ses ingrédients', /Olives noires/.test(fiche));
-  verifier('pas de bouton Modifier', (await visiteur.locator('#modifier-recette').count()) === 0);
-  verifier('le partage reste proposé', (await visiteur.locator('#partager-recette').count()) === 1);
-
-  await visiteur.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
-  await attendre(500);
-  verifier('pas de formulaire d’ajout', (await visiteur.locator('#ajout-valider').count()) === 0);
+  verifier('sans compte, l’écran demande de se connecter', /Se connecter/.test(accueil), accueil.slice(0, 160));
+  verifier('sans compte, pas de semainier', !/Les repas de la semaine/.test(accueil));
 
   await visiteur.goto(`${BASE}#/recette/tapenade-maison/modifier`, { waitUntil: 'networkidle' });
   await attendre(700);
   verifier(
-    'l’éditeur renvoie à la fiche',
-    (await visiteur.evaluate(() => window.location.hash)) === '#/recette/tapenade-maison',
-    await visiteur.evaluate(() => window.location.hash)
+    'sans compte, l’éditeur n’ouvre pas',
+    (await visiteur.locator('#champ-titre').count()) === 0 && (await visiteur.locator('#email-compte').count()) === 1
   );
 
-  // --- 2. Le serveur refuse une écriture forcée ------------------------------
+  // --- 2. Le serveur refuse une écriture forcée -------------------------------
 
   const refus = await visiteur.evaluate(async () => {
     window.CarnetSync.definirLectureSeule(false);
-    await window.CarnetStorage.addFreeItem('Sel de contrebande', '1 pincée');
+    try {
+      await window.CarnetStorage.addFreeItem('Sel de contrebande', '1 pincée');
+    } catch (erreur) {
+      /* sans foyer, la requête ne part même pas : c'est le résultat attendu */
+    }
     return window.CarnetStorage.etatSync();
   });
-  verifier('le serveur refuse l’écriture sans compte', refus.statut === 403, JSON.stringify(refus.statut));
-  verifier('la file locale ne garde pas le refus', refus.enAttente === 0, String(refus.enAttente));
+  verifier('la file locale ne garde rien', refus.enAttente === 0, String(refus.enAttente));
+  const apresRefus = await (await visiteur.request.get(new URL('__stub/etat', BASE).href)).json();
+  verifier('rien n’a été écrit sur le serveur', apresRefus.nbArticles === 0, String(apresRefus.nbArticles));
 
-  // --- 3. Créer un compte ne donne rien, le code donne tout ------------------
+  // --- 3. Créer un compte crée son foyer, avec tous les droits ----------------
 
   await cuisinier.goto(`${BASE}#/compte`, { waitUntil: 'networkidle' });
   await attendre(700);
@@ -123,31 +113,25 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
   );
 
   await cuisinier.fill('#mot-de-passe', MOT_DE_PASSE);
+  await cuisinier.fill('#nom-foyer', 'Chez nous');
   await cuisinier.click('#creer-compte');
-  await attendre(1200);
-  const apresCreation = await cuisinier.evaluate(() => document.body.textContent);
-  verifier('le compte créé est connecté', /Autoriser ce compte/.test(apresCreation), apresCreation.slice(0, 200));
-  verifier('un compte neuf ne peut pas modifier', (await cuisinier.locator('#code-maison').count()) === 1);
-
-  await cuisinier.fill('#code-maison', 'pas-le-bon-code');
-  await cuisinier.click('#valider-code');
-  await attendre(900);
+  await attendre(1600);
   verifier(
-    'un mauvais code est refusé',
-    /refusé/i.test(await cuisinier.locator('#acces-message').textContent())
-  );
-
-  await cuisinier.fill('#code-maison', CODE);
-  await cuisinier.click('#valider-code');
-  await attendre(1200);
-  verifier(
-    'le bon code ramène à l’accueil',
+    'créer un compte ramène à l’accueil',
     (await cuisinier.evaluate(() => window.location.hash)) === '#/',
     await cuisinier.evaluate(() => window.location.hash)
   );
-  verifier('le compte autorisé peut modifier la semaine', (await cuisinier.locator('#modifier-semaine').count()) === 1);
+  verifier('le fondateur peut modifier la semaine', (await cuisinier.locator('#modifier-semaine').count()) === 1);
 
-  // --- 4. Le compte écrit vraiment ------------------------------------------
+  const apresCreation = await (await cuisinier.request.get(new URL('__stub/etat', BASE).href)).json();
+  verifier('un foyer a été créé', apresCreation.nbFoyers === 1, String(apresCreation.nbFoyers));
+  verifier(
+    'le fondateur y est membre en modification',
+    apresCreation.membres.length === 1 && apresCreation.membres[0].role === 'modification',
+    JSON.stringify(apresCreation.membres)
+  );
+
+  // --- 4. Le fondateur écrit vraiment -----------------------------------------
 
   await cuisinier.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
   await attendre(700);
@@ -155,42 +139,75 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
   await cuisinier.click('#ajout-valider');
   await attendre(1000);
   const etat = await (await cuisinier.request.get(new URL('__stub/etat', BASE).href)).json();
-  verifier('le compte autorisé écrit', etat.nbArticles === 1, String(etat.nbArticles));
-  verifier('un seul compte est autorisé', etat.nbComptes === 1, String(etat.nbComptes));
+  verifier('le fondateur écrit', etat.nbArticles === 1, String(etat.nbArticles));
 
-  // --- 5. Les droits suivent la personne, pas l'appareil ---------------------
+  // --- 5. Inscrire quelqu'un en lecture seule ---------------------------------
 
-  await cuisinier.goto(`${BASE}#/compte`, { waitUntil: 'networkidle' });
-  await attendre(600);
-  await cuisinier.click('#deconnecter');
+  await cuisinier.goto(`${BASE}#/foyer/membres`, { waitUntil: 'networkidle' });
   await attendre(900);
+  verifier('la page des membres s’ouvre', (await cuisinier.locator('#membre-email').count()) === 1);
   verifier(
-    'déconnecté, l’écran redemande une adresse',
-    (await cuisinier.locator('#email-compte').count()) === 1
+    'elle montre le fondateur',
+    /Fondateur du foyer/.test(await cuisinier.evaluate(() => document.body.textContent))
   );
 
-  await cuisinier.goto(`${BASE}#/recette/tapenade-maison`, { waitUntil: 'networkidle' });
-  await attendre(700);
-  verifier('déconnecté, plus de bouton Modifier', (await cuisinier.locator('#modifier-recette').count()) === 0);
+  await cuisinier.fill('#membre-email', EMAIL_INVITE);
+  await cuisinier.fill('#membre-mot-de-passe', MOT_DE_PASSE_INVITE);
+  await cuisinier.selectOption('#membre-role', 'lecture');
+  await cuisinier.click('#ajouter-membre');
+  await attendre(1600);
+  verifier(
+    'le compte du membre est créé',
+    /Compte créé/.test(await cuisinier.locator('#membres-message').textContent()),
+    await cuisinier.locator('#membres-message').textContent()
+  );
 
-  // Le second navigateur, qui n'a jamais vu le code, se connecte au même compte.
+  const apresMembre = await (await cuisinier.request.get(new URL('__stub/etat', BASE).href)).json();
+  verifier('le foyer compte deux membres', apresMembre.nbMembres === 2, String(apresMembre.nbMembres));
+  verifier(
+    'le fondateur est toujours celui qui est connecté',
+    /cuisine@maison\.fr/.test(
+      await cuisinier.evaluate(() => window.localStorage.getItem('carnet-de-recettes:session-compte'))
+    )
+  );
+
+  // --- 6. Le membre en lecture seule voit le carnet, sans y toucher -----------
+
   await visiteur.goto(`${BASE}#/compte`, { waitUntil: 'networkidle' });
   await attendre(700);
-  await visiteur.fill('#email-compte', EMAIL);
-  await visiteur.fill('#mot-de-passe', MOT_DE_PASSE);
+  await visiteur.fill('#email-compte', EMAIL_INVITE);
+  await visiteur.fill('#mot-de-passe', MOT_DE_PASSE_INVITE);
   await visiteur.click('#valider-connexion');
-  await attendre(1400);
+  await attendre(1600);
+
+  await visiteur.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
+  await attendre(900);
+  const listeInvite = await visiteur.evaluate(() => document.body.textContent);
+  verifier('le membre voit la liste du foyer', /Farine/.test(listeInvite), listeInvite.slice(0, 200));
+  verifier('le membre n’a pas de formulaire d’ajout', (await visiteur.locator('#ajout-valider').count()) === 0);
+
+  await visiteur.goto(`${BASE}#/foyer/membres`, { waitUntil: 'networkidle' });
+  await attendre(700);
   verifier(
-    'se connecter ailleurs rend les droits sans ressaisir le code',
-    /Connecté/.test(await visiteur.evaluate(() => document.body.textContent)),
-    (await visiteur.evaluate(() => document.body.textContent)).slice(0, 200)
+    'la page des membres lui est fermée',
+    (await visiteur.evaluate(() => window.location.hash)) === '#/compte',
+    await visiteur.evaluate(() => window.location.hash)
   );
 
-  await visiteur.goto(`${BASE}#/recette/tapenade-maison`, { waitUntil: 'networkidle' });
-  await attendre(700);
-  verifier('et le bouton Modifier revient', (await visiteur.locator('#modifier-recette').count()) === 1);
+  // --- 7. Le rôle se change ----------------------------------------------------
 
-  // --- 6. Aucune erreur JavaScript ------------------------------------------
+  await cuisinier.goto(`${BASE}#/foyer/membres`, { waitUntil: 'networkidle' });
+  await attendre(1000);
+  await cuisinier.getByText('Autoriser à modifier').click();
+  await attendre(1200);
+  const apresPromotion = await (await cuisinier.request.get(new URL('__stub/etat', BASE).href)).json();
+  verifier(
+    'le membre promu peut modifier',
+    apresPromotion.membres.filter((m) => m.role === 'modification').length === 2,
+    JSON.stringify(apresPromotion.membres)
+  );
+
+  // --- 8. Aucune erreur JavaScript --------------------------------------------
 
   verifier('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
 

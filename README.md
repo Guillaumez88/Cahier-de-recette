@@ -173,7 +173,7 @@ qu'en une fois.
 | Poids transféré au chargement | 209 Ko compressés, 34 fichiers |
 | Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
 | Coût de la bibliothèque | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
-| Tests | 167 + 146 sous Node, 489 vérifications navigateur, 20 contre le vrai Firebase |
+| Tests | 167 + 148 sous Node, 487 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -229,13 +229,13 @@ sans voir ce qu'elle protégeait.
     │   └── poser-illustrations.js       Pose les photos d'étapes d'une recette déjà en base
     └── tests/
         ├── run-tests.js           167 tests de la logique métier
-        ├── run-sync-tests.js      146 tests de la synchronisation
+        ├── run-sync-tests.js      148 tests de la synchronisation
         ├── test-web.js            103 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
         ├── test-edition.js         82 vérifications navigateur, modification, parts, nutrition, illustrations
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
         ├── test-bibliotheque.js    67 vérifications navigateur, livres, périmètres, couvertures
-        ├── test-acces.js           24 vérifications navigateur, comptes, connexion et droits
+        ├── test-acces.js           22 vérifications navigateur, foyers, membres et rôles
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -570,21 +570,23 @@ restent acquises : l'outil le dit et donne la commande de reprise, qui les pose 
 sans réécrire la recette :
 
 ```bash
-node tools/poser-illustrations.js <id-de-la-recette> <images>.json --ecrire --code <code>
+node tools/poser-illustrations.js <id-de-la-recette> <images>.json --ecrire \
+  --compte <adresse> --mot-de-passe <mdp>
 ```
 
-#### Les outils sont des appareils comme les autres
+#### Les outils sont des membres du foyer comme les autres
 
-Depuis le partage en lecture seule, Firestore n'accepte l'écriture que des appareils
-inscrits. Les trois outils qui écrivent (`ajouter-recette-au-livre.js`,
-`poser-photo.js`, `poser-illustrations.js`) prennent donc `--code <code de la maison>`.
+Depuis les foyers, Firestore n'accepte la lecture et l'écriture que d'un membre du
+foyer. Les trois outils qui écrivent (`ajouter-recette-au-livre.js`, `poser-photo.js`,
+`poser-illustrations.js`) prennent donc `--compte <adresse> --mot-de-passe <mdp>`, ou
+les variables d'environnement `CARNET_COMPTE` et `CARNET_MOT_DE_PASSE` pour ne pas
+laisser le mot de passe dans l'historique du terminal. Voir `tools/session.js`.
 
 Pourquoi à chaque exécution, et non une fois pour toutes : Node n'a pas de stockage
-local, chaque exécution ouvre une session anonyme neuve avec un identifiant neuf. Il n'y
-a donc rien à retenir d'une fois sur l'autre. Chaque exécution laisse un document dans
-`appareils` ; ils se suppriment depuis la console quand ils encombrent, et ne donnent
-aucun droit à personne, l'identité correspondante étant perdue à la fin du processus.
-Les modes sans `--ecrire` n'ont besoin d'aucun code : ils ne font que lire.
+local, chaque exécution repart d'une session neuve. Il n'y a rien à retenir d'une fois
+sur l'autre, et rien n'est laissé dans la base : la connexion ne crée aucun document.
+Les modes sans `--ecrire` demandent quand même un compte, puisque sans foyer désigné il
+n'y a même pas de chemin Firestore à lire.
 
 ### Renommer un livre, déplacer une recette, poser une couverture
 
@@ -712,10 +714,11 @@ chiffres après un changement de parts.
 
 ### Ce qui reste à faire côté console Firebase
 
-**Deux choses, une seule fois**, pour le partage en lecture seule du 16 août 2026 :
-poser le code de la maison dans `menage/secret`, puis republier `firestore.rules`. Dans
-cet ordre : publier avant de poser le code verrouillerait tout le monde, vous compris.
-Voir `docs/PARTAGE-LECTURE-SEULE-2026-08-16.md`.
+**Republier `firestore.rules`**, pour les foyers du 16 août 2026, puis lancer
+`tools/migrer-vers-foyer.js`. Dans cet ordre, et pas l'inverse : les nouvelles règles
+sont ce qui autorise l'écriture sous `foyers/…`. Entre les deux, l'application déployée
+ne montre rien, elle cherche un foyer qui n'existe pas encore. Voir
+`docs/FOYERS-2026-08-16.md`.
 
 Les sept collections de contenu, elles, sont publiées, `illustrations` comprise depuis
 le 13 août 2026.
@@ -728,49 +731,56 @@ d'étapes plutôt que de ne pas s'afficher. Le symptôme à reconnaître si la s
 reproduit après l'ajout d'une collection : tout fonctionne **sauf** la nouveauté, et
 c'est un 403, pas un 404.
 
-## Se connecter pour modifier
+## Les foyers : se connecter pour voir, un rôle pour modifier
 
-Le site est public : son adresse suffit à tout lire, et c'est voulu, un lien se partage.
-**Écrire demande un compte.** Une personne se connecte à l'adresse `#/compte`, avec une
-adresse e-mail et un mot de passe, par la même API REST que la session anonyme : aucune
-dépendance ajoutée, pas de SDK Firebase.
+Le carnet appartient à un **foyer**, et ne s'ouvre qu'à ses membres. On se connecte à
+l'adresse `#/compte`, avec une adresse e-mail et un mot de passe, par la même API REST
+que la session anonyme : aucune dépendance ajoutée, pas de SDK Firebase.
 
-Se connecter ne suffit pas : le compte doit être **autorisé**, c'est-à-dire posséder son
-document dans la collection `comptes`. Il l'obtient en présentant le code de la maison,
-une fois par compte. Le code n'est comparé qu'au serveur, contre `menage/secret`, dont
-la lecture est refusée à tout le monde : il n'apparaît nulle part dans le site.
+**Créer un compte crée son foyer**, et son fondateur y est membre en modification. Il
+n'y a rien à présenter, rien à retenir : un compte créé mais sans droits serait un écran
+d'attente sans issue, puisque personne n'existerait pour l'autoriser.
 
-**C'est la personne qui est autorisée, pas la machine.** Se connecter sur un autre
-appareil y rend les droits sans ressaisir le code ; se déconnecter les retire de cet
-appareil seulement. C'est ce qui distingue ce modèle du déverrouillage par appareil
-qu'il remplace : un téléphone prêté, réinitialisé ou perdu ne pose plus de question.
+**Les comptes suivants sont créés par le foyer**, depuis `#/foyer/membres` : une
+adresse, un mot de passe transmis de vive voix, et un rôle, « peut modifier » ou
+« lecture seule ». C'est la seule porte d'entrée d'un foyer. Le fondateur n'est ni
+retirable ni rétrogradable, à l'écran comme dans les règles : un foyer où plus personne
+ne peut écrire serait définitivement figé.
 
-La suite est spécifiée dans `docs/COMPTES-2026-08-16.md` : des foyers qui possèdent les
-données, plusieurs comptes par foyer avec un rôle, et le partage d'un livre à une autre
-adresse. Le code de la maison disparaîtra alors.
+Les sept collections de contenu vivent sous `foyers/{foyerId}/…`, l'identifiant du foyer
+étant celui du compte qui l'a créé. `utilisateurs/{uid}` dit à quel foyer un compte
+appartient : c'est la première chose lue à l'ouverture. Voir
+`docs/FOYERS-2026-08-16.md`, et `docs/COMPTES-2026-08-16.md` pour les partages, qui
+restent à faire.
 
-`js/acces.js` tient le second verrou, celui de l'interface : un appareil en lecture
-seule ne voit aucune commande de modification, les écrans d'édition atteints par une
-adresse collée renvoient à l'écran de lecture correspondant, et `sync.js` refuse
-d'envoyer quoi que ce soit. Ce verrou-là est du confort, pas de la sécurité : seul
-celui des règles compte.
+**C'est la personne qui a des droits, pas la machine.** Se connecter sur un autre
+appareil les y rend ; se déconnecter les retire de cet appareil seulement, et efface au
+passage les caches locaux pour que le compte suivant ne voie pas la liste de courses du
+précédent.
 
-**Aucune lecture Firestore n'est faite au chargement pour connaître ce statut.** L'état
-local suffit à décider de l'affichage, et une vérification au démarrage aurait coûté une
-lecture par visite de chaque lecteur d'un lien partagé. La vérification distante est à
-la demande, sur `#/acces` : elle sert à l'appareil de la maison qui a effacé son
-stockage.
+`js/acces.js` tient le second verrou, celui de l'interface : un membre en lecture seule
+ne voit aucune commande de modification, les écrans d'édition atteints par une adresse
+collée renvoient à l'écran de lecture correspondant, et `sync.js` refuse d'envoyer quoi
+que ce soit. Ce verrou-là est du confort, pas de la sécurité : seul celui des règles
+compte.
+
+**Aucune lecture Firestore n'est faite au chargement.** Le foyer et le rôle sont
+mémorisés sur l'appareil et rechargés tels quels ; la vérification distante (deux
+lectures : la fiche d'utilisateur, le document de membre) est à la demande. Un rôle
+rétrogradé ailleurs continue donc d'afficher des boutons jusqu'à la prochaine
+vérification, mais le serveur, lui, refuse les écritures.
 
 Deux détails qui n'en sont pas. Une ligne discrète en bas de l'accueil dit « Carnet en
-lecture seule » et mène à `#/acces` : sans elle, un appareil de la maison qui a effacé
-son stockage croirait à une panne. Et un `403` est **retiré de la file d'attente** au
-lieu d'y être réessayé indéfiniment (voir `js/collection.js`) : un refus n'est pas une
-panne réseau, le garder afficherait « hors ligne » sur un appareil parfaitement en
-ligne.
+lecture seule » et mène à `#/compte` : sans elle, un membre en lecture croirait à une
+panne. Et un `403`, comme une écriture tentée sans foyer, est **retiré de la file
+d'attente** au lieu d'y être réessayé indéfiniment (voir `js/collection.js`) : un refus
+n'est pas une panne réseau, le garder afficherait « hors ligne » sur un appareil
+parfaitement en ligne.
 
-Ce qu'un visiteur voit malgré tout : les recettes et leurs illustrations, la liste de
-courses et le semainier en lecture, la bibliothèque, le partage d'une recette par
-message et le PDF du menu de la semaine.
+**Ce que le changement coûte.** Le lien public ne montre plus rien : sans compte, toutes
+les adresses mènent à l'écran de connexion. Et chaque requête de contenu déclenche un
+`get()` de règle sur le document de membre, facturé comme une lecture, par requête et
+non par document lu.
 
 ## Partager une recette
 
@@ -1067,7 +1077,7 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 cd recipe-app
 node tests/run-tests.js           # 167 tests de la logique métier
 node tests/run-sync-tests.js      # 140 tests de la synchronisation
-node tests/run-browser-tests.js   # 489 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 487 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

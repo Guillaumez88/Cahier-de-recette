@@ -48,7 +48,7 @@ async function attendreTexte(page, motif, limite = 8000) {
   return false;
 }
 
-  // Ces suites testent un carnet ouvert par quelqu'un de connecté et autorisé : c'est
+  // Ces suites testent un carnet ouvert par quelqu'un de connecté, membre de son foyer en modification : c'est
   // l'usage normal. La session est posée avant le premier rendu, comme le ferait une
   // connexion faite la veille ; sans elle l'application s'ouvre en lecture seule et
   // aucun bouton de modification n'existe. Voir js/acces.js et tests/test-acces.js.
@@ -64,7 +64,12 @@ async function attendreTexte(page, motif, limite = 8000) {
         email: 'test@maison.fr',
       })
     );
-    window.localStorage.setItem('carnet-de-recettes:compte-autorise', 'oui');
+    // Le foyer, tel que `js/acces.js` le mémorise : sans lui, aucun chemin Firestore
+    // n'existe et l'application n'affiche que l'écran de connexion.
+    window.localStorage.setItem(
+      'carnet-de-recettes:foyer',
+      JSON.stringify({ foyer: 'compte-test', role: 'modification', nom: 'Foyer de test' })
+    );
   };
 
 (async () => {

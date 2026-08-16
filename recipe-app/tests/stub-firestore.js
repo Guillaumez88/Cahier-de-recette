@@ -26,11 +26,18 @@ const etat = {
   // Les comptes autorisés à écrire, et les comptes tout court : le stub tient les deux,
   // comme Firebase tient l'authentification d'un côté et Firestore de l'autre.
   comptes: new Map(),
-  utilisateurs: new Map(), // email -> { uid, motDePasse }
+  utilisateurs: new Map(), // email -> { uid, motDePasse } : le côté authentification
+  // Le côté Firestore des foyers : la fiche d'un compte (« à quel foyer j'appartiens »),
+  // les foyers eux-mêmes, et leurs membres avec leur rôle. `fiches` porte la collection
+  // `utilisateurs` de la base, que `etat.utilisateurs` ne peut pas nommer : celui-là
+  // tient les comptes d'Identity Toolkit, ce n'est pas la même chose.
+  fiches: new Map(), // uid -> { fields }, collection utilisateurs
+  foyers: new Map(), // foyerId -> { fields }, collection foyers
+  membres: new Map(), // uid -> { fields }, foyers/<id>/membres (un seul foyer par test)
   codeMaison: 'code-de-la-maison',
-  // Quand vrai, l'écriture est refusée aux appareils non inscrits : c'est le
-  // comportement réel des règles. Faux par défaut, pour que les suites écrites avant
-  // le verrou continuent d'écrire sans s'inscrire.
+  // Quand vrai, l'écriture est refusée à qui n'est pas membre du foyer en modification :
+  // c'est le comportement réel des règles. Faux par défaut, pour que les suites écrites
+  // avant le verrou continuent d'écrire sans s'inscrire.
   exigerMaison: false,
   sessions: new Map(), // refreshToken -> compteur
   panne: false, // quand vrai, toute requete Firestore repond 503
@@ -40,7 +47,34 @@ const etat = {
   appels: { lectures: 0, ecritures: 0, suppressions: 0, sessions: 0 },
 };
 
-function reinitialiser() {
+/**
+ * Le foyer de test, et son membre fondateur.
+ *
+ * Les suites qui ne parlent pas de comptes ouvrent le carnet avec une session déjà
+ * posée (voir la constante CONNECTE de chaque suite). Depuis les foyers, cette session
+ * ne suffit plus : l'application demande au serveur à quel foyer le compte appartient,
+ * et sans réponse elle n'affiche que l'écran de connexion. Le foyer est donc recréé à
+ * chaque réinitialisation, sauf demande explicite (`?vide=1`), dont se sert la suite
+ * qui teste précisément la création d'un foyer.
+ */
+const FOYER_DE_TEST = 'compte-test';
+
+function poserFoyerDeTest() {
+  etat.foyers.set(FOYER_DE_TEST, {
+    fields: {
+      nom: { stringValue: 'Foyer de test' },
+      proprietaire: { stringValue: FOYER_DE_TEST },
+    },
+  });
+  etat.membres.set(FOYER_DE_TEST, {
+    fields: { email: { stringValue: 'test@maison.fr' }, role: { stringValue: 'modification' } },
+  });
+  etat.fiches.set(FOYER_DE_TEST, {
+    fields: { email: { stringValue: 'test@maison.fr' }, foyer: { stringValue: FOYER_DE_TEST } },
+  });
+}
+
+function reinitialiser(avecFoyer = true) {
   etat.articles.clear();
   etat.recettes.clear();
   etat.creneaux.clear();
@@ -51,11 +85,15 @@ function reinitialiser() {
   etat.appareils.clear();
   etat.comptes.clear();
   etat.utilisateurs.clear();
+  etat.fiches.clear();
+  etat.foyers.clear();
+  etat.membres.clear();
   etat.sessions.clear();
   etat.panne = false;
   etat.refuserRecettes = false;
   etat.exigerMaison = false;
   etat.appels = { lectures: 0, ecritures: 0, suppressions: 0, sessions: 0 };
+  if (avecFoyer) poserFoyerDeTest();
 }
 
 /**
@@ -166,13 +204,20 @@ async function traiter(requete, reponse) {
   }
 
   if (chemin === '/__stub/etat') {
-    if (url.searchParams.get('reinitialiser') === '1') reinitialiser();
+    if (url.searchParams.get('reinitialiser') === '1') reinitialiser(url.searchParams.get('vide') !== '1');
     repondre(reponse, 200, {
       panne: etat.panne,
       refuserRecettes: etat.refuserRecettes,
       exigerMaison: etat.exigerMaison,
       nbAppareils: etat.appareils.size,
       nbComptes: etat.comptes.size,
+      nbFoyers: etat.foyers.size,
+      nbMembres: etat.membres.size,
+      membres: [...etat.membres.entries()].map(([uid, doc]) => ({
+        uid,
+        email: ((doc.fields || {}).email || {}).stringValue || '',
+        role: ((doc.fields || {}).role || {}).stringValue || '',
+      })),
       nbUtilisateurs: etat.utilisateurs.size,
       nbArticles: etat.articles.size,
       nbRecettes: etat.recettes.size,
@@ -343,21 +388,39 @@ async function traiter(requete, reponse) {
   // chemin /illustrations/... ne serait jamais reconnu comme tel.
   let collection = null;
   let reste = null;
-  ['appareils', 'comptes', 'articles', 'illustrations', 'recettes', 'creneaux', 'photos', 'placard', 'livres'].forEach((nom) => {
+  // L'ordre compte deux fois : « illustrations » avant « recettes », sinon le chemin
+  // /illustrations/... ne serait jamais reconnu comme tel ; et « foyers » en dernier,
+  // parce que tout le contenu vit sous foyers/<id>/<collection> et doit être reconnu
+  // par le nom de sa propre collection, pas par celui du foyer qui la porte.
+  const NOMS = {
+    appareils: 'appareils',
+    comptes: 'comptes',
+    utilisateurs: 'fiches',
+    membres: 'membres',
+    articles: 'articles',
+    illustrations: 'illustrations',
+    recettes: 'recettes',
+    creneaux: 'creneaux',
+    photos: 'photos',
+    placard: 'placard',
+    livres: 'livres',
+    foyers: 'foyers',
+  };
+  Object.keys(NOMS).forEach((nom) => {
     if (collection) return;
     // Deux formes possibles : le chemin de la collection, qui finit par son nom, et
     // celui d'un document, ou le nom est suivi de l'identifiant. On coupe sur la
     // derniere occurrence : un identifiant qui contiendrait le nom de sa collection
     // ferait sinon lire une requete de document comme une requete de collection.
     if (chemin.endsWith('/' + nom)) {
-      collection = etat[nom];
+      collection = etat[NOMS[nom]];
       reste = '';
       return;
     }
     const marque = '/' + nom + '/';
     const position = chemin.lastIndexOf(marque);
     if (position !== -1) {
-      collection = etat[nom];
+      collection = etat[NOMS[nom]];
       reste = chemin.slice(position + marque.length);
     }
   });
@@ -459,12 +522,19 @@ async function traiter(requete, reponse) {
     return true;
   }
 
-  // Le verrou des règles : écrire exige un appareil inscrit.
-  if (etat.exigerMaison && requete.method !== 'GET' && !etat.comptes.has(appareil)) {
-    repondre(reponse, 403, {
-      error: { code: 403, status: 'PERMISSION_DENIED', message: 'Missing or insufficient permissions.' },
-    });
-    return true;
+  // Le verrou des règles, côté contenu : écrire exige d'être membre du foyer, en
+  // modification. Les collections de l'amorçage (le foyer, ses membres, la fiche du
+  // compte) en sont exclues, sinon personne ne pourrait jamais créer le premier foyer.
+  const amorcage = collection === etat.foyers || collection === etat.membres || collection === etat.fiches;
+  if (etat.exigerMaison && requete.method !== 'GET' && !amorcage) {
+    const membre = etat.membres.get(appareil);
+    const role = membre && ((membre.fields || {}).role || {}).stringValue;
+    if (role !== 'modification') {
+      repondre(reponse, 403, {
+        error: { code: 403, status: 'PERMISSION_DENIED', message: 'Missing or insufficient permissions.' },
+      });
+      return true;
+    }
   }
 
   if (collection === etat.recettes && etat.refuserRecettes) {

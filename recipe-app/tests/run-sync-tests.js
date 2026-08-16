@@ -70,11 +70,17 @@ function chargerModules() {
   const Livres = require(path.join(racine, 'js/livres.js'));
   const Illustrations = require(path.join(racine, 'js/illustrations.js'));
   const Photos = require(path.join(racine, 'js/photos.js'));
+  // Toutes les collections de contenu vivent sous un foyer : sans foyer désigné,
+  // `sync.js` refuse de fabriquer un chemin, et il a raison. Les suites qui ne parlent
+  // pas de comptes travaillent donc dans un foyer de test, posé une fois ici.
+  Sync.definirFoyer('foyer-de-test');
   return { config, Sync, Recettes, Storage, Semainier, Placard, Livres, Illustrations, Photos };
 }
 
 function neuf() {
-  stub.reinitialiser();
+  // Sans le foyer de test du stub : ces suites créent le leur quand elles en parlent,
+  // et les autres travaillent dans « foyer-de-test », posé plus bas.
+  stub.reinitialiser(false);
   global.localStorage = faireLocalStorage();
   return chargerModules();
 }
@@ -1997,7 +2003,7 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     if (double.possible) assert.deepStrictEqual(double.recette.nutrition, nutrition);
   });
 
-  // --- Accès : lecture seule et appareils de la maison -----------------------
+  // --- Accès : lecture seule, foyers, membres et rôles -----------------------
 
   await test('un appareil en lecture seule n envoie rien, meme si un bouton reste', async () => {
     const { Sync, Storage } = neuf();
@@ -2015,27 +2021,41 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     Sync.definirLectureSeule(false);
   });
 
-  await test('un compte se cree, s ouvre, et le code de la maison l autorise', async () => {
+  await test('creer un compte cree son foyer, et son fondateur peut ecrire', async () => {
     const { Sync } = neuf();
     stub.etat.exigerMaison = true;
-    stub.etat.codeMaison = 'chataigne-42';
 
     assert.strictEqual(Sync.compteCourant(), null, 'personne au depart');
     await Sync.creerCompte('cuisine@maison.fr', 'motdepasse');
     assert.strictEqual(Sync.compteCourant().email, 'cuisine@maison.fr');
-    assert.strictEqual(await Sync.compteAutorise(), false, 'un compte neuf ne peut rien');
 
-    await assert.rejects(() => Sync.inscrireCompte('mauvais'), (e) => e.statut === 403);
-    assert.strictEqual(await Sync.compteAutorise(), false, 'toujours rien');
+    const uid = Sync.compteCourant().uid;
+    const foyerId = await Sync.creerFoyer('Chez nous');
+    assert.strictEqual(foyerId, uid, 'le foyer porte l identifiant de son fondateur');
+    assert.strictEqual(Sync.foyer(), foyerId, 'et il est pose comme foyer courant');
 
-    await Sync.inscrireCompte('chataigne-42');
-    assert.strictEqual(await Sync.compteAutorise(), true, 'autorise apres le bon code');
+    const membre = await Sync.lireMembre(foyerId, uid);
+    assert.strictEqual(membre.role, 'modification', 'le fondateur peut modifier');
+
+    const fiche = await Sync.lireUtilisateur(uid);
+    assert.strictEqual(fiche.foyer, foyerId, 'sa fiche designe son foyer');
   });
 
-  await test('sans compte autorise, le serveur refuse l ecriture', async () => {
+  await test('sans foyer, aucune lecture ni ecriture n est meme tentee', async () => {
+    const { Sync } = neuf();
+    Sync.definirFoyer(null);
+    Sync.definirLectureSeule(false);
+    await assert.rejects(() => Sync.lireArticles(), (e) => e.sansFoyer === true);
+    await assert.rejects(
+      () => Sync.ecrireArticle({ cle: 'sel', nom: 'Sel', recetteId: '', recetteTitre: '', coche: false }),
+      (e) => e.sansFoyer === true
+    );
+    Sync.definirFoyer('foyer-de-test');
+  });
+
+  await test('sans etre membre du foyer, le serveur refuse l ecriture', async () => {
     const { Sync, Storage } = neuf();
     stub.etat.exigerMaison = true;
-    stub.etat.codeMaison = 'chataigne-42';
 
     // Le verrou d'interface est leve : c'est le serveur qu'on teste.
     Sync.definirLectureSeule(false);
@@ -2044,25 +2064,45 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     assert.strictEqual(Storage.etatSync().statut, 403);
 
     await Sync.creerCompte('cuisine@maison.fr', 'motdepasse');
-    await Sync.inscrireCompte('chataigne-42');
+    await Sync.creerFoyer('Chez nous');
     await Storage.addFreeItem('Poivre', '1 pincée');
-    assert.strictEqual(stub.etat.articles.size, 1, 'ecrit une fois le compte autorise');
+    assert.strictEqual(stub.etat.articles.size, 1, 'ecrit une fois membre du foyer');
   });
 
-  await test('se deconnecter retire les droits, se reconnecter les rend', async () => {
+  await test('le fondateur inscrit un membre sans perdre sa propre session', async () => {
     const { Sync } = neuf();
     stub.etat.exigerMaison = true;
-    stub.etat.codeMaison = 'chataigne-42';
-
     await Sync.creerCompte('cuisine@maison.fr', 'motdepasse');
-    await Sync.inscrireCompte('chataigne-42');
+    const foyerId = await Sync.creerFoyer('Chez nous');
+
+    const invite = await Sync.inscrireMembre('invite@maison.fr', 'motdepasse', 'lecture');
+    assert.strictEqual(
+      Sync.compteCourant().email,
+      'cuisine@maison.fr',
+      'le fondateur reste connecte apres avoir cree un compte'
+    );
+
+    const membres = await Sync.lireMembres(foyerId);
+    assert.strictEqual(membres.length, 2, 'deux membres');
+    const inscrit = membres.find((m) => m.uid === invite.uid);
+    assert.strictEqual(inscrit.role, 'lecture');
+
+    const fiche = await Sync.lireUtilisateur(invite.uid);
+    assert.strictEqual(fiche.foyer, foyerId, 'le membre trouvera son foyer en se connectant');
+  });
+
+  await test('se deconnecter puis se reconnecter retrouve le meme foyer', async () => {
+    const { Sync } = neuf();
+    stub.etat.exigerMaison = true;
+    await Sync.creerCompte('cuisine@maison.fr', 'motdepasse');
+    const foyerId = await Sync.creerFoyer('Chez nous');
+
     Sync.deconnecter();
     assert.strictEqual(Sync.compteCourant(), null);
-    assert.strictEqual(await Sync.compteAutorise(), false, 'deconnecte, plus de droits');
 
-    // Le compte, lui, reste autorise : c'est la personne qui l'est, pas l'appareil.
-    await Sync.connecter('cuisine@maison.fr', 'motdepasse');
-    assert.strictEqual(await Sync.compteAutorise(), true);
+    const compte = await Sync.connecter('cuisine@maison.fr', 'motdepasse');
+    const fiche = await Sync.lireUtilisateur(compte.uid);
+    assert.strictEqual(fiche.foyer, foyerId, 'le foyer se retrouve, il n est pas dans l appareil');
   });
 
   await test('un mot de passe faux ne connecte personne', async () => {
@@ -2079,9 +2119,8 @@ serveur.listen(PORT, '127.0.0.1', async () => {
   await test('l identifiant du compte survit au renouvellement du jeton', async () => {
     const { Sync } = neuf();
     stub.etat.exigerMaison = true;
-    stub.etat.codeMaison = 'chataigne-42';
     await Sync.creerCompte('cuisine@maison.fr', 'motdepasse');
-    await Sync.inscrireCompte('chataigne-42');
+    const foyerId = await Sync.creerFoyer('Chez nous');
     const avant = Sync.uidCourant();
 
     // On force l'expiration : le jeton change, le compte non.
@@ -2089,7 +2128,8 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     brut.expireLe = 0;
     global.localStorage.setItem('carnet-de-recettes:session-compte', JSON.stringify(brut));
 
-    assert.strictEqual(await Sync.compteAutorise(), true, 'toujours autorise');
+    const membre = await Sync.lireMembre(foyerId, avant);
+    assert.strictEqual(membre.role, 'modification', 'toujours membre apres renouvellement');
     assert.strictEqual(Sync.uidCourant(), avant, 'meme identifiant');
   });
 

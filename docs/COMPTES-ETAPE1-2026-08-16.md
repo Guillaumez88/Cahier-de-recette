@@ -1,5 +1,10 @@
 # Étape 1 : les comptes
 
+> **Dépassée le 16 août 2026 par `docs/FOYERS-2026-08-16.md`.** Le code de la maison a
+> été abandonné : il n'avait jamais été posé dans la base, donc aucun compte n'a pu
+> s'autoriser avec lui. Désormais, créer un compte crée son foyer, et les membres
+> suivants sont inscrits depuis la page des membres. Cette note reste pour l'histoire.
+
 Première des cinq étapes de `docs/COMPTES-2026-08-16.md`. Elle est déployable seule et
 ne change rien aux données : on se connecte, et c'est le compte, non l'appareil, qui a
 le droit d'écrire.

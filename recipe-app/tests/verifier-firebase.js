@@ -44,6 +44,30 @@ const Photos = require(path.join(racine, 'js/photos.js'));
 const Placard = require(path.join(racine, 'js/placard.js'));
 const Livres = require(path.join(racine, 'js/livres.js'));
 
+// Depuis les foyers, rien ne se lit ni ne s'écrit sans compte : ce contrôle se
+// connecte donc comme n'importe quel membre, avec CARNET_COMPTE et CARNET_MOT_DE_PASSE.
+const EMAIL = process.env.CARNET_COMPTE;
+const MOT_DE_PASSE = process.env.CARNET_MOT_DE_PASSE;
+if (!EMAIL || !MOT_DE_PASSE) {
+  console.error(
+    'Ce contrôle a besoin d’un compte du foyer :\n' +
+      '  CARNET_COMPTE=<adresse> CARNET_MOT_DE_PASSE=<mdp> node tests/verifier-firebase.js --reel'
+  );
+  process.exit(2);
+}
+
+/** Ouvre la session et pose le foyer. Appelée avant le premier échange. */
+async function ouvrirLaSession() {
+  const compte = await Sync.connecter(EMAIL, MOT_DE_PASSE);
+  const fiche = await Sync.lireUtilisateur(compte.uid);
+  if (!fiche || !fiche.foyer) {
+    console.error(`Le compte ${EMAIL} n’appartient à aucun foyer : rien à vérifier.`);
+    process.exit(2);
+  }
+  Sync.definirFoyer(fiche.foyer);
+  console.log(`Compte ${EMAIL}, foyer ${fiche.foyer}.`);
+}
+
 const RECETTE = {
   id: '__verification__',
   titre: 'Vérification technique',
@@ -128,8 +152,9 @@ async function nettoyer() {
 
 (async () => {
   console.log(`\nProjet : ${config.projectId}`);
-  console.log(`Liste  : listes/${config.listeId}/articles`);
-  console.log(`Menus  : semainiers/${config.semainierId}/creneaux\n`);
+  await ouvrirLaSession();
+  console.log(`Liste  : foyers/${Sync.foyer()}/articles`);
+  console.log(`Menus  : foyers/${Sync.foyer()}/creneaux\n`);
 
   try {
     // Nettoyage préalable, au cas où une exécution précédente ait été interrompue.

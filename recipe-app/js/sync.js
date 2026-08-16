@@ -314,9 +314,40 @@
   }
 
   // --- Requetes Firestore ----------------------------------------------------
+  //
+  // Toutes les collections de contenu vivent sous le foyer : `foyers/<id>/recettes`,
+  // `foyers/<id>/articles`, et ainsi de suite. Un seul préfixe, posé une fois après la
+  // connexion, cloisonne donc tout le carnet. Tant qu'il n'est pas posé, aucune
+  // lecture de contenu n'a de sens : l'application ne sait pas encore de quel foyer
+  // elle parle.
+
+  var foyerCourant = null;
+
+  /** Désigne le foyer dont on lit et écrit les données. */
+  function definirFoyer(id) {
+    foyerCourant = id || null;
+  }
+
+  function foyer() {
+    return foyerCourant;
+  }
+
+  function racine() {
+    return `projects/${config.projectId}/databases/(default)/documents`;
+  }
+
+  /** Le chemin d'une collection du foyer courant. Lève si aucun foyer n'est désigné. */
+  function dansLeFoyer(nom) {
+    if (!foyerCourant) {
+      var erreur = new Error('Aucun foyer désigné : impossible de lire ou d’écrire « ' + nom + ' ».');
+      erreur.sansFoyer = true;
+      throw erreur;
+    }
+    return `${racine()}/foyers/${encodeURIComponent(foyerCourant)}/${nom}`;
+  }
 
   function cheminCollection() {
-    return `projects/${config.projectId}/databases/(default)/documents/listes/${config.listeId}/articles`;
+    return dansLeFoyer('articles');
   }
 
   // --- Mode lecture seule ----------------------------------------------------
@@ -349,64 +380,172 @@
     return appelJson(`${config.baseFirestore}/${chemin}`, Object.assign({}, options, { headers: entetes }));
   }
 
-  // --- Appareils de la maison -------------------------------------------------
+  // --- Foyers, membres, comptes ------------------------------------------------
   //
-  // Un document par appareil, nommé par son identifiant anonyme Firebase. Les règles
-  // n'acceptent sa création que si le code de la maison est le bon, et n'autorisent
-  // l'écriture des recettes qu'aux appareils qui ont ce document. Le code lui-même vit
-  // dans un document que personne ne peut lire : seules les règles le consultent.
+  // Un foyer possède les données. Son identifiant est celui du compte qui l'a créé :
+  // pas de tirage aléatoire, pas de collision, et une règle triviale à écrire
+  // (« tu peux créer le foyer qui porte ton identifiant »).
+  //
+  // Un membre est un document du foyer, nommé par l'identifiant du compte, portant son
+  // rôle : « modification » ou « lecture ». Le fondateur s'inscrit lui-même en
+  // modification à la création ; les suivants sont inscrits par un membre qui peut
+  // modifier. Il n'y a donc aucun code partagé à retenir nulle part.
+  //
+  // `utilisateurs/{uid}` dit à quel foyer un compte appartient : c'est la première
+  // chose lue à l'ouverture, avant de savoir quoi afficher.
 
-  function cheminAppareils() {
-    return `projects/${config.projectId}/databases/(default)/documents/appareils`;
+  function cheminUtilisateurs() {
+    return `${racine()}/utilisateurs`;
   }
 
-  function cheminComptes() {
-    return `projects/${config.projectId}/databases/(default)/documents/comptes`;
+  function cheminFoyers() {
+    return `${racine()}/foyers`;
   }
 
-  /** Vrai si le compte connecté est autorisé à modifier le carnet. */
-  async function compteAutorise() {
-    var courant = compteCourant();
-    if (!courant) return false;
+  function cheminMembres(foyerId) {
+    return `${cheminFoyers()}/${encodeURIComponent(foyerId)}/membres`;
+  }
+
+  /** La fiche du compte connecté : son foyer, son adresse. Null si elle n'existe pas. */
+  async function lireUtilisateur(uid) {
     try {
-      await requete(`${cheminComptes()}/${encodeURIComponent(courant.uid)}`, { method: 'GET' });
-      return true;
+      var corps = await requete(`${cheminUtilisateurs()}/${encodeURIComponent(uid)}`, { method: 'GET' });
+      return champsVersObjet((corps && corps.fields) || {});
     } catch (erreur) {
-      if (erreur.statut === 404 || erreur.statut === 403) return false;
+      if (erreur.statut === 404) return null;
       throw erreur;
     }
   }
 
+  async function ecrireUtilisateur(uid, donnees) {
+    return requete(`${cheminUtilisateurs()}/${encodeURIComponent(uid)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: objetVersChamps(donnees) }),
+    });
+  }
+
+  /** Le membre d'un foyer, avec son rôle. Null s'il n'en est pas. */
+  async function lireMembre(foyerId, uid) {
+    try {
+      var corps = await requete(`${cheminMembres(foyerId)}/${encodeURIComponent(uid)}`, { method: 'GET' });
+      return champsVersObjet((corps && corps.fields) || {});
+    } catch (erreur) {
+      if (erreur.statut === 404 || erreur.statut === 403) return null;
+      throw erreur;
+    }
+  }
+
+  /** Tous les membres d'un foyer, pour l'écran qui les gère. */
+  async function lireMembres(foyerId) {
+    var corps = await requete(`${cheminMembres(foyerId)}?pageSize=100`, { method: 'GET' });
+    return ((corps && corps.documents) || []).map(function (document_) {
+      var champs = champsVersObjet(document_.fields);
+      champs.uid = String(document_.name).split('/').pop();
+      return champs;
+    });
+  }
+
+  async function ecrireMembre(foyerId, uid, donnees) {
+    return requete(`${cheminMembres(foyerId)}/${encodeURIComponent(uid)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: objetVersChamps(donnees) }),
+    });
+  }
+
+  async function supprimerMembre(foyerId, uid) {
+    return requete(`${cheminMembres(foyerId)}/${encodeURIComponent(uid)}`, { method: 'DELETE' });
+  }
+
   /**
-   * Autorise le compte connecté en présentant le code de la maison.
+   * Crée le foyer du compte connecté et l'y inscrit en modification.
    *
-   * L'écriture part avec le verrou local levé : c'est la seule requête qu'un compte
-   * non autorisé doit pouvoir tenter. Le serveur, lui, refuse si le code est faux.
+   * Trois écritures, dans cet ordre : le foyer, le membre fondateur, puis la fiche
+   * d'utilisateur. Si la deuxième échoue, le foyer existe sans membre et personne n'y
+   * touche : c'est réparable. L'inverse laisserait un compte pointant vers un foyer
+   * absent, ce qui l'enfermerait dehors.
    */
-  async function inscrireCompte(code) {
+  async function creerFoyer(nom) {
     var courant = compteCourant();
     if (!courant) throw new Error('Aucun compte connecté.');
+    var foyerId = courant.uid;
+    var maintenantIso = new Date().toISOString();
+
+    // Le verrou d'interface est levé le temps de l'amorçage : ce sont les seules
+    // écritures qu'un compte encore sans foyer doit pouvoir tenter, sans quoi il ne
+    // pourrait jamais en avoir un. Le serveur, lui, ne laisse créer que le foyer qui
+    // porte l'identifiant du compte.
     var avant = lectureSeule;
     lectureSeule = false;
     try {
-      await requete(`${cheminComptes()}/${encodeURIComponent(courant.uid)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: objetVersChamps({
-            code: String(code || ''),
-            email: courant.email || '',
-            inscritLe: new Date().toISOString(),
-          }),
-        }),
-      });
+      return await amorcerFoyer(foyerId, courant, nom, maintenantIso);
     } finally {
       lectureSeule = avant;
     }
-    return true;
   }
 
-  /** L'identifiant qui signe les requêtes : celui du compte, sinon celui de l'appareil. */
+  async function amorcerFoyer(foyerId, courant, nom, maintenantIso) {
+    await requete(`${cheminFoyers()}/${encodeURIComponent(foyerId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: objetVersChamps({
+          nom: String(nom || 'Ma cuisine'),
+          proprietaire: courant.uid,
+          creeLe: maintenantIso,
+        }),
+      }),
+    });
+    await ecrireMembre(foyerId, courant.uid, {
+      email: courant.email || '',
+      role: 'modification',
+      ajouteLe: maintenantIso,
+    });
+    await ecrireUtilisateur(courant.uid, { email: courant.email || '', foyer: foyerId });
+    definirFoyer(foyerId);
+    return foyerId;
+  }
+
+  /**
+   * Crée un compte pour quelqu'un d'autre et l'inscrit dans le foyer courant.
+   *
+   * Le détour par une session temporaire est nécessaire : l'API d'authentification ne
+   * sait créer un compte qu'en ouvrant sa session. On garde donc la session courante,
+   * on crée le compte, on remet la session d'origine, et c'est elle qui écrit le
+   * document de membre. Sans cela, le fondateur se retrouverait connecté à la place du
+   * membre qu'il vient d'inscrire.
+   */
+  async function inscrireMembre(email, motDePasse, role) {
+    var courant = compteCourant();
+    var foyerId = foyer();
+    if (!courant || !foyerId) throw new Error('Aucun foyer courant.');
+
+    var sessionDuFondateur = lireSessionEnregistree();
+    var corps;
+    try {
+      corps = await appelJson(`${config.baseAuth}/accounts:signUp?key=${config.apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, password: motDePasse, returnSecureToken: true }),
+      });
+    } finally {
+      enregistrerSession(sessionDuFondateur);
+    }
+
+    await ecrireMembre(foyerId, corps.localId, {
+      email: String(email || ''),
+      role: role === 'lecture' ? 'lecture' : 'modification',
+      ajouteLe: new Date().toISOString(),
+    });
+    // La fiche d'utilisateur du nouveau membre, pour qu'il trouve son foyer en se
+    // connectant. Écrite par le fondateur : les règles l'autorisent à condition que le
+    // foyer désigné soit le sien.
+    await ecrireUtilisateur(corps.localId, { email: String(email || ''), foyer: foyerId });
+    return { uid: corps.localId, email: email };
+  }
+
+  /** L'identifiant qui signe les requêtes : celui du compte, sinon celui de la session anonyme. */
   function uidCourant() {
     var s = lireSessionEnregistree();
     if (s && s.uid) return s.uid;
@@ -427,47 +566,7 @@
     }
   }
 
-  /** Vrai si cet appareil est inscrit comme appareil de la maison. */
-  async function appareilAutorise() {
-    await obtenirJeton();
-    var uid = uidCourant();
-    if (!uid) return false;
-    try {
-      await requete(`${cheminAppareils()}/${encodeURIComponent(uid)}`, { method: 'GET' });
-      return true;
-    } catch (erreur) {
-      // 404 : appareil inconnu. 403 : les règles refusent, donc pas davantage inscrit.
-      if (erreur.statut === 404 || erreur.statut === 403) return false;
-      throw erreur;
-    }
-  }
-
-  /**
-   * Inscrit cet appareil avec le code de la maison.
-   *
-   * L'écriture part avec le verrou local levé : c'est la seule requête qu'un appareil
-   * en lecture seule doit pouvoir tenter, sans quoi il ne pourrait jamais se
-   * déverrouiller. Le serveur, lui, refuse si le code est faux.
-   */
-  async function inscrireAppareil(code) {
-    await obtenirJeton();
-    var uid = uidCourant();
-    if (!uid) throw new Error('Session absente : impossible d’inscrire cet appareil.');
-    var avant = lectureSeule;
-    lectureSeule = false;
-    try {
-      await requete(`${cheminAppareils()}/${encodeURIComponent(uid)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: objetVersChamps({ code: String(code || ''), inscritLe: new Date().toISOString() }),
-        }),
-      });
-    } finally {
-      lectureSeule = avant;
-    }
-    return true;
-  }
+  // --- Liste de courses --------------------------------------------------------
 
   /** Lit tous les articles de la liste partagee. */
   async function lireArticles() {
@@ -544,7 +643,7 @@
   // Le cout assume est qu'une recette n'est pas interrogeable cote serveur.
 
   function cheminRecettes() {
-    return `projects/${config.projectId}/databases/(default)/documents/recettes`;
+    return dansLeFoyer('recettes');
   }
 
   /** Lit toutes les recettes modifiees. Retourne { id: recette }. */
@@ -614,7 +713,7 @@
   // absent. Vider un creneau est une suppression.
 
   function cheminCreneaux() {
-    return `projects/${config.projectId}/databases/(default)/documents/semainiers/${config.semainierId}/creneaux`;
+    return dansLeFoyer('creneaux');
   }
 
   /** Lit tous les creneaux planifies. */
@@ -670,7 +769,7 @@
   // farine dans ses courses. C'est exactement le defaut corrige sur le semainier.
 
   function cheminPlacard() {
-    return `projects/${config.projectId}/databases/(default)/documents/placard`;
+    return dansLeFoyer('placard');
   }
 
   /** Lit tout le placard. Retourne une liste de { cle, nom }. */
@@ -723,7 +822,7 @@
   // modifient deux documents distincts, sans s'ecraser.
 
   function cheminLivres() {
-    return `projects/${config.projectId}/databases/(default)/documents/livres`;
+    return dansLeFoyer('livres');
   }
 
   /** Lit toute la bibliotheque. Retourne une liste de { id, titre, theme, auteur }. */
@@ -781,7 +880,7 @@
   // ou le nom apparait deux fois (« /illustrations/illustrations-tarte-x »), que tout
   // decoupage naif lit de travers. C'est l'emulation de test qui l'a montre.
   function cheminIllustrations() {
-    return `projects/${config.projectId}/databases/(default)/documents/illustrations`;
+    return dansLeFoyer('illustrations');
   }
 
   /** Lit les illustrations d'une recette. Rend une table { rang: dataUrl }, ou {}. */
@@ -841,7 +940,7 @@
   // largement sous la limite de 1 Mio par document.
 
   function cheminPhotos() {
-    return `projects/${config.projectId}/databases/(default)/documents/photos`;
+    return dansLeFoyer('photos');
   }
 
   /** Lit uniquement les vignettes. Retourne { recetteId: dataUrl }. */
@@ -909,6 +1008,9 @@
   }
 
   var api = {
+    // Exposée pour les outils de migration, qui parlent aux anciens chemins globaux
+    // dont plus aucun assistant de ce module ne connaît la forme.
+    requete: requete,
     idDocument: idDocument,
     cheminRecettes: cheminRecettes,
     lireRecettesModifiees: lireRecettesModifiees,
@@ -953,13 +1055,21 @@
     reinitialiserMotDePasse: reinitialiserMotDePasse,
     jetonDuCompte: jetonDuCompte,
     estLectureSeule: estLectureSeule,
-    cheminAppareils: cheminAppareils,
-    cheminComptes: cheminComptes,
-    compteAutorise: compteAutorise,
-    inscrireCompte: inscrireCompte,
+    definirFoyer: definirFoyer,
+    foyer: foyer,
+    racine: racine,
+    cheminUtilisateurs: cheminUtilisateurs,
+    cheminFoyers: cheminFoyers,
+    cheminMembres: cheminMembres,
+    lireUtilisateur: lireUtilisateur,
+    ecrireUtilisateur: ecrireUtilisateur,
+    lireMembre: lireMembre,
+    lireMembres: lireMembres,
+    ecrireMembre: ecrireMembre,
+    supprimerMembre: supprimerMembre,
+    creerFoyer: creerFoyer,
+    inscrireMembre: inscrireMembre,
     uidCourant: uidCourant,
-    appareilAutorise: appareilAutorise,
-    inscrireAppareil: inscrireAppareil,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

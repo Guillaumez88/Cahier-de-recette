@@ -1419,13 +1419,12 @@
     });
 
     // Une ligne, en bas, pour dire pourquoi il n'y a aucun bouton de modification.
-    // Sans elle, un appareil de la maison qui a effacé son stockage croirait à une
-    // panne. Le lien ne donne rien : il mène à la saisie du code.
+    // Sans elle, quelqu'un inscrit en lecture seule croirait à une panne.
     if (!peutModifier()) {
       fragment.appendChild(
         el('p', { class: 'mention-lecture' }, [
-          el('span', { texte: Acc.compte() ? 'Compte non autorisé : lecture seule. ' : 'Carnet en lecture seule. ' }),
-          el('a', { href: '#/compte', texte: Acc.compte() ? 'Autoriser ce compte' : 'Se connecter' }),
+          el('span', { texte: 'Carnet en lecture seule. ' }),
+          el('a', { href: '#/compte', texte: 'Mon compte' }),
         ])
       );
     }
@@ -1434,18 +1433,12 @@
   }
 
   /**
-   * L'écran de déverrouillage, à l'adresse #/acces.
-   *
-   * Il n'est lié nulle part dans la navigation : un visiteur n'a rien à y faire, et
-   * un appareil de la maison n'y passe qu'une fois. Le code n'est comparé qu'au
-   * serveur, contre un document que personne ne peut lire.
-   */
-  /**
    * L'écran de compte, à l'adresse #/compte.
    *
    * Trois états, et un seul visible à la fois : personne n'est connecté, quelqu'un
-   * l'est mais son compte n'est pas encore autorisé, ou tout est en ordre. Le code de
-   * la maison n'est demandé qu'au deuxième, une fois par compte.
+   * l'est et son foyer est connu, ou son compte n'appartient à aucun foyer. Il n'y a
+   * plus de code : créer un compte crée son foyer, et les membres suivants sont
+   * inscrits depuis #/foyer/membres par quelqu'un qui peut déjà modifier.
    */
   function vueCompte() {
     document.title = 'Mon compte — Miam miam !';
@@ -1460,90 +1453,81 @@
       monter(vueCompte());
     }
 
-    // --- Connecté et autorisé : il n'y a plus rien à demander ------------------
-    if (compte && peutModifier()) {
+    function boutonDeconnexion(classe) {
+      return el('button', {
+        type: 'button',
+        class: classe,
+        id: 'deconnecter',
+        texte: 'Se déconnecter',
+        onclick: function () {
+          Acc.deconnecter();
+          apresChangement('Déconnecté');
+        },
+      });
+    }
+
+    // --- Connecté, foyer connu : ce que ce compte peut faire, et par qui ---------
+    if (compte && Acc.aUnFoyer()) {
+      var modifie = peutModifier();
       fragment.appendChild(
         el('section', { class: 'ecran-acces' }, [
           el('h1', { texte: 'Connecté' }),
-          el('p', { texte: compte.email + ' peut modifier les recettes, la liste de courses et le semainier.' }),
-          el('p', {
-            class: 'ecran-acces__note',
-            texte:
-              'Se déconnecter ne concerne que cet appareil : le carnet y redevient ' +
-              'lisible sans être modifiable, et rien n’est perdu.',
-          }),
-          el('button', {
-            type: 'button',
-            class: 'bouton bouton--secondaire',
-            id: 'deconnecter',
-            texte: 'Se déconnecter',
-            onclick: function () {
-              Acc.deconnecter();
-              apresChangement('Déconnecté');
-            },
-          }),
-        ])
-      );
-      return fragment;
-    }
-
-    // --- Connecté mais pas encore autorisé : le code de la maison --------------
-    if (compte) {
-      var champCode = el('input', {
-        type: 'password',
-        class: 'champ-edition',
-        id: 'code-maison',
-        autocomplete: 'one-time-code',
-        'aria-label': 'Code de la maison',
-        placeholder: 'Code de la maison',
-      });
-
-      fragment.appendChild(
-        el('section', { class: 'ecran-acces' }, [
-          el('h1', { texte: 'Autoriser ce compte' }),
           el('p', {
             texte:
               compte.email +
-              ' est connecté, mais ce compte ne peut encore que lire. Le code de la ' +
-              'maison l’autorise à modifier, une fois pour toutes : les autres appareils ' +
-              'où vous vous connecterez en hériteront.',
+              (modifie
+                ? ' peut modifier les recettes, la liste de courses et le semainier.'
+                : ' peut consulter le carnet du foyer, sans le modifier.'),
           }),
-          el('form', {
-            class: 'ecran-acces__forme',
-            onsubmit: function (evenement) {
-              evenement.preventDefault();
-              message.textContent = 'Vérification…';
-              Acc.autoriserAvecCode(champCode.value).then(function (resultat) {
-                if (resultat.ok) {
-                  window.location.hash = '#/';
-                  router();
-                  annoncer('Ce compte peut désormais modifier le carnet');
-                  return;
-                }
-                message.textContent = resultat.raison;
-              });
-            },
-          }, [
-            champCode,
-            el('button', { type: 'submit', class: 'bouton', id: 'valider-code', texte: 'Autoriser' }),
-          ]),
-          message,
-          el('button', {
-            type: 'button',
-            class: 'lien-action',
-            id: 'deconnecter',
-            texte: 'Se déconnecter',
-            onclick: function () {
-              Acc.deconnecter();
-              apresChangement('Déconnecté');
-            },
+          modifie
+            ? el('p', { class: 'ecran-acces__note' }, [
+                el('span', { texte: 'Pour donner accès au carnet à quelqu’un du foyer : ' }),
+                el('a', { href: '#/foyer/membres', id: 'lien-membres', texte: 'les membres du foyer' }),
+                el('span', { texte: '.' }),
+              ])
+            : el('p', {
+                class: 'ecran-acces__note',
+                texte:
+                  'Le rôle se change depuis la page des membres, par quelqu’un du foyer ' +
+                  'qui peut déjà modifier.',
+              }),
+          el('p', {
+            class: 'ecran-acces__note',
+            texte:
+              'Se déconnecter ne concerne que cet appareil, et rien n’est perdu : le ' +
+              'carnet vit dans le foyer, pas sur le téléphone.',
           }),
+          boutonDeconnexion('bouton bouton--secondaire'),
         ])
       );
       return fragment;
     }
 
-    // --- Personne de connecté : connexion, ou création de compte ---------------
+    // --- Connecté, mais rattaché à aucun foyer ----------------------------------
+    if (compte) {
+      fragment.appendChild(
+        el('section', { class: 'ecran-acces' }, [
+          el('h1', { texte: 'Compte sans foyer' }),
+          el('p', {
+            texte:
+              compte.email +
+              ' est connecté, mais n’appartient à aucun foyer : il n’y a donc rien à ' +
+              'afficher. Un membre du foyer doit l’inscrire depuis la page des membres.',
+          }),
+          el('p', {
+            class: 'ecran-acces__note',
+            texte:
+              'Si c’est vous qui montez ce carnet, créer un compte neuf crée son foyer ' +
+              'du même geste, avec tous les droits.',
+          }),
+          message,
+          boutonDeconnexion('bouton bouton--secondaire'),
+        ])
+      );
+      return fragment;
+    }
+
+    // --- Personne de connecté : connexion, ou création d'un foyer ---------------
     var champEmail = el('input', {
       type: 'email',
       class: 'champ-edition',
@@ -1560,15 +1544,24 @@
       'aria-label': 'Mot de passe',
       placeholder: 'Mot de passe',
     });
+    var champNomFoyer = el('input', {
+      type: 'text',
+      class: 'champ-edition',
+      id: 'nom-foyer',
+      autocomplete: 'off',
+      'aria-label': 'Nom du foyer, pour un compte neuf',
+      placeholder: 'Nom du foyer (à la création)',
+    });
 
     function terminer(resultat) {
       if (!resultat.ok) {
         message.textContent = resultat.raison;
+        if (resultat.sansFoyer) monter(vueCompte());
         return;
       }
-      // Connecté, mais pas forcément autorisé : l'écran suivant le dira.
-      monter(vueCompte());
-      annoncer(peutModifier() ? 'Connecté' : 'Connecté : ce compte doit encore être autorisé');
+      window.location.hash = '#/';
+      router();
+      annoncer(peutModifier() ? 'Connecté' : 'Connecté en lecture seule');
     }
 
     fragment.appendChild(
@@ -1576,9 +1569,9 @@
         el('h1', { texte: 'Se connecter' }),
         el('p', {
           texte:
-            'Le carnet se lit sans compte. Le modifier demande une connexion : les ' +
-            'recettes, la liste de courses et le semainier ne changent que depuis un ' +
-            'compte autorisé.',
+            'Le carnet appartient à un foyer, et ne s’ouvre qu’à ses membres. Créer un ' +
+            'compte crée son foyer : ce premier compte peut tout modifier, et pourra ' +
+            'ensuite inscrire les autres.',
         }),
         el('form', {
           class: 'ecran-acces__forme ecran-acces__forme--colonne',
@@ -1590,16 +1583,17 @@
         }, [
           champEmail,
           champMotDePasse,
+          champNomFoyer,
           el('div', { class: 'ecran-acces__actions' }, [
             el('button', { type: 'submit', class: 'bouton', id: 'valider-connexion', texte: 'Se connecter' }),
             el('button', {
               type: 'button',
               class: 'bouton bouton--secondaire',
               id: 'creer-compte',
-              texte: 'Créer un compte',
+              texte: 'Créer un compte et son foyer',
               onclick: function () {
                 message.textContent = 'Création…';
-                Acc.creerCompte(champEmail.value, champMotDePasse.value).then(terminer);
+                Acc.creerCompte(champEmail.value, champMotDePasse.value, champNomFoyer.value).then(terminer);
               },
             }),
           ]),
@@ -1622,6 +1616,170 @@
       ])
     );
     return fragment;
+  }
+
+  /**
+   * Les membres du foyer, à l'adresse #/foyer/membres.
+   *
+   * C'est la seule porte d'entrée d'un foyer : on y crée le compte de quelqu'un, avec
+   * son rôle. Le mot de passe est choisi ici et se transmet de vive voix ; la personne
+   * le changera par « Mot de passe oublié » si elle le souhaite.
+   *
+   * Le fondateur n'est ni retirable ni rétrogradable : un foyer où plus personne ne
+   * peut écrire serait définitivement figé, et aucun écran ne saurait le rouvrir.
+   */
+  function vueMembres() {
+    document.title = 'Les membres du foyer — Miam miam !';
+    var fragment = document.createDocumentFragment();
+    fragment.appendChild(el('a', { class: 'retour', href: '#/compte', texte: '‹ Retour au compte' }));
+
+    var message = el('p', { class: 'ecran-acces__message', id: 'membres-message' });
+    var liste = el('div', { class: 'membres__liste', id: 'membres-liste' }, [
+      el('p', { class: 'membres__attente', texte: 'Lecture des membres…' }),
+    ]);
+
+    var champEmail = el('input', {
+      type: 'email',
+      class: 'champ-edition',
+      id: 'membre-email',
+      autocomplete: 'off',
+      'aria-label': 'Adresse e-mail du membre',
+      placeholder: 'Adresse e-mail',
+    });
+    var champMotDePasse = el('input', {
+      type: 'text',
+      class: 'champ-edition',
+      id: 'membre-mot-de-passe',
+      autocomplete: 'off',
+      'aria-label': 'Mot de passe provisoire',
+      placeholder: 'Mot de passe (six caractères au moins)',
+    });
+    var champRole = el('select', {
+      class: 'champ-edition',
+      id: 'membre-role',
+      'aria-label': 'Rôle du membre',
+    }, [
+      el('option', { value: 'modification', texte: 'Peut modifier' }),
+      el('option', { value: 'lecture', texte: 'Lecture seule' }),
+    ]);
+
+    function rafraichir() {
+      Acc.membres()
+        .then(function (membres) {
+          liste.textContent = '';
+          if (!membres.length) {
+            liste.appendChild(el('p', { class: 'membres__attente', texte: 'Aucun membre lu.' }));
+            return;
+          }
+          membres
+            .slice()
+            .sort(function (a, b) {
+              return String(a.email || '').localeCompare(String(b.email || ''), 'fr');
+            })
+            .forEach(function (membre) {
+              liste.appendChild(ligneMembre(membre, rafraichir, message));
+            });
+        })
+        .catch(function (erreur) {
+          liste.textContent = '';
+          liste.appendChild(
+            el('p', { class: 'membres__attente', texte: 'Les membres n’ont pas pu être lus : ' + erreur.message })
+          );
+        });
+    }
+
+    fragment.appendChild(
+      el('section', { class: 'ecran-acces ecran-acces--large' }, [
+        el('h1', { texte: 'Les membres du foyer' }),
+        el('p', {
+          texte:
+            'Chaque personne du foyer a son compte. «\u00a0Peut modifier\u00a0» donne les ' +
+            'mêmes droits que vous ; «\u00a0lecture seule\u00a0» laisse consulter le carnet ' +
+            'sans y toucher. Tout le monde voit la même liste de courses et le même semainier.',
+        }),
+        liste,
+        el('h2', { texte: 'Ajouter quelqu’un' }),
+        el('form', {
+          class: 'ecran-acces__forme ecran-acces__forme--colonne',
+          onsubmit: function (evenement) {
+            evenement.preventDefault();
+            message.textContent = 'Création du compte…';
+            Acc.ajouterMembre(champEmail.value, champMotDePasse.value, champRole.value).then(function (resultat) {
+              if (!resultat.ok) {
+                message.textContent = resultat.raison;
+                return;
+              }
+              message.textContent =
+                'Compte créé pour ' + resultat.membre.email + '. Lui transmettre son mot de passe.';
+              champEmail.value = '';
+              champMotDePasse.value = '';
+              rafraichir();
+            });
+          },
+        }, [
+          champEmail,
+          champMotDePasse,
+          champRole,
+          el('button', { type: 'submit', class: 'bouton', id: 'ajouter-membre', texte: 'Créer le compte' }),
+        ]),
+        message,
+      ])
+    );
+
+    rafraichir();
+    return fragment;
+  }
+
+  /** Une ligne de la liste des membres : l'adresse, le rôle, et de quoi les changer. */
+  function ligneMembre(membre, rafraichir, message) {
+    var fondateur = membre.uid === Acc.foyer();
+    var moi = Acc.compte() && Acc.compte().uid === membre.uid;
+
+    var enfants = [
+      el('span', { class: 'membres__email', texte: membre.email || membre.uid }),
+      el('span', {
+        class: 'membres__role',
+        texte: membre.role === 'modification' ? 'Peut modifier' : 'Lecture seule',
+      }),
+    ];
+    if (fondateur) enfants.push(el('span', { class: 'membres__mention', texte: 'Fondateur du foyer' }));
+
+    if (!fondateur) {
+      enfants.push(
+        el('button', {
+          type: 'button',
+          class: 'lien-action',
+          texte: membre.role === 'modification' ? 'Passer en lecture seule' : 'Autoriser à modifier',
+          onclick: function () {
+            message.textContent = 'Changement du rôle…';
+            Acc.changerRole(
+              membre.uid,
+              membre.role === 'modification' ? 'lecture' : 'modification',
+              membre.email
+            ).then(function (resultat) {
+              message.textContent = resultat.ok ? 'Rôle modifié.' : resultat.raison;
+              rafraichir();
+            });
+          },
+        })
+      );
+      enfants.push(
+        el('button', {
+          type: 'button',
+          class: 'lien-action lien-action--danger',
+          texte: moi ? 'Me retirer du foyer' : 'Retirer du foyer',
+          onclick: function () {
+            message.textContent = 'Retrait…';
+            Acc.retirerMembre(membre.uid).then(function (resultat) {
+              message.textContent = resultat.ok ? 'Membre retiré.' : resultat.raison;
+              rafraichir();
+            });
+          },
+        })
+      );
+    }
+
+    return el('div', { class: 'membres__ligne' }, enfants);
   }
 
   /** Re-rendu de l'accueil, uniquement si c'est bien l'ecran affiche. */
@@ -5652,6 +5810,25 @@
       return;
     }
 
+    if (ancre === '/foyer/membres') {
+      // Un membre en lecture seule n'a rien à y faire, et le serveur refuserait de
+      // toute façon : on le renvoie à son compte plutôt que d'ouvrir un formulaire mort.
+      if (!peutModifier()) {
+        window.location.hash = '#/compte';
+        return;
+      }
+      afficher(vueMembres());
+      return;
+    }
+
+    // Sans foyer, il n'y a rien à afficher : aucune donnée n'a été lue, et aucune ne
+    // peut l'être. Toutes les adresses mènent donc à l'écran de connexion, qui explique
+    // pourquoi, au lieu d'un carnet vide qu'on prendrait pour une panne.
+    if (!Acc.aUnFoyer()) {
+      afficher(vueCompte());
+      return;
+    }
+
     // Les écrans d'édition n'existent pas pour un appareil en lecture seule : y
     // arriver par une adresse collée renvoie à l'écran de lecture correspondant,
     // plutôt que d'ouvrir un formulaire dont rien ne partirait.
@@ -5968,20 +6145,22 @@
     // sinon il affiche « à l'instant » une heure durant. Aucun reseau, juste du texte.
     setInterval(majAgeEntete, INTERVALLE_AGE);
 
-    // Le mode de l'appareil est connu avant le premier rendu : sans cela, l'écran
+    // Le foyer et le rôle sont connus avant le premier rendu : sans cela, l'écran
     // afficherait une fraction de seconde des boutons qu'il va retirer.
     //
-    // Rien n'est demandé au serveur ici, et c'est délibéré : le carnet est fait pour
-    // être partagé, une vérification au chargement coûterait une lecture Firestore à
-    // chaque visite de chaque lecteur. L'état local suffit à décider de l'affichage,
-    // et les règles décident du reste. La vérification distante existe, mais elle est
-    // à la demande, sur l'écran #/acces.
+    // Rien n'est demandé au serveur ici, et c'est délibéré : une vérification au
+    // chargement coûterait deux lectures Firestore à chaque ouverture. L'état mémorisé
+    // suffit à décider de l'affichage, et les règles décident du reste. La vérification
+    // distante existe, mais elle est à la demande.
     Acc.initialiser();
     Acc.surChangement(function () {
+      // Un foyer qui apparaît (connexion, création) est le signal d'aller chercher les
+      // données : avant lui, aucun chemin Firestore n'existait.
+      chargerLeFoyer();
       router();
     });
-    // Une lecture, et seulement pour un compte connecté : un lecteur de passage n'en
-    // déclenche aucune. Voir js/acces.js.
+    // Deux lectures, et seulement pour un compte connecté : personne d'autre ne
+    // déclenche quoi que ce soit. Voir js/acces.js.
     if (Acc.compte()) Acc.verifier();
 
     fetch('data/recipes.json')
@@ -5995,48 +6174,80 @@
 
         window.addEventListener('hashchange', router);
         router();
-
-        // Une seule lecture, au chargement. Il n'y a plus de sondage periodique :
-        // la mise a jour passe par le bouton « Rafraichir » de chaque ecran. Voir
-        // l'arithmetique des lectures Firestore dans storage.js.
-        S.surChangement(surChangementListe);
-        S.initialiser();
-
-        Sm.surChangement(surChangementSemainier);
-        Sm.initialiser();
-
-        // Le placard est lu une fois, comme le reste. S'il est inaccessible (regles
-        // non publiees), le carnet fonctionne sans : aucun ingredient n'est ecarte.
-        Pl.initialiser();
-
-        // La bibliotheque est lue une fois, comme le reste. Ses livres sont des
-        // documents minuscules : quelques lectures, une seule fois par chargement.
-        Lv.surChangement(surChangementLivres);
-        Lv.initialiser();
-
-        // Les recettes modifiees sont relues une fois, au chargement. Elles changent
-        // trop rarement pour justifier un sondage permanent.
-        Rc.rafraichir().then(function () {
-          router();
-        });
-
-        // Les vignettes sont relues une fois, comme les recettes : une photo change
-        // encore plus rarement qu'une recette, et chaque lecture pese lourd.
-        Ph.surChangement(surChangementPhotos);
-        // Demarrage a chaud : la copie durable (IndexedDB) s'affiche avant que
-        // Firestore ait repondu. Elle ne remplace jamais ce qui vient du serveur.
-        Ph.initialiser();
-        Ph.rafraichirVignettes()
-          .then(function () {
-            router();
-          })
-          .catch(function () {
-            // Photos illisibles (regles non republiees, hors ligne) : le carnet
-            // fonctionne sans, les cases affichent l'aplat de categorie.
-          });
+        chargerLeFoyer();
       })
       .catch(function (erreur) {
         afficherErreurChargement(erreur.message);
+      });
+  }
+
+  // Les données du foyer ne sont lues qu'une fois, et seulement s'il y a un foyer :
+  // sans lui, `sync.js` refuse de fabriquer un chemin, et il aurait raison. Le drapeau
+  // évite qu'une seconde notification de `Acc` relise tout.
+  var foyerCharge = null;
+  var abonnementsPoses = false;
+  var premierFoyer = true;
+
+  function chargerLeFoyer() {
+    if (!Acc.aUnFoyer() || !etat.recettes) {
+      // Déconnexion : le prochain foyer devra être lu à nouveau.
+      foyerCharge = null;
+      return;
+    }
+    if (foyerCharge === Acc.foyer()) return;
+    foyerCharge = Acc.foyer();
+
+    // Les abonnements ne se posent qu'une fois : les reposer à chaque foyer ferait
+    // rendre l'écran deux fois par changement, puis trois.
+    if (!abonnementsPoses) {
+      abonnementsPoses = true;
+      S.surChangement(surChangementListe);
+      Sm.surChangement(surChangementSemainier);
+      Lv.surChangement(surChangementLivres);
+      Ph.surChangement(surChangementPhotos);
+    }
+
+    // Une seule lecture par collection, au chargement. Il n'y a pas de sondage
+    // periodique : la mise a jour passe par le bouton « Rafraichir » de chaque ecran.
+    // Voir l'arithmetique des lectures Firestore dans storage.js.
+    //
+    // `initialiser` ne lit qu'une fois par chargement de page, par construction. Une
+    // deconnexion suivie d'une autre connexion, sans rechargement, doit donc relire
+    // explicitement : sinon les ecrans resteraient vides, caches effaces et personne
+    // pour les remplir.
+    var lire = premierFoyer ? function (module_) { return module_.initialiser(); }
+                            : function (module_) { return module_.rafraichir(); };
+    premierFoyer = false;
+
+    lire(S);
+    lire(Sm);
+
+    // Le placard est lu une fois, comme le reste. S'il est inaccessible (regles
+    // non publiees), le carnet fonctionne sans : aucun ingredient n'est ecarte.
+    lire(Pl);
+
+    // La bibliotheque est lue une fois, comme le reste. Ses livres sont des
+    // documents minuscules : quelques lectures, une seule fois par chargement.
+    lire(Lv);
+
+    // Les recettes modifiees sont relues une fois, au chargement. Elles changent
+    // trop rarement pour justifier un sondage permanent.
+    Rc.rafraichir().then(function () {
+      router();
+    });
+
+    // Les vignettes sont relues une fois, comme les recettes : une photo change
+    // encore plus rarement qu'une recette, et chaque lecture pese lourd.
+    // Demarrage a chaud : la copie durable (IndexedDB) s'affiche avant que
+    // Firestore ait repondu. Elle ne remplace jamais ce qui vient du serveur.
+    Ph.initialiser();
+    Ph.rafraichirVignettes()
+      .then(function () {
+        router();
+      })
+      .catch(function () {
+        // Photos illisibles (regles non republiees, hors ligne) : le carnet
+        // fonctionne sans, les cases affichent l'aplat de categorie.
       });
   }
 
