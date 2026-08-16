@@ -1755,7 +1755,8 @@
             Acc.changerRole(
               membre.uid,
               membre.role === 'modification' ? 'lecture' : 'modification',
-              membre.email
+              membre.email,
+              membre.ajouteLe
             ).then(function (resultat) {
               message.textContent = resultat.ok ? 'Rôle modifié.' : resultat.raison;
               rafraichir();

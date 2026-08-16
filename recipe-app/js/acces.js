@@ -364,13 +364,19 @@
     }
   }
 
-  /** Change le rôle d'un membre déjà inscrit. */
-  async function changerRole(uid, roleDemande, email) {
+  /**
+   * Change le rôle d'un membre déjà inscrit.
+   *
+   * Le document est réécrit en entier (PATCH sans masque) : on lui repasse donc sa date
+   * d'inscription, sinon changer un rôle l'effacerait.
+   */
+  async function changerRole(uid, roleDemande, email, ajouteLe) {
     if (!peutModifier()) return { ok: false, raison: 'Seul un membre en modification peut changer un rôle.' };
     try {
       await Sync.ecrireMembre(etat.foyer, uid, {
         email: String(email || ''),
         role: roleDemande === 'lecture' ? 'lecture' : 'modification',
+        ajouteLe: String(ajouteLe || new Date().toISOString()),
       });
     } catch (erreur) {
       return { ok: false, raison: raison(erreur) };
