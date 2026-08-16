@@ -173,7 +173,7 @@ qu'en une fois.
 | Poids transféré au chargement | 209 Ko compressés, 34 fichiers |
 | Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
 | Coût de la bibliothèque | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
-| Tests | 167 + 148 sous Node, 489 vérifications navigateur, 20 contre le vrai Firebase |
+| Tests | 167 + 148 sous Node, 492 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -235,7 +235,7 @@ sans voir ce qu'elle protégeait.
         ├── test-edition.js         82 vérifications navigateur, modification, parts, nutrition, illustrations
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
         ├── test-bibliotheque.js    67 vérifications navigateur, livres, périmètres, couvertures
-        ├── test-acces.js           24 vérifications navigateur, foyers, membres et rôles
+        ├── test-acces.js           27 vérifications navigateur, foyers, membres et rôles
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -741,6 +741,10 @@ que la session anonyme : aucune dépendance ajoutée, pas de SDK Firebase.
 n'y a rien à présenter, rien à retenir : un compte créé mais sans droits serait un écran
 d'attente sans issue, puisque personne n'existerait pour l'autoriser.
 
+Le bouton de compte, à droite de l'en-tête, est la porte de tout cela. Il reste
+visible sur mobile, contrairement au reste de la navigation : sans lui, `#/compte` et
+la page des membres n'existeraient que pour qui connaît leur adresse.
+
 **Les comptes suivants sont créés par le foyer**, depuis `#/foyer/membres` : une
 adresse, un mot de passe transmis de vive voix, et un rôle, « peut modifier » ou
 « lecture seule ». C'est la seule porte d'entrée d'un foyer. Le fondateur n'est ni
@@ -1077,7 +1081,7 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 cd recipe-app
 node tests/run-tests.js           # 167 tests de la logique métier
 node tests/run-sync-tests.js      # 140 tests de la synchronisation
-node tests/run-browser-tests.js   # 489 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 492 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

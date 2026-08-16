@@ -140,6 +140,24 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
     JSON.stringify(apresCreation.membres)
   );
 
+  // --- 3 bis. Le compte est atteignable depuis l'en-tête ----------------------
+  //
+  // Sans ce bouton, la page des membres n'existe que pour qui connaît son adresse :
+  // rien dans l'interface n'y mène, et le foyer reste à une personne.
+
+  verifier('l’en-tête porte un bouton de compte', (await cuisinier.locator('.bouton-compte').count()) === 1);
+  await cuisinier.click('.bouton-compte');
+  await attendre(600);
+  verifier(
+    'il mène à l’écran de compte',
+    (await cuisinier.evaluate(() => window.location.hash)) === '#/compte',
+    await cuisinier.evaluate(() => window.location.hash)
+  );
+  verifier(
+    'd’où part le lien vers les membres',
+    (await cuisinier.locator('#lien-membres').count()) === 1
+  );
+
   // --- 4. Le fondateur écrit vraiment -----------------------------------------
 
   await cuisinier.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });

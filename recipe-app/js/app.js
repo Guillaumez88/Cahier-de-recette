@@ -233,6 +233,30 @@
   }
 
   /**
+   * Bouton de compte de l'en-tete : la seule porte vers les membres du foyer.
+   *
+   * Il reste visible sur mobile, contrairement au reste de la navigation, parce que
+   * rien d'autre ne mene a `#/compte` : sans lui, on ne peut ni inscrire quelqu'un ni
+   * se deconnecter sans coller une adresse a la main.
+   *
+   * Il porte l'adresse du compte sur grand ecran, et le seul pictogramme sur mobile :
+   * une adresse e-mail entiere dans une en-tete de telephone pousse le titre dehors.
+   */
+  function boutonCompte() {
+    var compte = Acc.compte();
+    var libelle = compte ? compte.email : 'Se connecter';
+    return el('a', {
+      class: 'bouton-compte' + (routeCourante() === '/compte' ? ' bouton-compte--actif' : ''),
+      href: '#/compte',
+      title: compte ? 'Mon compte et les membres du foyer' : 'Se connecter',
+      'aria-label': compte ? 'Mon compte, ' + compte.email : 'Se connecter',
+    }, [
+      icone('personne', { taille: 18 }),
+      el('span', { class: 'bouton-compte__nom', texte: libelle }),
+    ]);
+  }
+
+  /**
    * Change d'etagere : le livre de cuisine, ou un livre de la bibliotheque.
    *
    * Les filtres sont remis a zero au passage. Sans cela, un filtre « Dessert » herite
@@ -315,6 +339,12 @@
         );
       });
       nav.appendChild(boutonRafraichir());
+    }
+
+    var coinCompte = document.getElementById('compte-entete');
+    if (coinCompte) {
+      coinCompte.textContent = '';
+      coinCompte.appendChild(boutonCompte());
     }
 
     var onglets = document.getElementById('onglets-mobile');

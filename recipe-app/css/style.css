@@ -3288,6 +3288,42 @@ a.creneau__plat:hover .creneau__titre {
   align-items: center;
   gap: 8px;
 }
+/* Le compte, à droite de l'en-tête. Il ne disparaît pas sur mobile : c'est la seule
+   porte vers les membres du foyer et la déconnexion. Seule son adresse s'efface, un
+   e-mail entier pousserait le titre hors de l'écran. */
+.entete__compte {
+  display: flex;
+  align-items: center;
+  margin-left: 10px;
+}
+.bouton-compte {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  padding: 7px 12px;
+  color: var(--texte-doux);
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: 999px;
+  font-size: 14px;
+}
+.bouton-compte:hover {
+  color: var(--texte);
+  border-color: var(--terracotta);
+}
+.bouton-compte--actif {
+  color: var(--blanc);
+  background: var(--terracotta);
+  border-color: var(--terracotta);
+}
+.bouton-compte__nom {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .bouton-entete--actif {
   color: var(--blanc);
   background: var(--terracotta);
@@ -3342,6 +3378,14 @@ a.creneau__plat:hover .creneau__titre {
 @media (max-width: 700px) {
   .entete__nav {
     display: none;
+  }
+
+  /* Le pictogramme seul : l'adresse ne tient pas à côté du titre. */
+  .bouton-compte__nom {
+    display: none;
+  }
+  .bouton-compte {
+    padding: 8px 10px;
   }
 
   .onglets-mobile {
