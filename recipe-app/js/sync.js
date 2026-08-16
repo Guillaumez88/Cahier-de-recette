@@ -199,10 +199,105 @@
     return `projects/${config.projectId}/databases/(default)/documents/listes/${config.listeId}/articles`;
   }
 
+  // --- Mode lecture seule ----------------------------------------------------
+  //
+  // Un verrou local, posé par acces.js quand l'appareil n'est pas un appareil de la
+  // maison. Il ne remplace pas les règles Firestore, qui refusent de toute façon
+  // l'écriture à un appareil non inscrit : il évite qu'un bouton oublié parte quand
+  // même, et rend l'échec lisible plutôt qu'un 403 dans la console.
+  var lectureSeule = false;
+
+  function definirLectureSeule(valeur) {
+    lectureSeule = Boolean(valeur);
+  }
+
+  function estLectureSeule() {
+    return lectureSeule;
+  }
+
   async function requete(chemin, options) {
+    var methode = (options && options.method) || 'GET';
+    if (lectureSeule && methode !== 'GET') {
+      var refus = new Error('Cet appareil est en lecture seule : rien n’a été envoyé.');
+      refus.statut = 403;
+      refus.lectureSeule = true;
+      throw refus;
+    }
     var idToken = await obtenirJeton();
     var entetes = Object.assign({ Authorization: `Bearer ${idToken}` }, (options && options.headers) || {});
     return appelJson(`${config.baseFirestore}/${chemin}`, Object.assign({}, options, { headers: entetes }));
+  }
+
+  // --- Appareils de la maison -------------------------------------------------
+  //
+  // Un document par appareil, nommé par son identifiant anonyme Firebase. Les règles
+  // n'acceptent sa création que si le code de la maison est le bon, et n'autorisent
+  // l'écriture des recettes qu'aux appareils qui ont ce document. Le code lui-même vit
+  // dans un document que personne ne peut lire : seules les règles le consultent.
+
+  function cheminAppareils() {
+    return `projects/${config.projectId}/databases/(default)/documents/appareils`;
+  }
+
+  /** L'identifiant anonyme de cet appareil, lu dans le jeton. Null si pas de session. */
+  function uidCourant() {
+    if (!jeton) jeton = lireJetonEnregistre();
+    if (!jeton || !jeton.idToken) return null;
+    try {
+      var charge = String(jeton.idToken).split('.')[1];
+      // base64url vers base64, puis décodage : pas de dépendance pour lire une charge
+      // utile JWT dont on ne vérifie rien, la vérification est faite par le serveur.
+      var base64 = charge.replace(/-/g, '+').replace(/_/g, '/');
+      var texte = typeof atob === 'function'
+        ? atob(base64)
+        : Buffer.from(base64, 'base64').toString('binary');
+      var objet = JSON.parse(decodeURIComponent(escape(texte)));
+      return objet.user_id || objet.sub || null;
+    } catch (erreur) {
+      return null;
+    }
+  }
+
+  /** Vrai si cet appareil est inscrit comme appareil de la maison. */
+  async function appareilAutorise() {
+    await obtenirJeton();
+    var uid = uidCourant();
+    if (!uid) return false;
+    try {
+      await requete(`${cheminAppareils()}/${encodeURIComponent(uid)}`, { method: 'GET' });
+      return true;
+    } catch (erreur) {
+      // 404 : appareil inconnu. 403 : les règles refusent, donc pas davantage inscrit.
+      if (erreur.statut === 404 || erreur.statut === 403) return false;
+      throw erreur;
+    }
+  }
+
+  /**
+   * Inscrit cet appareil avec le code de la maison.
+   *
+   * L'écriture part avec le verrou local levé : c'est la seule requête qu'un appareil
+   * en lecture seule doit pouvoir tenter, sans quoi il ne pourrait jamais se
+   * déverrouiller. Le serveur, lui, refuse si le code est faux.
+   */
+  async function inscrireAppareil(code) {
+    await obtenirJeton();
+    var uid = uidCourant();
+    if (!uid) throw new Error('Session absente : impossible d’inscrire cet appareil.');
+    var avant = lectureSeule;
+    lectureSeule = false;
+    try {
+      await requete(`${cheminAppareils()}/${encodeURIComponent(uid)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: objetVersChamps({ code: String(code || ''), inscritLe: new Date().toISOString() }),
+        }),
+      });
+    } finally {
+      lectureSeule = avant;
+    }
+    return true;
   }
 
   /** Lit tous les articles de la liste partagee. */
@@ -681,6 +776,12 @@
     lireGrandePhoto: lireGrandePhoto,
     ecrirePhoto: ecrirePhoto,
     supprimerPhoto: supprimerPhoto,
+    definirLectureSeule: definirLectureSeule,
+    estLectureSeule: estLectureSeule,
+    cheminAppareils: cheminAppareils,
+    uidCourant: uidCourant,
+    appareilAutorise: appareilAutorise,
+    inscrireAppareil: inscrireAppareil,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

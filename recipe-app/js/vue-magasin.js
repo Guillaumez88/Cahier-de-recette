@@ -164,10 +164,13 @@
   function ligneMagasin(ligne, outils) {
     var el = outils.el;
 
+    // En lecture seule, la case dit ce qui est déjà pris sans permettre de le
+    // changer : c'est une information, pas une commande. Voir js/acces.js.
     var caseCoche = el('input', {
       type: 'checkbox',
       class: 'magasin__case',
       checked: ligne.coche ? true : null,
+      disabled: outils.peutModifier && !outils.peutModifier() ? 'disabled' : null,
       'aria-label': (ligne.coche ? 'Décocher ' : 'Cocher ') + ligne.nom,
       onchange: function (evenement) {
         var coche = evenement.target.checked;

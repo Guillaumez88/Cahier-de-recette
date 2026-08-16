@@ -87,6 +87,9 @@
     var annoncer = outils.annoncer || function () {};
     var surCreer = outils.surCreer;
     var etat = outils.etat || {};
+    // Un appareil en lecture seule voit la bibliothèque et n'y crée rien : voir
+    // js/acces.js. L'écran reste identique par ailleurs.
+    var peutModifier = outils.peutModifier ? outils.peutModifier() : true;
 
     var livres = Lv.tous();
     var comptes = Rc.comptesParLivre();
@@ -108,7 +111,7 @@
               'Leurs recettes restent hors du planning de la semaine, sauf celles qu’on remonte dans le livre de cuisine.',
           }),
         ]),
-        el('div', { class: 'livre__actions' }, [
+        el('div', { class: 'livre__actions' }, peutModifier ? [
           el('button', {
             type: 'button',
             class: 'bouton',
@@ -117,7 +120,7 @@
               surCreer(etat.themeBiblio || '');
             },
           }, [icone('plus', { taille: 18 }), el('span', { texte: 'Créer un livre' })]),
-        ]),
+        ] : []),
       ])
     );
 
@@ -277,7 +280,7 @@
       // La carte d'ajout ferme le dernier groupe affiché, et pas chacun d'eux :
       // répétée sept fois elle deviendrait du décor. Quand un thème est filtré, elle
       // crée dans ce thème, ce qui est ce qu'on attend en le regardant.
-      if (rang === visibles.length - 1) {
+      if (rang === visibles.length - 1 && peutModifier) {
         cartes.push(
           el('button', {
             type: 'button',

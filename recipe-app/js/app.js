@@ -28,6 +28,20 @@
   var VBib = window.CarnetVueBibliotheque;
   var MPdf = window.CarnetMenuPdf;
   var Ill = window.CarnetIllustrations;
+  var Acc = window.CarnetAcces;
+
+  /**
+   * Vrai si cet appareil peut modifier le carnet. Voir js/acces.js : le vrai verrou
+   * est dans les règles Firestore, celui-ci décide seulement de ce qui s'affiche.
+   */
+  function peutModifier() {
+    return Acc.peutModifier();
+  }
+
+  /** Le nœud si l'appareil peut modifier, rien sinon. Sert à retirer un bouton. */
+  function siMaison(noeud) {
+    return peutModifier() ? noeud : null;
+  }
 
   var criteresVides = L.criteresVides;
   var origineCourte = L.origineCourte;
@@ -915,7 +929,7 @@
 
   function blocSemaine(sem, estCourante) {
     var index = Sm.parCreneau();
-    var editable = Boolean(etat.modeEdition);
+    var editable = Boolean(etat.modeEdition) && peutModifier();
     var ligneMatin = ligneMatinVisible(sem, index, editable);
 
     return el('section', { class: 'semaine' + (estCourante ? ' semaine--courante' : ''), 'data-semaine': sem.cle }, [
@@ -925,14 +939,14 @@
           el('span', { texte: estCourante ? 'Cette semaine' : 'Semaine suivante' }),
         ]),
         el('span', { class: 'semaine__dates', texte: sem.libelle }),
-        el('button', {
+        siMaison(el('button', {
           type: 'button',
           class: 'bouton bouton--sobre',
           'data-courses-semaine': sem.cle,
           onclick: function () {
             ouvrirCoursesSemaine(sem);
           },
-        }, [icone('panier', { taille: 16 }), el('span', { texte: 'Ajouter aux courses' })]),
+        }, [icone('panier', { taille: 16 }), el('span', { texte: 'Ajouter aux courses' })])),
         // Le menu sur papier. Chaque semaine a son bouton : ce sont deux feuilles
         // differentes, et proposer un choix de semaine dans une boite pour deux
         // valeurs serait une etape de plus pour rien.
@@ -948,7 +962,7 @@
         }, [icone('feuille', { taille: 16 }), el('span', { texte: 'PDF' })]),
         // Un seul interrupteur pour tout l'accueil, pas un par semaine : les cases a
         // « + » et la reserve de plats apparaissent ou disparaissent ensemble.
-        el('button', {
+        siMaison(el('button', {
           type: 'button',
           class: 'bouton ' + (editable ? 'bouton--secondaire' : 'bouton--sobre'),
           // Un identifiant unique dans la page : il n'est porte que par la semaine
@@ -963,7 +977,7 @@
         }, [
           icone(editable ? 'coche' : 'crayon', { taille: 16 }),
           el('span', { texte: editable ? 'Terminer' : 'Modifier' }),
-        ]),
+        ])),
       ]),
       el(
         'div',
@@ -1404,6 +1418,103 @@
       fragment.appendChild(deplie ? blocSemaine(sem, sem.contientAujourdhui) : bandeauSemaineRepliee(sem));
     });
 
+    // Une ligne, en bas, pour dire pourquoi il n'y a aucun bouton de modification.
+    // Sans elle, un appareil de la maison qui a effacé son stockage croirait à une
+    // panne. Le lien ne donne rien : il mène à la saisie du code.
+    if (!peutModifier()) {
+      fragment.appendChild(
+        el('p', { class: 'mention-lecture' }, [
+          el('span', { texte: 'Carnet en lecture seule. ' }),
+          el('a', { href: '#/acces', texte: 'Déverrouiller cet appareil' }),
+        ])
+      );
+    }
+
+    return fragment;
+  }
+
+  /**
+   * L'écran de déverrouillage, à l'adresse #/acces.
+   *
+   * Il n'est lié nulle part dans la navigation : un visiteur n'a rien à y faire, et
+   * un appareil de la maison n'y passe qu'une fois. Le code n'est comparé qu'au
+   * serveur, contre un document que personne ne peut lire.
+   */
+  function vueAcces() {
+    document.title = 'Accès — Miam miam !';
+    var fragment = document.createDocumentFragment();
+    fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour à l’accueil' }));
+
+    if (peutModifier()) {
+      fragment.appendChild(
+        el('section', { class: 'acces' }, [
+          el('h1', { texte: 'Cet appareil est un appareil de la maison' }),
+          el('p', {
+            texte:
+              'Il peut modifier les recettes, la liste de courses et le semainier. ' +
+              'Le repasser en lecture seule ne concerne que cet appareil, et se défait ' +
+              'en ressaisissant le code.',
+          }),
+          el('button', {
+            type: 'button',
+            class: 'bouton bouton--secondaire',
+            id: 'verrouiller-appareil',
+            texte: 'Repasser cet appareil en lecture seule',
+            onclick: function () {
+              Acc.verrouiller();
+              monter(vueAcces());
+              annoncer('Cet appareil est repassé en lecture seule');
+            },
+          }),
+        ])
+      );
+      return fragment;
+    }
+
+    var message = el('p', { class: 'acces__message', id: 'acces-message' });
+    var champCode = el('input', {
+      type: 'password',
+      class: 'champ-edition',
+      id: 'code-maison',
+      autocomplete: 'current-password',
+      'aria-label': 'Code de la maison',
+      placeholder: 'Code de la maison',
+    });
+
+    function tenter() {
+      message.textContent = 'Vérification…';
+      Acc.deverrouiller(champCode.value).then(function (resultat) {
+        if (resultat.ok) {
+          annoncer('Cet appareil peut désormais modifier le carnet');
+          window.location.hash = '#/';
+          router();
+          return;
+        }
+        message.textContent = resultat.raison;
+      });
+    }
+
+    fragment.appendChild(
+      el('section', { class: 'acces' }, [
+        el('h1', { texte: 'Déverrouiller cet appareil' }),
+        el('p', {
+          texte:
+            'Le carnet se lit sans rien saisir. Le modifier demande le code de la ' +
+            'maison, une fois par appareil : celui-ci s’en souviendra.',
+        }),
+        el('form', {
+          class: 'acces__forme',
+          onsubmit: function (evenement) {
+            evenement.preventDefault();
+            tenter();
+          },
+        }, [
+          champCode,
+          el('button', { type: 'submit', class: 'bouton', id: 'valider-code', texte: 'Déverrouiller' }),
+        ]),
+        message,
+      ])
+    );
     return fragment;
   }
 
@@ -1483,7 +1594,7 @@
                           onclick: fermerVoile,
                         })
                       : null,
-                    el('button', {
+                    siMaison(el('button', {
                       type: 'button',
                       class: 'bouton bouton--sobre',
                       'data-retirer-plat': actuel.cle,
@@ -1494,14 +1605,14 @@
                           rendreAccueil();
                         });
                       },
-                    }),
+                    })),
                   ]);
                 })
                 .concat([
                   // Vider n'a de sens qu'a partir de deux plats : avec un seul, c'est
                   // le bouton « Retirer » de la ligne, et deux boutons pour le meme
                   // effet font hesiter.
-                  actuels.length > 1
+                  actuels.length > 1 && peutModifier()
                     ? el('div', { class: 'boite__actions' }, [
                         el('button', {
                           type: 'button',
@@ -1935,23 +2046,23 @@
           ]),
         ]),
         el('div', { class: 'livre__actions' }, [
-          el('button', {
+          siMaison(el('button', {
             type: 'button',
             class: 'bouton bouton--sobre',
             id: 'importer-recette',
             onclick: function () {
               ouvrirImport(livre);
             },
-          }, [icone('fleche', { taille: 16 }), el('span', { texte: 'Importer depuis un site' })]),
-          el('a', {
+          }, [icone('fleche', { taille: 16 }), el('span', { texte: 'Importer depuis un site' })])),
+          siMaison(el('a', {
             class: 'bouton',
             id: 'ajouter-recette',
             href: livre ? '#/bibliotheque/' + encodeURIComponent(livre.id) + '/nouvelle' : '#/recette/nouvelle',
           }, [
             icone('plus', { taille: 18 }),
             el('span', { texte: 'Ajouter une recette' }),
-          ]),
-          livre
+          ])),
+          livre && peutModifier()
             ? el('button', {
                 type: 'button',
                 class: 'bouton bouton--sobre',
@@ -1964,7 +2075,7 @@
           // La suppression n'est proposee que sur un livre vide : un livre garni
           // laisserait ses recettes sans etagere, donc invisibles. Le dire ici plutot
           // que de proposer un bouton qui refuse.
-          livre && recettes.length === 0
+          livre && recettes.length === 0 && peutModifier()
             ? el('button', {
                 type: 'button',
                 class: 'bouton bouton--secondaire',
@@ -2147,6 +2258,7 @@
       annoncer: annoncer,
       surCreer: ouvrirCreationLivre,
       etat: etat,
+      peutModifier: peutModifier,
     });
   }
 
@@ -2949,7 +3061,7 @@
 
     fragment.appendChild(
       el('div', { class: 'actions-fiche' }, [
-        el('button', {
+        siMaison(el('button', {
           type: 'button',
           class: 'bouton',
           texte: 'Tout ajouter à la liste',
@@ -2958,8 +3070,8 @@
               monter(vueRecette(id));
             });
           },
-        }),
-        dansListe
+        })),
+        dansListe && peutModifier()
           ? el('button', {
               type: 'button',
               class: 'bouton bouton--secondaire',
@@ -2973,7 +3085,7 @@
           : null,
         // Remonter une recette de livre, c'est la rendre planifiable : c'est le seul
         // effet, et le libelle le dit plutot que de parler de visibilite.
-        livreDeLaFiche
+        livreDeLaFiche && peutModifier()
           ? el('button', {
               type: 'button',
               class: 'bouton bouton--secondaire',
@@ -2998,12 +3110,12 @@
             ouvrirPartage(recette);
           },
         }, [icone('partager', { taille: 16 }), el('span', { texte: 'Partager' })]),
-        el('a', {
+        siMaison(el('a', {
           class: 'bouton bouton--secondaire',
           id: 'modifier-recette',
           href: '#/recette/' + id + '/modifier',
           texte: 'Modifier la recette',
-        }),
+        })),
       ])
     );
 
@@ -3037,7 +3149,7 @@
                   var caseCoche = el('input', {
                     type: 'checkbox',
                     class: 'case-ingredient',
-                    disabled: present ? true : null,
+                    disabled: present || !peutModifier() ? true : null,
                     'data-nom': item.nom,
                     onchange: function (evenement) {
                       if (evenement.target.checked) {
@@ -3062,7 +3174,7 @@
             ]);
           })
           .concat([
-            el('div', { class: 'actions-selection' }, [
+            siMaison(el('div', { class: 'actions-selection' }, [
               el('button', {
                 type: 'button',
                 id: 'ajouter-selection',
@@ -3079,7 +3191,7 @@
                   });
                 },
               }),
-            ]),
+            ])),
           ])
       )
     );
@@ -3314,6 +3426,7 @@
       });
     });
 
+    if (!peutModifier()) return null;
     return el('form', { class: 'ajout-libre', onsubmit: function (e) { e.preventDefault(); valider(); } }, [
       champNom,
       champQuantite,
@@ -3337,7 +3450,7 @@
           return el('li', {}, [
             el('a', { href: '#/recette/' + recette.recetteId, texte: recette.titre }),
             el('span', { class: 'compte-articles', texte: recette.nb + ' article' + (recette.nb > 1 ? 's' : '') }),
-            el('button', {
+            siMaison(el('button', {
               type: 'button',
               class: 'lien-action',
               texte: 'Retirer',
@@ -3347,7 +3460,7 @@
                   monter(vueListeDeCourses());
                 });
               },
-            }),
+            })),
           ]);
         })
       ),
@@ -3356,9 +3469,12 @@
 
   /** Une ligne de la liste : un ingredient, quantites additionnees. */
   function ligneCourses(ligne) {
+    // En lecture seule, la case reste visible mais inerte : elle porte une
+    // information (ce qui est déjà pris), elle n'est plus une commande.
     var caseCoche = el('input', {
       type: 'checkbox',
       checked: ligne.coche ? true : null,
+      disabled: peutModifier() ? null : 'disabled',
       onchange: function (evenement) {
         // Une ligne peut recouvrir plusieurs articles : on les coche tous.
         S.cocherArticles(ligne.articles, evenement.target.checked).then(function () {
@@ -3378,7 +3494,7 @@
       ligne.nbSources > 1
         ? el('span', { class: 'provenance', texte: ligne.recettes.join(' + ') })
         : null,
-      el('button', {
+      siMaison(el('button', {
         type: 'button',
         class: 'supprimer',
         texte: '×',
@@ -3388,7 +3504,7 @@
             monter(vueListeDeCourses());
           });
         },
-      }),
+      })),
     ]);
   }
 
@@ -4132,6 +4248,7 @@
       rendre: function () {
         if (routeCourante() === '/liste-de-courses/magasin') monter(vueMagasin());
       },
+      peutModifier: peutModifier,
     });
   }
 
@@ -4155,7 +4272,9 @@
     // dire. L'age de la liste est porte par le bouton de l'en-tete.
     var etatListe = barreSync();
     if (etatListe) fragment.appendChild(etatListe);
-    fragment.appendChild(formulaireAjoutLibre());
+    // Le formulaire n'existe pas pour un appareil en lecture seule : voir js/acces.js.
+    var ajoutLibre = formulaireAjoutLibre();
+    if (ajoutLibre) fragment.appendChild(ajoutLibre);
 
     if (articles.length === 0) {
       fragment.appendChild(
@@ -4197,18 +4316,18 @@
           href: '#/liste-de-courses/magasin',
           id: 'aller-magasin',
         }, [icone('panier', { taille: 18 }), el('span', { texte: 'En magasin' })]),
-        el('button', {
+        siMaison(el('button', {
           type: 'button',
           class: 'bouton bouton--sobre',
           id: 'ouvrir-placard',
           onclick: ouvrirPlacard,
-        }, [icone('livre', { taille: 16 }), el('span', { texte: 'Placard' })]),
+        }, [icone('livre', { taille: 16 }), el('span', { texte: 'Placard' })])),
       ])
     );
 
     // Le decompte est deja porte par le bloc « Encore a acheter » ci-dessus : cette
     // barre ne garde que les actions.
-    fragment.appendChild(
+    if (peutModifier()) fragment.appendChild(
       el('div', { class: 'barre-resultats barre-resultats--actions' }, [
         el('div', { class: 'actions-liste' }, [
           coches > 0
@@ -5383,6 +5502,21 @@
       annoncer(document.title.replace(' — Miam miam !', '') + (complement ? ', ' + complement : ''));
     };
 
+    if (ancre === '/acces') {
+      afficher(vueAcces());
+      return;
+    }
+
+    // Les écrans d'édition n'existent pas pour un appareil en lecture seule : y
+    // arriver par une adresse collée renvoie à l'écran de lecture correspondant,
+    // plutôt que d'ouvrir un formulaire dont rien ne partirait.
+    if (!peutModifier() && (ancre === '/recette/nouvelle' || /\/modifier$/.test(ancre)
+        || /\/nouvelle$/.test(ancre))) {
+      var repli = ancre.match(/^\/recette\/(.*)\/modifier$/);
+      window.location.hash = repli ? '#/recette/' + repli[1] : '#/';
+      return;
+    }
+
     if (ancre === '/recette/nouvelle') {
       afficher(vueEditeur(null));
       return;
@@ -5688,6 +5822,18 @@
     // Le bouton d'en-tete porte l'age de la donnee : il doit vieillir tout seul,
     // sinon il affiche « à l'instant » une heure durant. Aucun reseau, juste du texte.
     setInterval(majAgeEntete, INTERVALLE_AGE);
+
+    // Le mode de l'appareil est connu avant le premier rendu : sans cela, l'écran
+    // afficherait une fraction de seconde des boutons qu'il va retirer.
+    Acc.initialiser();
+    // Puis on recontrôle auprès du serveur, sans bloquer : un appareil de la maison
+    // qui a effacé son stockage se reconnaît seul, et un appareil retiré redevient
+    // lecteur. Voir js/acces.js.
+    Acc.surChangement(function () {
+      router();
+    });
+    Acc.verifier();
+
     fetch('data/recipes.json')
       .then(function (reponse) {
         if (!reponse.ok) throw new Error('réponse ' + reponse.status + ' du serveur');

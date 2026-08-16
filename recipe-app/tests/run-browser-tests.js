@@ -58,6 +58,7 @@ function attendre(url, restants = 40) {
     ['Modification des recettes et nombre de parts', 'test-edition.js'],
     ['Semainier, photos et création de recettes', 'test-semainier.js'],
     ['Bibliothèque : livres, périmètres et remontée', 'test-bibliotheque.js'],
+    ['Partage en lecture seule et appareils de la maison', 'test-acces.js'],
   ];
 
   let echecs = 0;

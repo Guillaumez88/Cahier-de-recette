@@ -20,7 +20,7 @@ savoir avant de toucher à quoi que ce soit.
 cd recipe-app
 python3 -m http.server 8000        # puis http://localhost:8000
 node tests/run-tests.js            # 167 tests de logique, sans navigateur
-node tests/run-sync-tests.js       # 140 tests de synchronisation, contre une émulation locale
+node tests/run-sync-tests.js       # 144 tests de synchronisation, contre une émulation locale
 ```
 
 Il n'y a **rien à installer**. Pas de `npm install`, pas de `package.json`, pas d'étape
@@ -173,7 +173,7 @@ qu'en une fois.
 | Poids transféré au chargement | 209 Ko compressés, 34 fichiers |
 | Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
 | Coût de la bibliothèque | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
-| Tests | 166 + 140 sous Node, 460 vérifications navigateur, 20 contre le vrai Firebase |
+| Tests | 167 + 144 sous Node, 490 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -229,12 +229,13 @@ sans voir ce qu'elle protégeait.
     │   └── poser-illustrations.js       Pose les photos d'étapes d'une recette déjà en base
     └── tests/
         ├── run-tests.js           167 tests de la logique métier
-        ├── run-sync-tests.js      140 tests de la synchronisation
+        ├── run-sync-tests.js      144 tests de la synchronisation
         ├── test-web.js             98 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
         ├── test-edition.js         82 vérifications navigateur, modification, parts, nutrition, illustrations
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
         ├── test-bibliotheque.js    67 vérifications navigateur, livres, périmètres, couvertures
+        ├── test-acces.js           30 vérifications navigateur, lecture seule et déverrouillage
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -569,8 +570,21 @@ restent acquises : l'outil le dit et donne la commande de reprise, qui les pose 
 sans réécrire la recette :
 
 ```bash
-node tools/poser-illustrations.js <id-de-la-recette> <images>.json --ecrire
+node tools/poser-illustrations.js <id-de-la-recette> <images>.json --ecrire --code <code>
 ```
+
+#### Les outils sont des appareils comme les autres
+
+Depuis le partage en lecture seule, Firestore n'accepte l'écriture que des appareils
+inscrits. Les trois outils qui écrivent (`ajouter-recette-au-livre.js`,
+`poser-photo.js`, `poser-illustrations.js`) prennent donc `--code <code de la maison>`.
+
+Pourquoi à chaque exécution, et non une fois pour toutes : Node n'a pas de stockage
+local, chaque exécution ouvre une session anonyme neuve avec un identifiant neuf. Il n'y
+a donc rien à retenir d'une fois sur l'autre. Chaque exécution laisse un document dans
+`appareils` ; ils se suppriment depuis la console quand ils encombrent, et ne donnent
+aucun droit à personne, l'identité correspondante étant perdue à la fin du processus.
+Les modes sans `--ecrire` n'ont besoin d'aucun code : ils ne font que lire.
 
 ### Renommer un livre, déplacer une recette, poser une couverture
 
@@ -698,8 +712,13 @@ chiffres après un changement de parts.
 
 ### Ce qui reste à faire côté console Firebase
 
-**Rien.** Les sept collections sont publiées, `illustrations` comprise depuis le 13 août
-2026.
+**Deux choses, une seule fois**, pour le partage en lecture seule du 16 août 2026 :
+poser le code de la maison dans `menage/secret`, puis republier `firestore.rules`. Dans
+cet ordre : publier avant de poser le code verrouillerait tout le monde, vous compris.
+Voir `docs/PARTAGE-LECTURE-SEULE-2026-08-16.md`.
+
+Les sept collections de contenu, elles, sont publiées, `illustrations` comprise depuis
+le 13 août 2026.
 
 C'est la seule étape de ce chantier qui ne pouvait pas se faire depuis le dépôt :
 `firestore.rules` y décrit les règles, mais leur publication passe par la console
@@ -708,6 +727,35 @@ Firebase. Tant qu'elle n'avait pas eu lieu, une lecture de `illustrations` répo
 d'étapes plutôt que de ne pas s'afficher. Le symptôme à reconnaître si la situation se
 reproduit après l'ajout d'une collection : tout fonctionne **sauf** la nouveauté, et
 c'est un 403, pas un 404.
+
+## Partager le carnet en lecture seule
+
+Le site est public : son adresse suffit à tout lire, et c'est voulu, un lien se partage.
+**Écrire est autre chose.** Un appareil ne peut modifier le carnet que s'il est inscrit
+dans la collection `appareils`, un document par appareil nommé par son identifiant
+anonyme. Les règles Firestore refusent l'écriture à tous les autres, console du
+navigateur comprise.
+
+Un appareil s'inscrit à l'adresse `#/acces`, en saisissant le code de la maison, une
+fois. Le code n'est comparé qu'au serveur, contre `menage/secret`, dont la lecture est
+refusée à tout le monde : il n'apparaît nulle part dans le site.
+
+`js/acces.js` tient le second verrou, celui de l'interface : un appareil en lecture
+seule ne voit aucune commande de modification, les écrans d'édition atteints par une
+adresse collée renvoient à l'écran de lecture correspondant, et `sync.js` refuse
+d'envoyer quoi que ce soit. Ce verrou-là est du confort, pas de la sécurité : seul
+celui des règles compte.
+
+Deux détails qui n'en sont pas. Une ligne discrète en bas de l'accueil dit « Carnet en
+lecture seule » et mène à `#/acces` : sans elle, un appareil de la maison qui a effacé
+son stockage croirait à une panne. Et un `403` est **retiré de la file d'attente** au
+lieu d'y être réessayé indéfiniment (voir `js/collection.js`) : un refus n'est pas une
+panne réseau, le garder afficherait « hors ligne » sur un appareil parfaitement en
+ligne.
+
+Ce qu'un visiteur voit malgré tout : les recettes et leurs illustrations, la liste de
+courses et le semainier en lecture, la bibliothèque, le partage d'une recette par
+message et le PDF du menu de la semaine.
 
 ## Partager une recette
 
@@ -1004,7 +1052,7 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 cd recipe-app
 node tests/run-tests.js           # 167 tests de la logique métier
 node tests/run-sync-tests.js      # 140 tests de la synchronisation
-node tests/run-browser-tests.js   # 460 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 490 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

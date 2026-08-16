@@ -23,13 +23,54 @@ rules_version = '2';
 //   mal intentionné qui aurait ouvert une session, mais cela empêche qu'un bogue
 //   ou un appel malformé remplisse la base de documents inexploitables.
 //
-// Limite assumée : une session anonyme est gratuite et automatique, donc quelqu'un
-// qui trouve l'URL du site peut lire et modifier la liste. C'est le compromis
-// retenu, adapté à une liste de courses familiale. Pour aller plus loin il
-// faudrait de vrais comptes, ou App Check pour n'autoriser que votre domaine.
+// - **La lecture est ouverte, l'écriture ne l'est pas.** Le site est public : son
+//   adresse suffit à le consulter, et c'est voulu, un lien peut se partager. Écrire,
+//   en revanche, exige que l'appareil soit inscrit dans la collection `appareils`,
+//   un document par appareil, nommé par son identifiant anonyme. Un visiteur peut
+//   donc tout lire et ne rien changer, y compris depuis la console du navigateur.
+//
+// - **Le code de la maison ne se lit pas.** Il vit dans `menage/secret`, dont la
+//   lecture est refusée à tout le monde. Seules ces règles le consultent, avec
+//   get(), pour valider l'inscription d'un nouvel appareil. Il n'apparaît donc
+//   nulle part dans le site ni dans la base lisible.
+//
+// Limite assumée : rien ne limite le nombre de tentatives d'inscription. Un code
+// court se devinerait à force d'essais ; en choisir un long, d'au moins douze
+// caractères. Et un appareil qui efface les données du site perd son identité
+// anonyme : il faut ressaisir le code une fois.
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // --- Qui a le droit d'écrire ---------------------------------------------
+    //
+    // Un appareil de la maison est un appareil qui possède son document dans
+    // `appareils`. Il l'obtient en présentant le code de la maison, une fois.
+
+    function estMaison() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/appareils/$(request.auth.uid));
+    }
+
+    // Le code de la maison. Personne ne peut le lire ni l'écrire depuis un client :
+    // il se pose à la main dans la console Firebase, et seules ces règles le
+    // consultent. Le changer suffit à empêcher toute nouvelle inscription.
+    match /menage/{document} {
+      allow read, write: if false;
+    }
+
+    // Un appareil, nommé par son identifiant anonyme. Il ne peut créer que le sien,
+    // et seulement avec le bon code. Ni modification ni suppression : retirer un
+    // appareil se fait dans la console, pour qu'aucun appareil ne puisse en exclure
+    // un autre.
+    match /appareils/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.code is string
+        && request.resource.data.code == get(/databases/$(database)/documents/menage/secret).data.code;
+      allow update, delete: if false;
+    }
 
     match /listes/{listeId}/articles/{articleId} {
 
@@ -47,8 +88,8 @@ service cloud.firestore {
       }
 
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null && articleValide();
-      allow delete: if request.auth != null;
+      allow create, update: if estMaison() && articleValide();
+      allow delete: if estMaison();
     }
 
     // Recettes modifiées depuis l'application. Une recette est enregistrée comme
@@ -70,8 +111,8 @@ service cloud.firestore {
       }
 
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null && recetteValide();
-      allow delete: if request.auth != null;
+      allow create, update: if estMaison() && recetteValide();
+      allow delete: if estMaison();
     }
 
     // Semainier commun : un document par créneau de repas, dont la clé porte la
@@ -94,8 +135,8 @@ service cloud.firestore {
       }
 
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null && creneauValide();
-      allow delete: if request.auth != null;
+      allow create, update: if estMaison() && creneauValide();
+      allow delete: if estMaison();
     }
 
     // Le placard : les ingrédients qu'on a toujours et qu'il ne faut pas racheter.
@@ -115,8 +156,8 @@ service cloud.firestore {
       }
 
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null && entreeValide();
-      allow delete: if request.auth != null;
+      allow create, update: if estMaison() && entreeValide();
+      allow delete: if estMaison();
     }
 
     // La bibliothèque : les livres de cuisine « en vrai » de la maison, chacun étant
@@ -137,8 +178,8 @@ service cloud.firestore {
       }
 
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null && livreValide();
-      allow delete: if request.auth != null;
+      allow create, update: if estMaison() && livreValide();
+      allow delete: if estMaison();
     }
 
     // Illustrations des étapes d'une recette : un document par recette, contenant
@@ -163,8 +204,8 @@ service cloud.firestore {
       }
 
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null && illustrationsValides();
-      allow delete: if request.auth != null;
+      allow create, update: if estMaison() && illustrationsValides();
+      allow delete: if estMaison();
     }
 
     // Photos des recettes, une par recette, en deux tailles dans le même document :
@@ -186,8 +227,8 @@ service cloud.firestore {
       }
 
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null && photoValide();
-      allow delete: if request.auth != null;
+      allow create, update: if estMaison() && photoValide();
+      allow delete: if estMaison();
     }
   }
 }

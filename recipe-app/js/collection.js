@@ -148,10 +148,19 @@
 
     /**
      * Envoie les opérations en attente, dans l'ordre.
-     * S'arrête à la première qui échoue et conserve le reste.
+     *
+     * S'arrête à la première qui échoue et conserve le reste : hors ligne, la file est
+     * exactement ce qu'il faut, elle repartira au retour du réseau.
+     *
+     * **Sauf pour un refus.** Un 403 ne se réessaie pas : l'appareil n'a pas le droit
+     * d'écrire, et il ne l'aura pas davantage dans dix minutes. Garder l'opération
+     * laisserait une file qui ne se vide jamais et une bannière « hors ligne »
+     * permanente sur un appareil qui, lui, est parfaitement en ligne. Elle est donc
+     * retirée, et l'erreur remontée pour que l'écran le dise.
      */
     async function viderFile() {
       var file = lireFile();
+      var refus = null;
 
       while (file.length > 0) {
         try {
@@ -159,10 +168,18 @@
           file.shift();
           ecrireJson(cleFile, file);
         } catch (erreur) {
+          if (erreur.statut === 403 || erreur.lectureSeule) {
+            file.shift();
+            ecrireJson(cleFile, file);
+            refus = erreur;
+            continue;
+          }
           ecrireJson(cleFile, file);
           throw erreur;
         }
       }
+
+      if (refus) throw refus;
     }
 
     async function pousser() {

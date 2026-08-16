@@ -19,6 +19,15 @@ const etat = {
   placard: new Map(), // idDocument -> { fields }, collection placard
   livres: new Map(), // idDocument -> { fields }, collection livres (la bibliotheque)
   illustrations: new Map(), // idDocument -> { fields }, illustrations des etapes
+  // Les appareils de la maison : un document par identifiant anonyme, comme en
+  // production. Le code n'est comparé qu'ici, comme les règles le font avec un
+  // document que le client ne peut pas lire.
+  appareils: new Map(),
+  codeMaison: 'code-de-la-maison',
+  // Quand vrai, l'écriture est refusée aux appareils non inscrits : c'est le
+  // comportement réel des règles. Faux par défaut, pour que les suites écrites avant
+  // le verrou continuent d'écrire sans s'inscrire.
+  exigerMaison: false,
   sessions: new Map(), // refreshToken -> compteur
   panne: false, // quand vrai, toute requete Firestore repond 503
   // Quand vrai, seule la collection `recettes` est refusee, comme le ferait un
@@ -35,10 +44,28 @@ function reinitialiser() {
   etat.placard.clear();
   etat.livres.clear();
   etat.illustrations.clear();
+  etat.appareils.clear();
   etat.sessions.clear();
   etat.panne = false;
   etat.refuserRecettes = false;
+  etat.exigerMaison = false;
   etat.appels = { lectures: 0, ecritures: 0, suppressions: 0, sessions: 0 };
+}
+
+/**
+ * Un jeton de la forme d'un JWT : trois parties, dont une charge utile lisible.
+ *
+ * L'application y lit l'identifiant de l'appareil (`user_id`) pour savoir sous quel
+ * nom l'inscrire. Un jeton opaque « jeton-3 » suffisait tant que personne ne le
+ * décodait ; il ne suffit plus.
+ */
+function jetonFactice(n, suffixe) {
+  const charge = Buffer.from(JSON.stringify({ user_id: `anonyme-${n}`, sub: `anonyme-${n}` }))
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  return `jeton-${n}${suffixe ? '-' + suffixe : ''}.${charge}.signature`;
 }
 
 function repondre(reponse, statut, corps) {
@@ -95,6 +122,20 @@ async function traiter(requete, reponse) {
     return true;
   }
 
+  if (chemin === '/__stub/exiger-maison') {
+    const corps = await lireCorps(requete);
+    let demande = {};
+    try {
+      demande = corps ? JSON.parse(corps) : {};
+    } catch (erreur) {
+      demande = {};
+    }
+    etat.exigerMaison = Boolean(demande.exiger);
+    if (demande.code) etat.codeMaison = String(demande.code);
+    repondre(reponse, 200, { exigerMaison: etat.exigerMaison, nbAppareils: etat.appareils.size });
+    return true;
+  }
+
   if (chemin === '/__stub/refuser-recettes') {
     const corps = await lireCorps(requete);
     let demande = {};
@@ -113,6 +154,8 @@ async function traiter(requete, reponse) {
     repondre(reponse, 200, {
       panne: etat.panne,
       refuserRecettes: etat.refuserRecettes,
+      exigerMaison: etat.exigerMaison,
+      nbAppareils: etat.appareils.size,
       nbArticles: etat.articles.size,
       nbRecettes: etat.recettes.size,
       nbCreneaux: etat.creneaux.size,
@@ -156,7 +199,7 @@ async function traiter(requete, reponse) {
     const refreshToken = `refresh-${etat.appels.sessions}`;
     etat.sessions.set(refreshToken, 0);
     repondre(reponse, 200, {
-      idToken: `jeton-${etat.appels.sessions}`,
+      idToken: jetonFactice(etat.appels.sessions),
       refreshToken,
       expiresIn: '3600',
       localId: `anonyme-${etat.appels.sessions}`,
@@ -174,8 +217,12 @@ async function traiter(requete, reponse) {
     }
     const n = etat.sessions.get(refreshToken) + 1;
     etat.sessions.set(refreshToken, n);
+    // Le jeton change à chaque renouvellement, l'identité de l'appareil non : c'est
+    // le même appareil, sinon son inscription dans la maison serait perdue à chaque
+    // heure. Le numéro de session est celui du refresh token, « refresh-3 ».
+    const numeroSession = Number(String(refreshToken).replace('refresh-', '')) || 0;
     repondre(reponse, 200, {
-      id_token: `${refreshToken}-renouvele-${n}`,
+      id_token: jetonFactice(numeroSession, `renouvele-${n}`),
       refresh_token: refreshToken,
       expires_in: '3600',
     });
@@ -204,7 +251,7 @@ async function traiter(requete, reponse) {
   // chemin /illustrations/... ne serait jamais reconnu comme tel.
   let collection = null;
   let reste = null;
-  ['articles', 'illustrations', 'recettes', 'creneaux', 'photos', 'placard', 'livres'].forEach((nom) => {
+  ['appareils', 'articles', 'illustrations', 'recettes', 'creneaux', 'photos', 'placard', 'livres'].forEach((nom) => {
     if (collection) return;
     // Deux formes possibles : le chemin de la collection, qui finit par son nom, et
     // celui d'un document, ou le nom est suivi de l'identifiant. On coupe sur la
@@ -225,6 +272,67 @@ async function traiter(requete, reponse) {
 
   if (!collection) {
     repondre(reponse, 404, { error: { code: 404, message: 'collection inconnue' } });
+    return true;
+  }
+
+  // L'appareil courant, déduit du jeton porteur : « jeton-3 » vaut pour l'appareil 3.
+  const porteur = String(requete.headers.authorization || '').replace('Bearer ', '');
+  let appareil = '';
+  try {
+    const charge = porteur.split('.')[1];
+    appareil = JSON.parse(Buffer.from(charge, 'base64').toString('utf8')).user_id || '';
+  } catch (erreur) {
+    appareil = '';
+  }
+
+  if (collection === etat.appareils) {
+    if (requete.method === 'GET') {
+      etat.appels.lectures += 1;
+      // Verrou désarmé : la base se comporte comme avant le partage en lecture seule,
+      // où tout appareil authentifié pouvait écrire. Tout appareil est donc « de la
+      // maison », ce qui laisse les suites écrites avant ce chantier inchangées.
+      if (!etat.exigerMaison) {
+        repondre(reponse, 200, { name: reste, fields: {} });
+        return true;
+      }
+      const inscrit = etat.appareils.get(decodeURIComponent(reste));
+      if (!inscrit) {
+        repondre(reponse, 404, { error: { code: 404, message: 'appareil inconnu' } });
+        return true;
+      }
+      repondre(reponse, 200, { name: reste, fields: inscrit.fields });
+      return true;
+    }
+    if (requete.method === 'PATCH') {
+      const corpsAppareil = await lireCorps(requete);
+      let demandeAppareil = {};
+      try {
+        demandeAppareil = JSON.parse(corpsAppareil || '{}');
+      } catch (erreur) {
+        demandeAppareil = {};
+      }
+      const code = ((demandeAppareil.fields || {}).code || {}).stringValue;
+      if (code !== etat.codeMaison) {
+        repondre(reponse, 403, {
+          error: { code: 403, status: 'PERMISSION_DENIED', message: 'Missing or insufficient permissions.' },
+        });
+        return true;
+      }
+      etat.appels; // eslint-disable-line no-unused-expressions
+      etat.appels.ecritures += 1;
+      etat.appareils.set(decodeURIComponent(reste), { fields: demandeAppareil.fields || {} });
+      repondre(reponse, 200, { name: reste, fields: demandeAppareil.fields || {} });
+      return true;
+    }
+    repondre(reponse, 403, { error: { code: 403, message: 'interdit' } });
+    return true;
+  }
+
+  // Le verrou des règles : écrire exige un appareil inscrit.
+  if (etat.exigerMaison && requete.method !== 'GET' && !etat.appareils.has(appareil)) {
+    repondre(reponse, 403, {
+      error: { code: 403, status: 'PERMISSION_DENIED', message: 'Missing or insufficient permissions.' },
+    });
     return true;
   }
 

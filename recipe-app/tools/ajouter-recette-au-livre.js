@@ -60,6 +60,7 @@ const racine = path.join(__dirname, '..');
 const Sync = require(path.join(racine, 'js/sync.js'));
 const Recettes = require(path.join(racine, 'js/recettes.js'));
 const Quantites = require(path.join(racine, 'js/quantites.js'));
+const { presenterCode } = require(path.join(__dirname, 'maison.js'));
 
 const [, , chemin, idLivre, ...options] = process.argv;
 const ecrire = options.includes('--ecrire');
@@ -241,6 +242,10 @@ function verifierImages(images) {
     console.log('\nRien n’a été écrit. Relancer avec --ecrire pour envoyer la recette.\n');
     return;
   }
+
+  // Le serveur n'accepte l'écriture que d'un appareil de la maison : voir
+  // tools/maison.js. Sans --code, l'écriture ci-dessous sera refusée.
+  await presenterCode(options, sortir);
 
   await Sync.ecrireRecette(aEcrire);
 

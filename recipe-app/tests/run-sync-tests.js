@@ -1997,6 +1997,76 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     if (double.possible) assert.deepStrictEqual(double.recette.nutrition, nutrition);
   });
 
+  // --- Accès : lecture seule et appareils de la maison -----------------------
+
+  await test('un appareil en lecture seule n envoie rien, meme si un bouton reste', async () => {
+    const { Sync, Storage } = neuf();
+    Sync.definirLectureSeule(true);
+    // La liste est optimiste : l'article s'affiche d'abord, puis part. Ici il ne
+    // part pas, et la file ne le garde pas non plus : un refus ne se réessaie pas.
+    await Storage.addFreeItem('Sel', '1 pincée');
+    assert.strictEqual(stub.etat.articles.size, 0, 'rien ne doit etre parti');
+    assert.strictEqual(Storage.etatSync().enAttente, 0, 'la file ne garde pas un refus');
+    assert.strictEqual(Storage.etatSync().statut, 403, 'l ecran doit pouvoir le dire');
+
+    // La lecture, elle, continue : c'est tout l'intérêt du mode.
+    const articles = await Sync.lireArticles();
+    assert.deepStrictEqual(articles, []);
+    Sync.definirLectureSeule(false);
+  });
+
+  await test('le code de la maison inscrit l appareil, un mauvais code le refuse', async () => {
+    const { Sync } = neuf();
+    await stub.etat; // le stub est deja pret, la ligne documente l ordre
+    stub.etat.exigerMaison = true;
+    stub.etat.codeMaison = 'chataigne-42';
+
+    assert.strictEqual(await Sync.appareilAutorise(), false, 'inconnu au depart');
+    await assert.rejects(() => Sync.inscrireAppareil('mauvais'), (e) => e.statut === 403);
+    assert.strictEqual(await Sync.appareilAutorise(), false, 'toujours inconnu');
+
+    await Sync.inscrireAppareil('chataigne-42');
+    assert.strictEqual(await Sync.appareilAutorise(), true, 'inscrit apres le bon code');
+    assert.strictEqual(stub.etat.appareils.size, 1);
+  });
+
+  await test('sans inscription, le serveur refuse l ecriture meme sans verrou local', async () => {
+    const { Sync, Storage } = neuf();
+    stub.etat.exigerMaison = true;
+    stub.etat.codeMaison = 'chataigne-42';
+
+    // Le verrou d'interface est levé : c'est le serveur qu'on teste ici.
+    Sync.definirLectureSeule(false);
+    await Storage.addFreeItem('Sel', '1 pincée');
+    assert.strictEqual(stub.etat.articles.size, 0, 'le serveur a refuse');
+    assert.strictEqual(Storage.etatSync().statut, 403);
+
+    await Sync.inscrireAppareil('chataigne-42');
+    // Un autre nom : le premier article est resté dans la liste locale, le rajouter
+    // ne ferait qu'une mise à jour d'un document que le serveur n'a jamais reçu.
+    await Storage.addFreeItem('Poivre', '1 pincée');
+    assert.strictEqual(stub.etat.articles.size, 1, 'ecrit une fois inscrit');
+  });
+
+  await test('l identifiant de l appareil survit au renouvellement du jeton', async () => {
+    const { Sync } = neuf();
+    stub.etat.exigerMaison = true;
+    stub.etat.codeMaison = 'chataigne-42';
+    await Sync.inscrireAppareil('chataigne-42');
+    const avant = Sync.uidCourant();
+
+    // On force l'expiration : le jeton sera renouvelé avec le refresh token, donc
+    // le jeton change et l'appareil non. L'ordre compte : oublierSession() efface
+    // aussi le stockage, il faut donc réécrire le jeton expiré après elle.
+    const brut = JSON.parse(global.localStorage.getItem('carnet-de-recettes:jeton-anonyme'));
+    brut.expireLe = 0;
+    Sync.oublierSession();
+    global.localStorage.setItem('carnet-de-recettes:jeton-anonyme', JSON.stringify(brut));
+
+    assert.strictEqual(await Sync.appareilAutorise(), true, 'toujours de la maison');
+    assert.strictEqual(Sync.uidCourant(), avant, 'meme identifiant');
+  });
+
   // --- Restitution -----------------------------------------------------------
 
 

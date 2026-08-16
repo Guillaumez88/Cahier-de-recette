@@ -1,7 +1,7 @@
 /* Pose les illustrations d'étapes d'une recette déjà en base.
  *
  *   node tools/poser-illustrations.js <id-de-la-recette> <images>.json
- *   node tools/poser-illustrations.js <id-de-la-recette> <images>.json --ecrire
+ *   node tools/poser-illustrations.js <id-de-la-recette> <images>.json --ecrire --code <code>
  *
  * Le fichier d'images est celui de `ajouter-recette-au-livre.js --images` : seule sa
  * clé `etapes` est lue ici, `{ "1": "data:image/jpeg;base64,…", "2": "…" }`.
@@ -24,6 +24,7 @@ const path = require('path');
 const racine = path.join(__dirname, '..');
 const Sync = require(path.join(racine, 'js/sync.js'));
 const Illustrations = require(path.join(racine, 'js/illustrations.js'));
+const { presenterCode } = require(path.join(__dirname, 'maison.js'));
 
 const [, , recetteId, cheminImages, ...options] = process.argv;
 const ecrire = options.includes('--ecrire');
@@ -74,6 +75,7 @@ if (!recetteId || !cheminImages) {
     return;
   }
 
+  await presenterCode(options, sortir);
   await Sync.ecrireIllustrations(recetteId, table);
 
   // Relu depuis le serveur : c'est le seul contrôle qui prouve que les images sont

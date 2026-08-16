@@ -4435,3 +4435,54 @@ a.creneau__plat:hover .creneau__titre {
   font-size: 13px;
   color: var(--texte-faible);
 }
+
+/* --- Accès : lecture seule et déverrouillage ------------------------------ */
+/*
+   Le carnet se lit sans rien saisir ; le modifier demande le code de la maison.
+   Ces deux blocs sont les seuls endroits où cette distinction se voit : partout
+   ailleurs, les commandes de modification sont simplement absentes. Voir js/acces.js.
+*/
+
+.mention-lecture {
+  margin: 32px 0 8px;
+  text-align: center;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--texte-faible);
+}
+.mention-lecture a {
+  color: var(--texte-doux);
+  text-decoration: underline;
+}
+
+.acces {
+  max-width: 520px;
+  margin: 24px auto 48px;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-lg);
+}
+.acces h1 {
+  margin: 0 0 12px;
+  font-size: 24px;
+}
+.acces p {
+  margin: 0 0 18px;
+  color: var(--texte-doux);
+  line-height: 1.5;
+}
+.acces__forme {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.acces__forme .champ-edition {
+  flex: 1 1 200px;
+}
+.acces__message {
+  margin: 14px 0 0;
+  min-height: 20px;
+  font-size: 14px;
+  color: var(--terracotta-sombre);
+}

@@ -1,7 +1,7 @@
 /* Pose la photo d'une recette déjà en base, depuis un fichier d'images encodées.
  *
  *   node tools/poser-photo.js <id-de-la-recette> <images>.json
- *   node tools/poser-photo.js <id-de-la-recette> <images>.json --ecrire
+ *   node tools/poser-photo.js <id-de-la-recette> <images>.json --ecrire --code <code>
  *
  * Le fichier est celui de `ajouter-recette-au-livre.js --images` : seule sa clé `plat`
  * est lue ici, `{ "vignette": "data:image/jpeg;base64,…", "grande": "…" }`.
@@ -26,6 +26,7 @@ const path = require('path');
 
 const racine = path.join(__dirname, '..');
 const Sync = require(path.join(racine, 'js/sync.js'));
+const { presenterCode } = require(path.join(__dirname, 'maison.js'));
 
 const [, , recetteId, cheminImages, ...options] = process.argv;
 const ecrire = options.includes('--ecrire');
@@ -79,6 +80,10 @@ if (!recetteId || !cheminImages) {
     console.log('\nRien n’a été écrit. Relancer avec --ecrire pour envoyer la photo.\n');
     return;
   }
+
+  // Le serveur n'accepte l'écriture que d'un appareil de la maison : voir
+  // tools/maison.js. Sans --code, l'écriture ci-dessous sera refusée.
+  await presenterCode(options, sortir);
 
   await Sync.ecrirePhoto(recetteId, plat.vignette, plat.grande);
 

@@ -55,6 +55,7 @@ var COQUILLE = [
   './js/semaine.js',
   './js/icones.js',
   './js/sync.js',
+  './js/acces.js',
   './js/collection.js',
   './js/recettes.js',
   './js/storage.js',
