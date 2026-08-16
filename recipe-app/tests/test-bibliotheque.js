@@ -57,10 +57,18 @@ const PNG_ROUGE =
   'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAFklEQVR42mP8z8Dwn4EIwESMIkbi' +
   'FAEAoQ4F/1sYzE0AAAAASUVORK5CYII=';
 
+  // Ces suites testent un appareil de la maison, celui qui a saisi le code une fois.
+  // Le drapeau est posé avant le premier rendu, comme le ferait un appareil déjà
+  // déverrouillé : sans lui, l'application s'ouvre en lecture seule et aucun bouton de
+  // modification n'existe. Voir js/acces.js et tests/test-acces.js.
+  const DEVERROUILLE = () => window.localStorage.setItem('carnet-de-recettes:maison', 'oui');
+
 (async () => {
   const navigateur = await chromium.launch(OPTIONS_LANCEMENT);
   const contexteA = await navigateur.newContext({ viewport: { width: 1280, height: 1100 } });
+  await contexteA.addInitScript(DEVERROUILLE);
   const contexteB = await navigateur.newContext({ viewport: { width: 1280, height: 1100 } });
+  await contexteB.addInitScript(DEVERROUILLE);
   const pageA = await contexteA.newPage();
   const pageB = await contexteB.newPage();
 

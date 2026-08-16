@@ -33,10 +33,16 @@ requête présente le code de la maison.
 tout le monde, y compris à vos propres appareils. Seules les règles le consultent, avec
 `get()`. Il n'apparaît donc ni dans le site, ni dans la base lisible.
 
-**Le déverrouillage est local et durable.** L'appareil retient qu'il est de la maison,
-et le revérifie auprès du serveur à chaque chargement, en tâche de fond. Deux
-conséquences utiles : un appareil qui a effacé son stockage se reconnaît sans ressaisir
-le code, et un appareil retiré de la collection redevient lecteur tout seul.
+**Le déverrouillage est local, et rien n'est demandé au serveur au chargement.** Un
+appareil retient qu'il est de la maison, et cet état suffit à décider de ce qui
+s'affiche : les règles décident du reste. Vérifier auprès du serveur à chaque
+chargement aurait coûté une lecture Firestore par visite de chaque lecteur, sur un
+carnet fait pour être partagé. La vérification existe, mais **à la demande**, par un
+bouton de l'écran `#/acces` : elle sert à l'appareil de la maison qui a effacé son
+stockage et voudrait éviter de ressaisir le code.
+
+Conséquence assumée : un appareil retiré de la collection continue d'afficher ses
+boutons jusqu'à ce qu'il essaie d'écrire, où il reçoit un refus explicite.
 
 **Un refus n'est pas une panne.** La liste de courses est optimiste : elle applique en
 local, met en file, et envoie. Un `403` ne se réessaie pas, il est donc **retiré de la
@@ -86,3 +92,24 @@ la liste de courses, planifier un repas, créer un livre, tenir le placard.
   dans la console.
 - **Le quota Firestore reste partagé.** Un lien qui circule consomme les lectures du
   compte gratuit : environ trente par visite, sur 50 000 par jour.
+
+## Corrections du 16 août, après mise en service
+
+**Les cartes de l'accueil étaient déformées.** L'écran de déverrouillage avait été
+nommé `.acces`, classe déjà portée depuis toujours par les deux cartes de l'accueil :
+elles ont hérité de sa largeur maximale, de son centrage et de ses marges, ce qui les
+rétrécissait et les séparait d'un grand vide sur téléphone. L'écran s'appelle
+désormais `.ecran-acces`. Le parcours général vérifie maintenant que les deux cartes
+ont la même largeur et restent jointives : c'est le genre de régression qu'un écran
+large ne montre pas.
+
+**Une lecture Firestore par visite avait été introduite.** La vérification de
+l'inscription au chargement coûtait une lecture à chaque ouverture, y compris aux
+lecteurs d'un lien partagé. Le test qui surveille l'absence de sondage l'a vue tout de
+suite. Elle est désormais à la demande, sur l'écran d'accès.
+
+**Vider la liste est devenu un vrai bouton.** C'était un petit lien discret, à côté de
+« Retirer les cochés », donc cliquable par erreur pour une action qui efface le travail
+de toute la maisonnée. Il demande maintenant confirmation : premier appui, le bouton
+demande « Confirmer : tout vider ? » et l'annonce aux lecteurs d'écran ; second appui
+dans les cinq secondes, la liste est vidée. Passé ce délai, il redevient inoffensif.

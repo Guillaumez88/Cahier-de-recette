@@ -173,7 +173,7 @@ qu'en une fois.
 | Poids transféré au chargement | 209 Ko compressés, 34 fichiers |
 | Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
 | Coût de la bibliothèque | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
-| Tests | 167 + 144 sous Node, 490 vérifications navigateur, 20 contre le vrai Firebase |
+| Tests | 167 + 144 sous Node, 497 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -230,12 +230,12 @@ sans voir ce qu'elle protégeait.
     └── tests/
         ├── run-tests.js           167 tests de la logique métier
         ├── run-sync-tests.js      144 tests de la synchronisation
-        ├── test-web.js             98 vérifications navigateur, parcours général et partage
+        ├── test-web.js            103 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
         ├── test-edition.js         82 vérifications navigateur, modification, parts, nutrition, illustrations
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
         ├── test-bibliotheque.js    67 vérifications navigateur, livres, périmètres, couvertures
-        ├── test-acces.js           30 vérifications navigateur, lecture seule et déverrouillage
+        ├── test-acces.js           32 vérifications navigateur, lecture seule et déverrouillage
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -746,6 +746,12 @@ adresse collée renvoient à l'écran de lecture correspondant, et `sync.js` ref
 d'envoyer quoi que ce soit. Ce verrou-là est du confort, pas de la sécurité : seul
 celui des règles compte.
 
+**Aucune lecture Firestore n'est faite au chargement pour connaître ce statut.** L'état
+local suffit à décider de l'affichage, et une vérification au démarrage aurait coûté une
+lecture par visite de chaque lecteur d'un lien partagé. La vérification distante est à
+la demande, sur `#/acces` : elle sert à l'appareil de la maison qui a effacé son
+stockage.
+
 Deux détails qui n'en sont pas. Une ligne discrète en bas de l'accueil dit « Carnet en
 lecture seule » et mène à `#/acces` : sans elle, un appareil de la maison qui a effacé
 son stockage croirait à une panne. Et un `403` est **retiré de la file d'attente** au
@@ -1052,7 +1058,7 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 cd recipe-app
 node tests/run-tests.js           # 167 tests de la logique métier
 node tests/run-sync-tests.js      # 140 tests de la synchronisation
-node tests/run-browser-tests.js   # 490 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 497 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

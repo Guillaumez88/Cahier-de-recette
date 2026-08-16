@@ -181,6 +181,24 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
     (await maison.locator('#modifier-recette').count()) === 1
   );
 
+  // Un appareil de la maison qui a effacé son stockage : il ne se reconnaît pas tout
+  // seul (ce serait une lecture Firestore à chaque visite de chaque lecteur), mais
+  // l'écran d'accès sait le lui demander.
+  await maison.evaluate(() => window.localStorage.removeItem('carnet-de-recettes:maison'));
+  // Un changement d'ancre ne relit pas le stockage : l'état de l'appareil est décidé
+  // une fois, au chargement. Il faut donc recharger vraiment.
+  await maison.goto(`${BASE}#/acces`, { waitUntil: 'networkidle' });
+  await maison.reload({ waitUntil: 'networkidle' });
+  await attendre(900);
+  verifier('après effacement, l’appareil redemande le code', (await maison.locator('#code-maison').count()) === 1);
+  await maison.click('#verifier-inscription');
+  await attendre(1200);
+  verifier(
+    'la vérification à la demande le reconnaît',
+    (await maison.evaluate(() => window.location.hash)) === '#/',
+    await maison.evaluate(() => window.location.hash)
+  );
+
   await maison.goto(`${BASE}#/liste-de-courses`, { waitUntil: 'networkidle' });
   await attendre(600);
   await maison.fill('#ajout-nom', 'Farine');

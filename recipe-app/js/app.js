@@ -1447,7 +1447,7 @@
 
     if (peutModifier()) {
       fragment.appendChild(
-        el('section', { class: 'acces' }, [
+        el('section', { class: 'ecran-acces' }, [
           el('h1', { texte: 'Cet appareil est un appareil de la maison' }),
           el('p', {
             texte:
@@ -1471,7 +1471,21 @@
       return fragment;
     }
 
-    var message = el('p', { class: 'acces__message', id: 'acces-message' });
+    var message = el('p', { class: 'ecran-acces__message', id: 'acces-message' });
+
+    /** Demande au serveur si cet appareil est déjà inscrit. Une lecture, à la demande. */
+    function verifierInscription() {
+      message.textContent = 'Vérification…';
+      Acc.verifier().then(function (autorise) {
+        if (autorise) {
+          annoncer('Cet appareil est déjà un appareil de la maison');
+          window.location.hash = '#/';
+          router();
+          return;
+        }
+        message.textContent = 'Cet appareil n’est pas inscrit. Saisir le code pour l’inscrire.';
+      });
+    }
     var champCode = el('input', {
       type: 'password',
       class: 'champ-edition',
@@ -1495,7 +1509,7 @@
     }
 
     fragment.appendChild(
-      el('section', { class: 'acces' }, [
+      el('section', { class: 'ecran-acces' }, [
         el('h1', { texte: 'Déverrouiller cet appareil' }),
         el('p', {
           texte:
@@ -1503,7 +1517,7 @@
             'maison, une fois par appareil : celui-ci s’en souviendra.',
         }),
         el('form', {
-          class: 'acces__forme',
+          class: 'ecran-acces__forme',
           onsubmit: function (evenement) {
             evenement.preventDefault();
             tenter();
@@ -1513,6 +1527,15 @@
           el('button', { type: 'submit', class: 'bouton', id: 'valider-code', texte: 'Déverrouiller' }),
         ]),
         message,
+        // Utile après un effacement des données du site : l'appareil a perdu sa
+        // mémoire, pas forcément son inscription.
+        el('button', {
+          type: 'button',
+          class: 'lien-action',
+          id: 'verifier-inscription',
+          texte: 'Cet appareil a peut-être déjà été inscrit : vérifier',
+          onclick: verifierInscription,
+        }),
       ])
     );
     return fragment;
@@ -3434,6 +3457,47 @@
     ]);
   }
 
+  /**
+   * Le bouton « Vider la liste », en deux temps.
+   *
+   * Premier appui : le bouton demande confirmation et le dit à voix haute pour les
+   * lecteurs d'écran. Second appui dans les cinq secondes : la liste est vidée. Passé
+   * ce délai, il redevient inoffensif. Pas de boîte modale : elle coûte un écran
+   * entier pour une question à un mot, et la liste est reconstituable depuis les
+   * recettes.
+   */
+  function videurDeListe(nbArticles) {
+    if (nbArticles === 0) return null;
+    var confirme = false;
+    var minuterie = null;
+    var libelle = el('span', { texte: 'Vider la liste' });
+
+    var bouton = el('button', {
+      type: 'button',
+      class: 'bouton bouton--secondaire',
+      id: 'vider-liste',
+      onclick: function () {
+        if (!confirme) {
+          confirme = true;
+          libelle.textContent = 'Confirmer : tout vider ?';
+          annoncer('Appuyer de nouveau pour vider la liste de courses');
+          minuterie = setTimeout(function () {
+            confirme = false;
+            if (document.body.contains(libelle)) libelle.textContent = 'Vider la liste';
+          }, 5000);
+          return;
+        }
+        if (minuterie) clearTimeout(minuterie);
+        clearShoppingList().then(function () {
+          annoncer('Liste de courses vidée');
+          monter(vueListeDeCourses());
+        });
+      },
+    }, [icone('croix', { taille: 16 }), libelle]);
+
+    return bouton;
+  }
+
   /** Bloc compact listant les recettes presentes, avec un retrait par recette. */
   function blocRecettes(articles) {
     var recettes = S.recettesDansListe(articles);
@@ -4326,8 +4390,10 @@
     );
 
     // Le decompte est deja porte par le bloc « Encore a acheter » ci-dessus : cette
-    // barre ne garde que les actions.
-    if (peutModifier()) fragment.appendChild(
+    // barre ne garde que les actions. Elle disparaît quand elle n'en a aucune :
+    // liste vide, rien de coché, ou appareil en lecture seule.
+    var barreVide = !peutModifier() || (coches === 0 && articles.length === 0);
+    if (!barreVide) fragment.appendChild(
       el('div', { class: 'barre-resultats barre-resultats--actions' }, [
         el('div', { class: 'actions-liste' }, [
           coches > 0
@@ -4343,16 +4409,11 @@
                 },
               })
             : null,
-          el('button', {
-            type: 'button',
-            class: 'lien-action',
-            texte: 'Vider la liste',
-            onclick: function () {
-              clearShoppingList().then(function () {
-                monter(vueListeDeCourses());
-              });
-            },
-          }),
+          // Vider la liste efface le travail de toute la maisonnée, y compris ce
+          // qu'un autre vient d'y mettre : c'est un vrai bouton, et il demande une
+          // confirmation. En petit lien discret, il se cliquait par erreur en visant
+          // « Retirer les cochés », juste à côté.
+          videurDeListe(articles.length),
         ]),
       ])
     );
@@ -5825,14 +5886,16 @@
 
     // Le mode de l'appareil est connu avant le premier rendu : sans cela, l'écran
     // afficherait une fraction de seconde des boutons qu'il va retirer.
+    //
+    // Rien n'est demandé au serveur ici, et c'est délibéré : le carnet est fait pour
+    // être partagé, une vérification au chargement coûterait une lecture Firestore à
+    // chaque visite de chaque lecteur. L'état local suffit à décider de l'affichage,
+    // et les règles décident du reste. La vérification distante existe, mais elle est
+    // à la demande, sur l'écran #/acces.
     Acc.initialiser();
-    // Puis on recontrôle auprès du serveur, sans bloquer : un appareil de la maison
-    // qui a effacé son stockage se reconnaît seul, et un appareil retiré redevient
-    // lecteur. Voir js/acces.js.
     Acc.surChangement(function () {
       router();
     });
-    Acc.verifier();
 
     fetch('data/recipes.json')
       .then(function (reponse) {

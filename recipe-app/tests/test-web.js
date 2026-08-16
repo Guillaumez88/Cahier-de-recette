@@ -29,9 +29,17 @@ function verifier(nom, condition, detail = '') {
   else echecs.push(`${nom}${detail ? ' -> ' + detail : ''}`);
 }
 
+  // Ces suites testent un appareil de la maison, celui qui a saisi le code une fois.
+  // Le drapeau est posé avant le premier rendu, comme le ferait un appareil déjà
+  // déverrouillé : sans lui, l'application s'ouvre en lecture seule et aucun bouton de
+  // modification n'existe. Voir js/acces.js et tests/test-acces.js.
+  const DEVERROUILLE = () => window.localStorage.setItem('carnet-de-recettes:maison', 'oui');
+
 (async () => {
   const navigateur = await chromium.launch(OPTIONS_LANCEMENT);
-  const page = await navigateur.newPage({ viewport: { width: 1100, height: 900 } });
+  const contexte = await navigateur.newContext({ viewport: { width: 1100, height: 900 } });
+  await contexte.addInitScript(DEVERROUILLE);
+  const page = await contexte.newPage();
 
   const erreursConsole = [];
   const requetesEchouees = [];
@@ -64,6 +72,26 @@ function verifier(nom, condition, detail = '') {
     (await page.locator('a[href="#/liste-de-courses"]').count()) >= 1
   );
   verifier('aucune carte de recette sur l accueil', (await page.locator('.carte').count()) === 0);
+
+  // Les deux cartes d'accès doivent rester identiques et jointives. Une classe CSS
+  // nommée `.acces` ailleurs dans la feuille les avait rétrécies, centrées et
+  // séparées d'un grand vide : invisible sur un écran large, criant sur téléphone.
+  const cartesAcces = await page.evaluate(() => {
+    const cartes = [...document.querySelectorAll('.acces-liste > .acces')].map((a) => a.getBoundingClientRect());
+    if (cartes.length < 2) return null;
+    return {
+      nombre: cartes.length,
+      memeLargeur: Math.abs(cartes[0].width - cartes[1].width) < 1,
+      ecart: Math.round(cartes[1].top - cartes[0].bottom),
+    };
+  });
+  verifier('les deux cartes d accueil existent', cartesAcces && cartesAcces.nombre === 2);
+  verifier('elles ont la meme largeur', cartesAcces && cartesAcces.memeLargeur);
+  verifier(
+    'elles ne sont pas separees par un grand vide',
+    cartesAcces && cartesAcces.ecart <= 24,
+    cartesAcces ? cartesAcces.ecart + ' px' : 'cartes introuvables'
+  );
 
   // Le livre de cuisine
   await page.locator('.acces[href="#/livre"]').click();
@@ -370,7 +398,17 @@ function verifier(nom, condition, detail = '') {
   await page.waitForTimeout(700);
   verifier('supprimer un article met la liste a jour', /sur 12/.test(await texte()), (await texte()).slice(0, 250));
 
-  await page.getByText('Vider la liste', { exact: true }).click();
+  // Vider la liste est en deux temps : le premier appui demande confirmation, il ne
+  // vide rien. C'est ce qui protège le travail des autres.
+  await page.click('#vider-liste');
+  await page.waitForTimeout(400);
+  verifier(
+    'le premier appui demande confirmation',
+    /Confirmer/.test(await page.locator('#vider-liste').textContent())
+  );
+  verifier('le premier appui ne vide rien', !/La liste est vide/.test(await texte()));
+
+  await page.click('#vider-liste');
   await page.waitForTimeout(900);
   verifier('vider la liste affiche l etat vide', /La liste est vide/.test(await texte()), (await texte()).slice(0, 250));
   verifier('le badge disparait', await page.locator('#badge-courses').isHidden());

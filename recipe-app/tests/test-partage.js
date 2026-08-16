@@ -48,6 +48,12 @@ async function attendreTexte(page, motif, limite = 8000) {
   return false;
 }
 
+  // Ces suites testent un appareil de la maison, celui qui a saisi le code une fois.
+  // Le drapeau est posé avant le premier rendu, comme le ferait un appareil déjà
+  // déverrouillé : sans lui, l'application s'ouvre en lecture seule et aucun bouton de
+  // modification n'existe. Voir js/acces.js et tests/test-acces.js.
+  const DEVERROUILLE = () => window.localStorage.setItem('carnet-de-recettes:maison', 'oui');
+
 (async () => {
   const navigateur = await chromium.launch(OPTIONS_LANCEMENT);
 
@@ -66,7 +72,9 @@ async function attendreTexte(page, motif, limite = 8000) {
 
   // Deux contextes = deux stockages locaux = deux appareils distincts.
   const contexteA = await navigateur.newContext({ viewport: { width: 1000, height: 900 } });
+  await contexteA.addInitScript(DEVERROUILLE);
   const contexteB = await navigateur.newContext({ viewport: { width: 1000, height: 900 } });
+  await contexteB.addInitScript(DEVERROUILLE);
   const pageA = await contexteA.newPage();
   const pageB = await contexteB.newPage();
 

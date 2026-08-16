@@ -919,7 +919,13 @@ h4,
 .actions-liste {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 14px;
+}
+/* « Vider la liste » est un vrai bouton, poussé à droite : il n'est pas au même
+   niveau que « Retirer les cochés », qui n'enlève que ce qui est déjà pris. */
+.actions-liste #vider-liste {
+  margin-left: auto;
 }
 
 /* Ingredients cochables sur la fiche recette */
@@ -4441,6 +4447,12 @@ a.creneau__plat:hover .creneau__titre {
    Le carnet se lit sans rien saisir ; le modifier demande le code de la maison.
    Ces deux blocs sont les seuls endroits où cette distinction se voit : partout
    ailleurs, les commandes de modification sont simplement absentes. Voir js/acces.js.
+
+   Le préfixe `ecran-` n'est pas décoratif : `.acces` est déjà pris, depuis toujours,
+   par les deux cartes de l'accueil (« Le livre de cuisine », « La liste de courses »).
+   Nommer ce bloc `.acces` leur avait donné sa marge, son cadrage et sa largeur
+   maximale : les cartes se retrouvaient rétrécies, centrées et séparées par un grand
+   vide sur téléphone.
 */
 
 .mention-lecture {
@@ -4455,7 +4467,7 @@ a.creneau__plat:hover .creneau__titre {
   text-decoration: underline;
 }
 
-.acces {
+.ecran-acces {
   max-width: 520px;
   margin: 24px auto 48px;
   padding: 28px;
@@ -4463,24 +4475,24 @@ a.creneau__plat:hover .creneau__titre {
   border: 1px solid var(--bordure);
   border-radius: var(--rayon-lg);
 }
-.acces h1 {
+.ecran-acces h1 {
   margin: 0 0 12px;
   font-size: 24px;
 }
-.acces p {
+.ecran-acces p {
   margin: 0 0 18px;
   color: var(--texte-doux);
   line-height: 1.5;
 }
-.acces__forme {
+.ecran-acces__forme {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
-.acces__forme .champ-edition {
+.ecran-acces__forme .champ-edition {
   flex: 1 1 200px;
 }
-.acces__message {
+.ecran-acces__message {
   margin: 14px 0 0;
   min-height: 20px;
   font-size: 14px;
