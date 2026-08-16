@@ -86,6 +86,12 @@ async function attendreTexte(page, motif, limite = 8000) {
   });
 
   const texteDe = (page) => page.evaluate(() => document.body.textContent);
+
+  /** Coupe ou retablit le reseau du stub, pour eprouver la file d'attente. */
+  async function panne(page, actif) {
+    await page.request.post(new URL('__stub/panne', BASE).href, { data: { panne: actif } });
+  }
+
   await pageA.request.get(new URL('__stub/etat?reinitialiser=1', BASE).href);
 
   /**
@@ -628,7 +634,70 @@ async function attendreTexte(page, motif, limite = 8000) {
     `${await pageA.locator('.etape-cuisson__illustration img').count()} illustrations`
   );
 
-  // --- 13. Aucune erreur JavaScript ------------------------------------------
+  // --- 13. Hors ligne : la modification attend, puis part ----------------------
+  //
+  // Le defaut que la file corrige : avant elle, une modification saisie sans reseau
+  // restait a l'ecran, n'atteignait jamais le serveur, et disparaissait au premier
+  // rafraichissement reussi. Sans un mot.
+
+  const ecrituresAvantPanne = (await (await pageA.request.get(new URL('__stub/etat', BASE).href)).json()).appels
+    .ecritures;
+
+  await panne(pageA, true);
+  await pageA.goto(`${BASE}#/recette/${ID}/modifier`, { waitUntil: 'networkidle' });
+  await attendre(900);
+  await ouvrirSection(pageA, 'fiche');
+  await pageA.locator('.ligne-edition .champ-edition').first().fill('Titre écrit sans réseau');
+  await pageA.locator('#enregistrer').click();
+  await attendre(1400);
+
+  verifier(
+    'hors ligne, l editeur se ferme quand meme',
+    !pageA.url().includes('/modifier'),
+    pageA.url()
+  );
+  verifier(
+    'la fiche porte le titre saisi hors ligne',
+    /Titre écrit sans réseau/.test(await texteDe(pageA)),
+    (await texteDe(pageA)).slice(0, 200)
+  );
+  // Le mode « Cuisiner » est volontairement nu : c'est sur la fiche qu'on lit l'etat.
+  if ((await pageA.getByRole('button', { name: 'Consulter' }).count()) > 0) {
+    await pageA.getByRole('button', { name: 'Consulter' }).click();
+    await attendre(600);
+  }
+  verifier(
+    'l ecran annonce une modification en attente, pas une perte',
+    /attend d’être envoyée/.test(await texteDe(pageA)),
+    (await texteDe(pageA)).slice(0, 400)
+  );
+
+  const pendantPanne = await (await pageB.request.get(new URL('__stub/etat', BASE).href)).json();
+  verifier(
+    'rien n a atteint le serveur pendant la panne',
+    pendantPanne.appels.ecritures === ecrituresAvantPanne,
+    `${pendantPanne.appels.ecritures} ecritures au lieu de ${ecrituresAvantPanne}`
+  );
+
+  await panne(pageA, false);
+  await pageA.locator('#rafraichir').click();
+  await attendre(1600);
+
+  const apresPanne = await (await pageA.request.get(new URL('__stub/etat', BASE).href)).json();
+  verifier(
+    'au retour du reseau, la modification est partie',
+    apresPanne.appels.ecritures > ecrituresAvantPanne,
+    `${apresPanne.appels.ecritures} ecritures, contre ${ecrituresAvantPanne} avant`
+  );
+  const enBase = JSON.stringify(apresPanne.recettes || []);
+  verifier('et le serveur porte bien la recette', /lasagnes/.test(enBase), enBase.slice(0, 200));
+  verifier(
+    'et le titre saisi hors ligne a survecu',
+    /Titre écrit sans réseau/.test(await texteDe(pageA)),
+    (await texteDe(pageA)).slice(0, 200)
+  );
+
+  // --- 14. Aucune erreur JavaScript ------------------------------------------
 
 
   verifier('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));

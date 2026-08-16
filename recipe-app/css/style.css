@@ -1313,6 +1313,13 @@ textarea.champ-edition {
 .etat-erreur--compact p {
   margin: 0 0 4px;
 }
+/* En attente n'est pas en échec : la bordure d'alerte laisse place à un ton neutre,
+   sinon une coupure de réseau ressemble à une perte de données. */
+.etat-erreur--attente {
+  border-color: var(--bordure);
+  border-left-color: var(--texte-doux);
+  color: var(--texte-doux);
+}
 
 /* --- Déroulé reconstitué --------------------------------------------------- */
 

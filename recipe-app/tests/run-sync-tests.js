@@ -660,6 +660,82 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     await basculerPanne(false);
   });
 
+  await test('hors ligne, la modification part au retour du reseau', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    await basculerPanne(true);
+
+    const modifiee = JSON.parse(JSON.stringify(Recettes.parId(ID_LASAGNES)));
+    modifiee.titre = 'Modifié sans réseau';
+    await Recettes.enregistrer(modifiee);
+    assert.strictEqual(Recettes.nbEnAttente(), 1, 'la modification doit attendre dans la file');
+    assert.strictEqual(stub.etat.recettes.size, 0, 'rien ne part pendant la panne');
+
+    // Le rafraichissement d'un ecran ouvert pendant la panne ne doit pas effacer
+    // la modification : c'est exactement le defaut que la file corrige.
+    await Recettes.rafraichir();
+    assert.strictEqual(Recettes.parId(ID_LASAGNES).titre, 'Modifié sans réseau');
+    assert.strictEqual(Recettes.nbEnAttente(), 1);
+
+    await basculerPanne(false);
+    await Recettes.rafraichir();
+    assert.strictEqual(Recettes.nbEnAttente(), 0, 'la file s est videe');
+    assert.strictEqual(stub.etat.recettes.size, 1, 'la modification est arrivee');
+    assert.strictEqual(Recettes.parId(ID_LASAGNES).titre, 'Modifié sans réseau');
+  });
+
+  await test('hors ligne, une recette creee puis modifiee ne part qu une fois', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    await basculerPanne(true);
+
+    const creee = await Recettes.creer({ ...Recettes.recetteVide(), titre: 'Soupe au potiron' });
+    const encore = JSON.parse(JSON.stringify(Recettes.parId(creee.id)));
+    encore.titre = 'Soupe au potiron et au lard';
+    await Recettes.enregistrer(encore);
+    assert.strictEqual(Recettes.nbEnAttente(), 1, 'une seule operation pour une meme recette');
+
+    await basculerPanne(false);
+    await Recettes.rafraichir();
+    assert.strictEqual(Recettes.parId(creee.id).titre, 'Soupe au potiron et au lard');
+    assert.strictEqual(stub.etat.recettes.size, 1);
+  });
+
+  await test('hors ligne, une suppression part aussi au retour du reseau', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    const creee = await Recettes.creer({ ...Recettes.recetteVide(), titre: 'Brouillon a jeter' });
+    assert.strictEqual(stub.etat.recettes.size, 1);
+
+    await basculerPanne(true);
+    await Recettes.supprimer(creee.id);
+    assert.strictEqual(Recettes.nbEnAttente(), 1);
+    assert.strictEqual(stub.etat.recettes.size, 1, 'rien n est parti pendant la panne');
+
+    // Un rafraichissement pendant la panne ne doit pas faire reapparaitre la recette.
+    await Recettes.rafraichir();
+    assert.strictEqual(Recettes.parId(creee.id), null, 'la suppression tient localement');
+
+    await basculerPanne(false);
+    await Recettes.rafraichir();
+    assert.strictEqual(stub.etat.recettes.size, 0, 'la suppression est arrivee');
+    assert.strictEqual(Recettes.parId(creee.id), null);
+  });
+
+  await test('un refus quitte la file au lieu de s y accumuler', async () => {
+    const { Recettes } = neuf();
+    Recettes.definirBase(CARNET);
+    stub.etat.refuserRecettes = true;
+
+    const modifiee = JSON.parse(JSON.stringify(Recettes.parId(ID_LASAGNES)));
+    modifiee.titre = 'Refusé par le serveur';
+    await Recettes.enregistrer(modifiee);
+
+    assert.strictEqual(Recettes.nbEnAttente(), 0, 'un refus ne se reessaie pas');
+    assert.ok(Recettes.etatChargement().erreur, 'et il se dit a l ecran');
+    stub.etat.refuserRecettes = false;
+  });
+
   // --- Nombre de parts et mise a l echelle -----------------------------------
 
   await test('doubler les parts double les quantites des ingredients', async () => {

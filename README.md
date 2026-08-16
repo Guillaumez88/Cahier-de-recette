@@ -173,7 +173,7 @@ qu'en une fois.
 | Poids transféré au chargement | 209 Ko compressés, 34 fichiers |
 | Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
 | Coût de la bibliothèque | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
-| Tests | 167 + 148 sous Node, 492 vérifications navigateur, 20 contre le vrai Firebase |
+| Tests | 167 + 152 sous Node, 499 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -229,10 +229,10 @@ sans voir ce qu'elle protégeait.
     │   └── poser-illustrations.js       Pose les photos d'étapes d'une recette déjà en base
     └── tests/
         ├── run-tests.js           167 tests de la logique métier
-        ├── run-sync-tests.js      148 tests de la synchronisation
+        ├── run-sync-tests.js      152 tests de la synchronisation
         ├── test-web.js            103 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
-        ├── test-edition.js         82 vérifications navigateur, modification, parts, nutrition, illustrations
+        ├── test-edition.js         89 vérifications navigateur, modification, parts, nutrition, illustrations
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
         ├── test-bibliotheque.js    67 vérifications navigateur, livres, périmètres, couvertures
         ├── test-acces.js           27 vérifications navigateur, foyers, membres et rôles
@@ -786,6 +786,36 @@ les adresses mènent à l'écran de connexion. Et chaque requête de contenu dé
 `get()` de règle sur le document de membre, facturé comme une lecture, par requête et
 non par document lu.
 
+## Ce qui est écrit hors réseau n'est pas perdu
+
+Cinq jeux de données partagées (la liste de courses, le semainier, le placard, les
+livres et les recettes) appliquent une modification **en local d'abord**, l'inscrivent
+dans une file persistante, puis tentent l'envoi. Hors ligne, la file garde la trace et
+repart au retour du réseau, ou au prochain appui sur « Rafraîchir », qui pousse avant
+de lire.
+
+Les recettes ont rejoint ce mécanisme le 16 août 2026. Avant cela, elles étaient les
+seules à ne pas l'avoir : une recette modifiée dans une cuisine sans réseau restait à
+l'écran, n'atteignait jamais le serveur, et **disparaissait au premier rafraîchissement
+réussi**, sans un mot. C'était le dernier endroit du carnet où une saisie pouvait
+s'évaporer en silence.
+
+Trois précautions, qui sont le cœur du mécanisme :
+
+- **Ce qui attend est réappliqué par-dessus la réponse du serveur.** Celle-ci décrit
+  forcément un état antérieur à ce qui n'est pas encore parti.
+- **Une même recette modifiée trois fois ne part qu'une fois** : seule la dernière
+  version compte, et la file reste courte après une longue coupure.
+- **Un refus n'est pas une panne.** Un `403`, un verrou de lecture seule ou une
+  écriture tentée sans foyer quittent la file au lieu de s'y accumuler : le droit
+  d'écrire ne reviendra pas dans dix minutes, et une file qui ne se vide jamais
+  afficherait « hors ligne » sur un appareil parfaitement en ligne.
+
+L'écran distingue les deux, parce qu'ils n'appellent pas la même réaction : « attend
+d'être envoyée » est un avertissement de ton neutre et l'éditeur se ferme normalement ;
+« refusée par le serveur » est une erreur, l'éditeur reste ouvert avec la saisie
+intacte, et le message dit quoi vérifier.
+
 ## Partager une recette
 
 Le bouton « Partager » de la fiche ouvre une boîte qui propose deux choses distinctes,
@@ -806,13 +836,16 @@ pour 8.
 
 **Le lien vers la fiche.** Utile à quelqu'un qui a le carnet : il ouvre la version à
 jour, pas une copie figée. Le site est public et l'authentification est anonyme, donc
-un lien fonctionne pour tout le monde, et pas seulement pour la maison.
+un lien mène à la fiche pour les membres du foyer. Depuis les foyers, quelqu'un
+d'extérieur qui ouvre ce lien tombe sur l'écran de connexion : c'est le texte de la
+recette qu'il faut lui envoyer, pas le lien.
 
 ### Les deux réserves, dites plutôt que cachées
 
-`js/recettes.js` applique une modification en local **puis** tente l'envoi, et n'a pas
-de file d'attente : un envoi qui échoue n'est pas rejoué. Il y a donc deux cas où un
-lien ne dit pas la vérité, et la boîte les distingue :
+`js/recettes.js` applique une modification en local **puis** tente l'envoi. Depuis sa
+file d'attente, un envoi qui échoue est rejoué, mais tant qu'il n'a pas abouti la
+recette n'existe que sur cet appareil. Il y a donc deux cas où un lien ne dit pas la
+vérité, et la boîte les distingue :
 
 | Situation | Ce que fait la boîte |
 |---|---|
@@ -1081,7 +1114,7 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 cd recipe-app
 node tests/run-tests.js           # 167 tests de la logique métier
 node tests/run-sync-tests.js      # 140 tests de la synchronisation
-node tests/run-browser-tests.js   # 492 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 499 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

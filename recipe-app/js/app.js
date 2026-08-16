@@ -280,7 +280,11 @@
       else if (route === '/bibliotheque') monter(vueBibliotheque());
       else if (route.indexOf('/bibliotheque/') === 0) router();
     };
-    return Promise.all([S.rafraichir(), Sm.rafraichir(), Lv.rafraichir()]).then(apres, apres);
+    // Les recettes sont du voyage depuis qu'elles ont une file d'attente : sans cela,
+    // une modification saisie hors ligne attendrait le prochain chargement de page
+    // pour partir, alors que le bouton dit « rafraîchir ». Une lecture de plus par
+    // appui volontaire, et une modification qui ne traîne pas.
+    return Promise.all([S.rafraichir(), Sm.rafraichir(), Lv.rafraichir(), Rc.rafraichir()]).then(apres, apres);
   }
 
   /**
@@ -3874,7 +3878,11 @@
    * doit donc passer par ici avant d'annoncer quoi que ce soit.
    */
   function erreurEcritureRecette() {
-    return Rc.etatChargement().erreur || null;
+    var e = Rc.etatChargement();
+    // Une modification en attente n'est pas un echec : elle partira. Seul un refus
+    // (file vide, erreur quand meme) doit empecher d'annoncer que c'est fait.
+    if (e.enAttente > 0) return null;
+    return e.erreur || null;
   }
 
   /**
@@ -5332,23 +5340,39 @@
   }
 
   /**
-   * Bandeau d'erreur des recettes modifiees.
+   * Bandeau d'etat des recettes modifiees.
    *
-   * Sans lui, une modification qui n'a pas pu partir resterait visible en local et
-   * disparaitrait au rechargement suivant, sans explication. Le cas le plus probable
-   * est un refus de Firestore parce que les regles de firestore.rules n'ont pas ete
-   * republiees apres l'ajout de la collection des recettes.
+   * Deux situations tres differentes, qui ne se disent pas de la meme facon :
+   *
+   * - **En attente** : l'envoi n'a pas abouti, mais la modification est dans la file
+   *   et repartira. Rien n'est perdu, il n'y a rien a refaire. C'est un avertissement,
+   *   pas une erreur.
+   * - **Refusee** : le serveur a dit non (regles non republiees, membre en lecture
+   *   seule). La modification ne partira jamais et disparaitra au prochain
+   *   rafraichissement. La, il faut agir, et savoir quoi.
    */
   function bandeauErreurRecettes() {
     var e = Rc.etatChargement();
-    if (!e.erreur) return null;
+    if (!e.erreur && !e.enAttente) return null;
 
-    var explication = 'Les modifications de recettes ne sont pas enregistrées sur le serveur.';
+    if (e.enAttente > 0) {
+      return el('div', { class: 'etat-erreur etat-erreur--compact etat-erreur--attente', id: 'erreur-recettes' }, [
+        el('p', {
+          texte:
+            e.enAttente +
+            (e.enAttente > 1 ? ' modifications de recettes attendent' : ' modification de recette attend') +
+            ' d’être envoyée. Rien n’est perdu : elle repartira dès que le réseau reviendra, ' +
+            'ou au prochain rafraîchissement.',
+        }),
+        e.erreur ? el('p', { class: 'url-source', texte: e.erreur }) : null,
+      ]);
+    }
+
+    var explication = 'Cette modification a été refusée par le serveur : elle ne sera pas enregistrée.';
     if (/PERMISSION_DENIED|Missing or insufficient permissions/i.test(e.erreur)) {
       explication +=
-        ' Firestore refuse l’accès à la collection « recettes » : les règles de sécurité du projet doivent être republiées à partir du fichier firestore.rules du dépôt.';
-    } else {
-      explication += ' Ce qui est modifié ici reste sur cet appareil jusqu’au rétablissement.';
+        ' Firestore refuse l’écriture des recettes : soit ce compte n’est membre du foyer qu’en lecture, ' +
+        'soit les règles de sécurité du projet doivent être republiées à partir de firestore.rules.';
     }
 
     return el('div', { class: 'etat-erreur etat-erreur--compact', id: 'erreur-recettes' }, [
@@ -5456,10 +5480,10 @@
 
             envoi
               .then(function (enregistree) {
-                // On ne quitte l'editeur que si l'enregistrement a reellement abouti :
-                // sinon l'utilisateur croirait son travail sauvegarde alors qu'il ne
-                // survivrait pas au prochain rafraichissement.
-                if (Rc.etatChargement().erreur) {
+                // On ne retient l'utilisateur que si le serveur a **refuse** : la
+                // modification serait alors perdue au prochain rafraichissement. Une
+                // simple panne de reseau ne le retient plus, la file s'en charge.
+                if (Rc.etatChargement().erreur && Rc.etatChargement().enAttente === 0) {
                   brouillon = aEnregistrer;
                   monter(vueEditeur(id, livre));
                   var noeud = document.getElementById('erreur-recettes');

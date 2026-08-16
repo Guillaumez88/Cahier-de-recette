@@ -28,6 +28,7 @@
   var Flux = estNode ? require('./flux.js') : global.CarnetFlux;
 
   var CLE_CACHE = 'carnet-de-recettes:recettes-modifiees';
+  var CLE_FILE = 'carnet-de-recettes:file-recettes';
 
   var base = []; // recettes d'origine, telles que servies par le site
   var abonnes = [];
@@ -69,6 +70,113 @@
     }
     notifier();
     return modifiees;
+  }
+
+  // --- File d'attente ----------------------------------------------------------
+  //
+  // Même mécanisme que `js/collection.js`, pour la même raison : une modification
+  // saisie hors ligne ne doit pas disparaître au prochain rafraîchissement réussi.
+  // Elle est appliquée au cache tout de suite, inscrite dans la file, puis envoyée.
+  // Tant qu'elle y est, elle est réappliquée par-dessus ce que rend le serveur.
+  //
+  // Pourquoi ne pas réutiliser `collection.js` tel quel : il tient une liste de
+  // documents indépendants, les recettes une table indexée par identifiant, avec une
+  // notion de « version d'origine » qui reparaît quand la modification est supprimée.
+  // Le mécanisme est le même, la forme des données non.
+
+  function lireFile() {
+    try {
+      var brut = global.localStorage && global.localStorage.getItem(CLE_FILE);
+      var valeur = brut ? JSON.parse(brut) : [];
+      return Array.isArray(valeur) ? valeur : [];
+    } catch (erreur) {
+      return [];
+    }
+  }
+
+  function ecrireFile(file) {
+    try {
+      if (global.localStorage) global.localStorage.setItem(CLE_FILE, JSON.stringify(file));
+    } catch (erreur) {
+      /* quota atteint : la file ne vaudra que pour cette session */
+    }
+    return file;
+  }
+
+  function empiler(operation) {
+    var file = lireFile();
+    // Une même recette modifiée trois fois de suite n'a pas à partir trois fois : seule
+    // la dernière version compte, et la file reste courte même après une longue
+    // coupure. C'est vrai aussi d'une suppression qui suit des modifications.
+    file = file.filter(function (autre) {
+      return autre.id !== operation.id;
+    });
+    file.push(operation);
+    return ecrireFile(file);
+  }
+
+  function nbEnAttente() {
+    return lireFile().length;
+  }
+
+  /** Rejoue une opération en attente. */
+  function executer(operation) {
+    if (operation.type === 'supprimer') return Sync.supprimerRecette(operation.id);
+    return Sync.ecrireRecette(operation.recette);
+  }
+
+  /**
+   * Envoie les opérations en attente, dans l'ordre.
+   *
+   * S'arrête à la première qui échoue et conserve le reste : hors ligne, la file est
+   * exactement ce qu'il faut, elle repartira au retour du réseau.
+   *
+   * Sauf pour un refus. Un 403, un verrou de lecture seule ou une écriture tentée sans
+   * foyer ne se réessaient pas : le droit d'écrire ne reviendra pas dans dix minutes,
+   * et garder l'opération laisserait une file qui ne se vide jamais.
+   */
+  async function viderFile() {
+    var file = lireFile();
+    var refus = null;
+
+    while (file.length > 0) {
+      try {
+        await executer(file[0]);
+        file.shift();
+        ecrireFile(file);
+      } catch (erreur) {
+        if (erreur.statut === 403 || erreur.lectureSeule || erreur.sansFoyer) {
+          file.shift();
+          ecrireFile(file);
+          refus = erreur;
+          continue;
+        }
+        ecrireFile(file);
+        throw erreur;
+      }
+    }
+
+    if (refus) throw refus;
+  }
+
+  async function pousser() {
+    try {
+      await viderFile();
+      etat.erreur = null;
+    } catch (erreur) {
+      etat.erreur = erreur.message;
+    }
+    notifier();
+  }
+
+  /** Réapplique les opérations en attente par-dessus ce que le serveur a rendu. */
+  function appliquerLaFile(modifiees) {
+    var resultat = Object.assign({}, modifiees);
+    lireFile().forEach(function (operation) {
+      if (operation.type === 'supprimer') delete resultat[operation.id];
+      else resultat[operation.id] = operation.recette;
+    });
+    return resultat;
   }
 
   // --- Chargement --------------------------------------------------------------
@@ -282,13 +390,21 @@
     return estModifiee(id) && !idsDeBase()[id];
   }
 
-  /** Relit les modifications depuis Firestore. Hors ligne, garde le cache local. */
+  /**
+   * Relit les modifications depuis Firestore. Hors ligne, garde le cache local.
+   *
+   * Deux précautions, sans lesquelles un rafraîchissement effacerait du travail :
+   * la file part d'abord (une modification faite hors ligne est envoyée dès que le
+   * réseau revient), et ce qui y reste est réappliqué par-dessus la réponse du
+   * serveur, qui décrit forcément un état antérieur.
+   */
   async function rafraichir() {
+    if (nbEnAttente() > 0) await pousser();
     try {
       var distantes = await Sync.lireRecettesModifiees();
       etat.erreur = null;
       etat.chargeLe = Date.now();
-      return ecrireCache(distantes);
+      return ecrireCache(appliquerLaFile(distantes));
     } catch (erreur) {
       etat.erreur = erreur.message;
       notifier();
@@ -297,27 +413,28 @@
   }
 
   function etatChargement() {
-    return { erreur: etat.erreur, chargeLe: etat.chargeLe, nbModifiees: Object.keys(lireCache()).length };
+    return {
+      erreur: etat.erreur,
+      chargeLe: etat.chargeLe,
+      nbModifiees: Object.keys(lireCache()).length,
+      enAttente: nbEnAttente(),
+    };
   }
 
   // --- Enregistrement ---------------------------------------------------------
 
-  /** Enregistre une recette modifiee. Le cache local est mis a jour immediatement. */
+  /**
+   * Enregistre une recette modifiee. Le cache local est mis a jour immediatement.
+   *
+   * L'envoi qui echoue n'est plus une perte : l'operation reste dans la file et
+   * repartira au prochain rafraichissement, comme pour la liste de courses.
+   */
   async function enregistrer(recette) {
     var modifiees = lireCache();
     modifiees[recette.id] = recette;
     ecrireCache(modifiees);
-
-    try {
-      await Sync.ecrireRecette(recette);
-      etat.erreur = null;
-    } catch (erreur) {
-      // La modification reste visible en local ; elle sera perdue au prochain
-      // rafraichissement reussi si l'envoi n'a jamais abouti. On le signale plutot
-      // que de laisser croire que c'est enregistre.
-      etat.erreur = erreur.message;
-    }
-    notifier();
+    empiler({ type: 'ecrire', id: recette.id, recette: recette });
+    await pousser();
     return recette;
   }
 
@@ -425,14 +542,8 @@
     var modifiees = lireCache();
     delete modifiees[id];
     ecrireCache(modifiees);
-
-    try {
-      await Sync.supprimerRecette(id);
-      etat.erreur = null;
-    } catch (erreur) {
-      etat.erreur = erreur.message;
-    }
-    notifier();
+    empiler({ type: 'supprimer', id: id });
+    await pousser();
     return originale(id);
   }
 
@@ -506,6 +617,8 @@
 
   var api = {
     CLE_CACHE: CLE_CACHE,
+    CLE_FILE: CLE_FILE,
+    nbEnAttente: nbEnAttente,
     surChangement: surChangement,
     definirBase: definirBase,
     toutes: toutes,
