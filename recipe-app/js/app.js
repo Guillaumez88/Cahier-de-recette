@@ -1439,8 +1439,10 @@
    * l'est et son foyer est connu, ou son compte n'appartient à aucun foyer. Il n'y a
    * plus de code : créer un compte crée son foyer, et les membres suivants sont
    * inscrits depuis #/foyer/membres par quelqu'un qui peut déjà modifier.
+   *
+   * `creation` bascule le premier état entre « se connecter » et « créer un foyer ».
    */
-  function vueCompte() {
+  function vueCompte(creation) {
     document.title = 'Mon compte — Miam miam !';
     var fragment = document.createDocumentFragment();
     fragment.appendChild(el('a', { class: 'retour', href: '#/', texte: '‹ Retour à l’accueil' }));
@@ -1527,7 +1529,11 @@
       return fragment;
     }
 
-    // --- Personne de connecté : connexion, ou création d'un foyer ---------------
+    // --- Personne de connecté : se connecter, ou créer un foyer -----------------
+    //
+    // Deux écrans distincts, et non un seul avec trois champs : le nom du foyer ne
+    // concerne que la création, et l'afficher à qui vient se connecter lui demande de
+    // remplir une case dont il n'a que faire, ou pire, de deviner laquelle.
     var champEmail = el('input', {
       type: 'email',
       class: 'champ-edition',
@@ -1540,7 +1546,7 @@
       type: 'password',
       class: 'champ-edition',
       id: 'mot-de-passe',
-      autocomplete: 'current-password',
+      autocomplete: creation ? 'new-password' : 'current-password',
       'aria-label': 'Mot de passe',
       placeholder: 'Mot de passe',
     });
@@ -1549,8 +1555,8 @@
       class: 'champ-edition',
       id: 'nom-foyer',
       autocomplete: 'off',
-      'aria-label': 'Nom du foyer, pour un compte neuf',
-      placeholder: 'Nom du foyer (à la création)',
+      'aria-label': 'Nom du foyer',
+      placeholder: 'Nom du foyer (« Chez nous », « Rue des Lilas »…)',
     });
 
     function terminer(resultat) {
@@ -1564,55 +1570,65 @@
       annoncer(peutModifier() ? 'Connecté' : 'Connecté en lecture seule');
     }
 
+    var champs = creation ? [champEmail, champMotDePasse, champNomFoyer] : [champEmail, champMotDePasse];
+
     fragment.appendChild(
       el('section', { class: 'ecran-acces' }, [
-        el('h1', { texte: 'Se connecter' }),
+        el('h1', { texte: creation ? 'Créer un foyer' : 'Se connecter' }),
         el('p', {
-          texte:
-            'Le carnet appartient à un foyer, et ne s’ouvre qu’à ses membres. Créer un ' +
-            'compte crée son foyer : ce premier compte peut tout modifier, et pourra ' +
-            'ensuite inscrire les autres.',
+          texte: creation
+            ? 'Le compte que vous créez ici ouvre son propre carnet : il pourra tout ' +
+              'modifier, et inscrire ensuite les autres personnes du foyer, chacune avec ' +
+              'son rôle.'
+            : 'Le carnet appartient à un foyer, et ne s’ouvre qu’à ses membres. Si ' +
+              'quelqu’un vous a inscrit, c’est ici, avec l’adresse et le mot de passe ' +
+              'qu’il vous a transmis.',
         }),
         el('form', {
           class: 'ecran-acces__forme ecran-acces__forme--colonne',
           onsubmit: function (evenement) {
             evenement.preventDefault();
+            if (creation) {
+              message.textContent = 'Création…';
+              Acc.creerCompte(champEmail.value, champMotDePasse.value, champNomFoyer.value).then(terminer);
+              return;
+            }
             message.textContent = 'Connexion…';
             Acc.connecter(champEmail.value, champMotDePasse.value).then(terminer);
           },
-        }, [
-          champEmail,
-          champMotDePasse,
-          champNomFoyer,
+        }, champs.concat([
           el('div', { class: 'ecran-acces__actions' }, [
-            el('button', { type: 'submit', class: 'bouton', id: 'valider-connexion', texte: 'Se connecter' }),
-            el('button', {
-              type: 'button',
-              class: 'bouton bouton--secondaire',
-              id: 'creer-compte',
-              texte: 'Créer un compte et son foyer',
-              onclick: function () {
-                message.textContent = 'Création…';
-                Acc.creerCompte(champEmail.value, champMotDePasse.value, champNomFoyer.value).then(terminer);
-              },
-            }),
+            creation
+              ? el('button', { type: 'submit', class: 'bouton', id: 'creer-compte', texte: 'Créer le foyer' })
+              : el('button', { type: 'submit', class: 'bouton', id: 'valider-connexion', texte: 'Se connecter' }),
           ]),
-        ]),
+        ])),
         message,
         el('button', {
           type: 'button',
           class: 'lien-action',
-          id: 'mot-de-passe-oublie',
-          texte: 'Mot de passe oublié',
+          id: creation ? 'revenir-connexion' : 'aller-creation',
+          texte: creation ? 'J’ai déjà un compte' : 'Créer un compte et son foyer',
           onclick: function () {
-            message.textContent = 'Envoi…';
-            Acc.motDePasseOublie(champEmail.value).then(function (resultat) {
-              message.textContent = resultat.ok
-                ? 'Un courriel de réinitialisation est parti à cette adresse. Regarder aussi les indésirables.'
-                : resultat.raison;
-            });
+            monter(vueCompte(!creation));
           },
         }),
+        creation
+          ? null
+          : el('button', {
+              type: 'button',
+              class: 'lien-action',
+              id: 'mot-de-passe-oublie',
+              texte: 'Mot de passe oublié',
+              onclick: function () {
+                message.textContent = 'Envoi…';
+                Acc.motDePasseOublie(champEmail.value).then(function (resultat) {
+                  message.textContent = resultat.ok
+                    ? 'Un courriel de réinitialisation est parti à cette adresse. Regarder aussi les indésirables.'
+                    : resultat.raison;
+                });
+              },
+            }),
       ])
     );
     return fragment;

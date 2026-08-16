@@ -102,6 +102,15 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
   await attendre(700);
   verifier('l’écran de compte demande une adresse', (await cuisinier.locator('#email-compte').count()) === 1);
 
+  verifier(
+    'la connexion ne demande pas de nom de foyer',
+    (await cuisinier.locator('#nom-foyer').count()) === 0
+  );
+
+  await cuisinier.click('#aller-creation');
+  await attendre(500);
+  verifier('la création, elle, le demande', (await cuisinier.locator('#nom-foyer').count()) === 1);
+
   await cuisinier.fill('#email-compte', EMAIL);
   await cuisinier.fill('#mot-de-passe', 'court');
   await cuisinier.click('#creer-compte');
