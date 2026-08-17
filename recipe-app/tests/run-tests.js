@@ -1995,13 +1995,26 @@ test('les themes suggeres sont distincts et non vides', () => {
   });
 });
 
-test('la couleur d un theme est stable et bornee', () => {
+test('la couleur d un livre est stable et bornee', () => {
   // Stable : la meme couverture d un chargement a l autre, sans table a maintenir.
-  assert.strictEqual(VBib.palette('Pâtisserie'), VBib.palette('Pâtisserie'));
-  ['Pâtisserie', 'Plats', 'Boisson', 'Conserves', 'Un thème inventé plus tard', ''].forEach((theme) => {
-    const p = VBib.palette(theme);
-    assert.ok(Number.isInteger(p) && p >= 0 && p < 2, `palette hors bornes pour ${theme} : ${p}`);
+  assert.strictEqual(VBib.palette('Le grand manuel du pâtissier'), VBib.palette('Le grand manuel du pâtissier'));
+  [
+    'Le grand manuel du pâtissier',
+    'Hello Fresh',
+    'Ferrandi, la pâtisserie',
+    'Un livre acheté plus tard',
+    '',
+  ].forEach((nom) => {
+    const p = VBib.palette(nom);
+    assert.ok(Number.isInteger(p) && p >= 0 && p < 4, `palette hors bornes pour ${nom} : ${p}`);
   });
+
+  // Deux livres d'une même étagère ne doivent pas forcément avoir la même couverture :
+  // c'est tout le point du passage du thème au titre.
+  const couleurs = ['Ferrandi, la pâtisserie', 'Le grand manuel du pâtissier', 'Le Larousse des desserts'].map(
+    VBib.palette
+  );
+  assert.ok(new Set(couleurs).size > 1, 'trois livres du même thème, une seule couleur : ' + couleurs.join(','));
 });
 
 test('le decompte d un livre se dit au singulier, au pluriel, et quand il est vide', () => {

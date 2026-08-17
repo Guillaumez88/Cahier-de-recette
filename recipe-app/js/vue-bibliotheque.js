@@ -33,30 +33,81 @@
 (function (global) {
   'use strict';
 
-  // Deux palettes, et non trois : la troisieme aurait ete un neutre, or le neutre est
-  // deja pris par les livres vides. Un livre garni qui ressemble a un livre vide est
-  // pire qu'une couleur repetee.
-  var NB_PALETTES = 2;
+  // Quatre palettes, tirées du nom du livre et non de son thème. Depuis que les livres
+  // sont posés sur une étagère par thème, une couleur par thème donnait des rangées de
+  // couvertures identiques : une vraie étagère est bariolée. Le neutre reste réservé
+  // aux livres vides, un livre garni ne doit pas leur ressembler.
+  var NB_PALETTES = 4;
 
   /**
-   * Palette d'un thème : une empreinte de son nom, ramenée sur trois valeurs.
+   * Palette d'un livre : une empreinte de son nom, ramenée sur quatre valeurs.
    *
-   * djb2, le même que celui de sync.js pour désambiguïser des slugs. On ne cherche
-   * pas une répartition parfaite, seulement une couleur stable : « Pâtisserie » doit
-   * garder la sienne d'un chargement à l'autre, et deux thèmes de même couleur ne
-   * gênent personne, chaque groupe portant son intertitre.
+   * djb2, le même que celui de sync.js pour désambiguïser des slugs. On ne cherche pas
+   * une répartition parfaite, seulement une couleur stable : « Le grand manuel du
+   * pâtissier » doit garder la sienne d'un chargement à l'autre, et deux livres de même
+   * couleur ne gênent personne, chacun portant son titre.
    */
-  function palette(theme) {
+  function palette(nom) {
     var h = 5381;
-    var texte = String(theme || '');
+    var texte = String(nom || '');
     for (var i = 0; i < texte.length; i += 1) {
       h = ((h << 5) + h + texte.charCodeAt(i)) | 0;
     }
     return (h >>> 0) % NB_PALETTES;
   }
 
+  /**
+   * La couverture d'un livre, telle qu'elle s'affiche sur l'étagère et sur son écran.
+   *
+   * Un seul composant pour les deux : c'était le seul moyen qu'un livre ait la même
+   * allure aux deux endroits, et la classe de taille (`couverture--grande`) est la seule
+   * chose qui les distingue.
+   *
+   * Sans photo, la couverture est dessinée : un dos à gauche, un cartouche portant le
+   * titre. C'est plus reconnaissable qu'un pictogramme répété d'un livre à l'autre, et
+   * c'est ce qui donne à l'étagère l'aspect qu'on en attend.
+   */
+  function couvertureDe(outils, livre, options) {
+    var el = outils.el;
+    var reglages = options || {};
+    var image = reglages.image || null;
+    var vide = Boolean(reglages.vide);
+
+    var classes = ['couverture'];
+    if (reglages.grande) classes.push('couverture--grande');
+    if (image) classes.push('couverture--illustre');
+    else if (vide) classes.push('couverture--vide');
+    else classes.push('couverture--p' + palette(livre.titre));
+
+    return el(
+      'span',
+      { class: classes.join(' ') },
+      image
+        ? [el('img', { class: 'couverture__image', src: image, alt: 'Couverture de ' + livre.titre })]
+        : [
+            el('span', { class: 'couverture__dos', 'aria-hidden': 'true' }),
+            el('span', { class: 'couverture__impression' }, [
+              el('span', { class: 'couverture__titre', texte: livre.titre }),
+              livre.auteur ? el('span', { class: 'couverture__auteur', texte: livre.auteur }) : null,
+            ]),
+          ]
+    );
+  }
+
   function libelleCompte(n) {
     if (n === 0) return 'aucune recette pour l’instant';
+    return n + (n > 1 ? ' recettes' : ' recette');
+  }
+
+  /**
+   * La même chose, en court, pour la légende sous une couverture.
+   *
+   * « aucune recette pour l'instant » prenait deux lignes sous un livre de 132 px de
+   * large, et repoussait la planche de l'étagère. La phrase entière reste employée là
+   * où la place ne manque pas, comme dans la boîte de déplacement d'une recette.
+   */
+  function libelleCompteCourt(n) {
+    if (n === 0) return 'vide';
     return n + (n > 1 ? ' recettes' : ' recette');
   }
 
@@ -219,16 +270,38 @@
       });
     }
 
+    // Les thèmes sont repliés par défaut, comme les filtres du livre : ce qu'on vient
+    // voir ici, ce sont les livres. Le bouton dit le thème posé quand il y en a un,
+    // pour qu'un filtre oublié ne fasse pas croire à une bibliothèque dégarnie.
+    var deplie = Boolean(etat.filtresBiblioDeplies);
     fragment.appendChild(
-      el(
-        'div',
-        { class: 'rangee-filtre rangee-filtre--themes' },
-        [pilule('Tous', null, livres.length)].concat(
-          groupes.map(function (groupe) {
-            return pilule(groupe.theme, groupe.theme, groupe.livres.length);
-          })
-        )
-      )
+      el('div', { class: 'filtres filtres--themes' }, [
+        el('button', {
+          type: 'button',
+          class: 'bouton-filtres' + (themeActif ? ' bouton-filtres--actif' : ''),
+          id: 'basculer-themes',
+          'aria-expanded': deplie ? 'true' : 'false',
+          'aria-controls': 'panneau-themes',
+          onclick: function () {
+            etat.filtresBiblioDeplies = !deplie;
+            rendre();
+          },
+        }, [
+          icone('poignee', { taille: 16 }),
+          el('span', { texte: themeActif ? 'Thème · ' + themeActif : 'Filtrer par thème' }),
+        ]),
+        deplie
+          ? el(
+              'div',
+              { class: 'rangee-filtre rangee-filtre--themes', id: 'panneau-themes' },
+              [pilule('Tous', null, livres.length)].concat(
+                groupes.map(function (groupe) {
+                  return pilule(groupe.theme, groupe.theme, groupe.livres.length);
+                })
+              )
+            )
+          : null,
+      ])
     );
 
     var visibles = themeActif
@@ -245,32 +318,31 @@
       var cartes = groupe.livres.map(function (livre) {
         var nb = comptes[livre.id] || 0;
         var vide = nb === 0;
-        // La couverture photographiée remplace l'aplat de couleur : c'est ce qui permet
-        // de reconnaître un ouvrage d'un coup d'œil, ce qu'un titre en petit ne fait
-        // pas dans une grille de dix. La vignette suffit, elle est déjà en cache.
+        // La couverture photographiée remplace la couverture dessinée : c'est ce qui
+        // permet de reconnaître un ouvrage d'un coup d'œil, ce qu'un titre en petit ne
+        // fait pas dans une étagère de dix. La vignette suffit, elle est déjà en cache.
         var couverture = Ph ? Ph.vignette(Lv.clePhoto(livre.id)) : null;
+
         return el(
           'a',
           {
-            class:
-              'livre-carte' +
-              (couverture ? ' livre-carte--illustre' : vide ? ' livre-carte--vide' : ' livre-carte--p' + palette(livre.theme)),
+            class: 'livre-carte',
             href: '#/bibliotheque/' + encodeURIComponent(livre.id),
             'data-livre': livre.id,
+            title: livre.titre + (livre.auteur ? ' — ' + livre.auteur : ''),
           },
           [
-            couverture
-              ? el('span', { class: 'livre-carte__couverture' }, [
-                  el('img', { class: 'livre-carte__image', src: couverture, alt: 'Couverture de ' + livre.titre }),
-                ])
-              : el('span', { class: 'livre-carte__couverture' }, [icone('livre-ferme', { taille: 30 })]),
+            couvertureDe(outils, livre, { image: couverture, vide: vide }),
+            // La légende sous le livre reste courte : le thème est déjà l'intertitre du
+            // groupe, et le titre est sur la couverture quand elle est dessinée.
             el('span', { class: 'livre-carte__corps' }, [
-              el('span', { class: 'etiquette etiquette--sobre', texte: livre.theme }),
-              el('span', { class: 'livre-carte__titre', texte: livre.titre }),
-              livre.auteur ? el('span', { class: 'livre-carte__auteur', texte: livre.auteur }) : null,
+              couverture ? el('span', { class: 'livre-carte__titre', texte: livre.titre }) : null,
+              couverture && livre.auteur
+                ? el('span', { class: 'livre-carte__auteur', texte: livre.auteur })
+                : null,
               el('span', {
                 class: 'livre-carte__compte' + (vide ? ' livre-carte__compte--vide' : ''),
-                texte: libelleCompte(nb),
+                texte: libelleCompteCourt(nb),
               }),
             ]),
           ]
@@ -293,14 +365,24 @@
         );
       }
 
-      fragment.appendChild(el('div', { class: 'grille-livres' }, cartes));
+      // L'étagère : les livres sont posés dessus, et la planche se voit. C'est ce qui
+      // fait qu'une grille de vignettes devient une bibliothèque.
+      fragment.appendChild(
+        el('div', { class: 'etagere' }, [el('div', { class: 'grille-livres' }, cartes)])
+      );
     });
 
     annoncer('Bibliothèque, ' + livres.length + (livres.length > 1 ? ' livres' : ' livre'));
     return fragment;
   }
 
-  var api = { palette: palette, libelleCompte: libelleCompte, construire: construire };
+  var api = {
+    palette: palette,
+    couvertureDe: couvertureDe,
+    libelleCompte: libelleCompte,
+    libelleCompteCourt: libelleCompteCourt,
+    construire: construire,
+  };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.CarnetVueBibliotheque = api;

@@ -147,7 +147,15 @@ function verifier(nom, condition, detail = '') {
   await champ.fill('');
   await page.waitForTimeout(300);
 
-  // Filtres
+  // Filtres. Ils sont replies par defaut depuis que quatre rangees de pilules
+  // poussaient les recettes sous la ligne de flottaison : le panneau s'ouvre d'abord,
+  // et son absence avant le clic fait partie de ce qu'on verifie.
+  verifier('les filtres sont replies par defaut', (await page.locator('[data-filtre]').count()) === 0);
+  verifier('un bouton les deplie', (await page.locator('#basculer-filtres').count()) === 1);
+  await page.locator('#basculer-filtres').click();
+  await page.waitForTimeout(300);
+  verifier('deplies, les pilules sont la', (await page.locator('[data-filtre]').count()) > 10);
+
   await page.locator('.rangee-filtre').nth(0).getByText('Entrée', { exact: true }).click();
   await page.waitForTimeout(300);
   verifier('le filtre Entrée ramene 6 recettes', (await page.locator('.carte').count()) === 6, String(await page.locator('.carte').count()));
@@ -156,6 +164,14 @@ function verifier(nom, condition, detail = '') {
   await page.waitForTimeout(300);
   const combine = await page.locator('.carte').count();
   verifier('les filtres se combinent', combine > 0 && combine < 3, `${combine} recettes`);
+
+  // Le bouton annonce les filtres poses, meme replie : sans cela, une selection
+  // oubliee masquerait des recettes sans que rien ne le dise.
+  verifier(
+    'le bouton compte les filtres poses',
+    /Filtres · 2/.test(await page.locator('#basculer-filtres').textContent()),
+    await page.locator('#basculer-filtres').textContent()
+  );
 
   await page.locator('.barre-resultats').getByText('Tout effacer', { exact: true }).click();
   await page.waitForTimeout(300);

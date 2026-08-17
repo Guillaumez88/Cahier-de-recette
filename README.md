@@ -173,7 +173,7 @@ qu'en une fois.
 | Poids transféré au chargement | 209 Ko compressés, 34 fichiers |
 | Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
 | Coût de la bibliothèque | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
-| Tests | 167 + 156 sous Node, 513 vérifications navigateur, 20 contre le vrai Firebase |
+| Tests | 167 + 156 sous Node, 519 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -230,11 +230,11 @@ sans voir ce qu'elle protégeait.
     └── tests/
         ├── run-tests.js           167 tests de la logique métier
         ├── run-sync-tests.js      156 tests de la synchronisation
-        ├── test-web.js            103 vérifications navigateur, parcours général et partage
+        ├── test-web.js            107 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
         ├── test-edition.js         89 vérifications navigateur, modification, parts, nutrition, illustrations
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
-        ├── test-bibliotheque.js    67 vérifications navigateur, livres, périmètres, couvertures
+        ├── test-bibliotheque.js    69 vérifications navigateur, livres, périmètres, couvertures
         ├── test-acces.js           41 vérifications navigateur, foyers, membres, rôles et partages
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
@@ -627,6 +627,45 @@ le champ `livre`. Rien ne presse aux volumes actuels.
 **`firestore.rules` doit être republié** : la collection `livres` s'ajoute aux cinq
 autres. Tant que ce n'est pas fait, la bibliothèque paraît vide et l'application
 continue de fonctionner sans elle.
+
+### Une étagère, et des livres qui en ont l'air
+
+Deux décisions de forme, prises le 17 août 2026 après avoir regardé l'écran plutôt que
+le code :
+
+**Les couvertures sont au format portrait**, deux tiers de leur hauteur en largeur, avec
+un dos plus sombre à gauche et un coin gauche vif. Sans photo, la couverture est
+dessinée : une teinte franche et un cartouche clair portant le titre, comme un ouvrage
+relié. Avant, c'était une vignette paysage avec un pictogramme de livre, le même pour
+tous : dix livres se ressemblaient tous, et rien ne disait qu'on regardait des objets.
+
+**Chaque thème est une étagère**, avec une planche dessinée sous ses livres : une
+bordure épaisse et une ombre juste dessous. C'est ce qui fait lire la grille comme une
+bibliothèque et non comme une liste de cartes. Les livres sont alignés par le bas, sur
+la planche, et les colonnes ont une largeur fixe : un livre a une taille, il ne s'étire
+pas pour remplir l'espace.
+
+**La couleur d'une couverture vient du titre du livre**, plus de son thème. Une couleur
+par thème donnait des rangées entières de couvertures identiques, alors que c'est
+justement sur une étagère qu'il faut pouvoir distinguer deux ouvrages. Quatre palettes,
+tirées d'une empreinte du titre : stable d'un chargement à l'autre, sans table à
+maintenir. Un livre vide reste neutre, sa couverture dit qu'il attend son contenu.
+
+Le même composant sert sur l'étagère et sur l'écran d'un livre (`VBib.couvertureDe`) :
+c'était le seul moyen que l'ouvrage ait la même allure aux deux endroits.
+
+### Les filtres sont repliés par défaut
+
+Sur le livre de cuisine comme sur un livre de la bibliothèque, quatre rangées de pilules
+occupaient tout l'écran d'un téléphone : on ouvrait le livre pour voir des recettes, et
+on voyait des filtres. Elles sont désormais derrière un bouton « Filtres », replié au
+départ, tandis que **le champ de recherche reste toujours visible** : c'est le filtre
+qu'on utilise vraiment.
+
+Le bouton porte le nombre de filtres posés (« Filtres · 2 ») et se colore quand il y en
+a : replié, il est la seule chose qui puisse dire qu'une sélection masque des recettes.
+L'état n'est pas mémorisé au-delà de la session, et la bibliothèque fait de même avec
+son filtre par thème.
 
 ## Valeurs nutritionnelles et photos d'étapes
 
@@ -1139,7 +1178,7 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 cd recipe-app
 node tests/run-tests.js           # 167 tests de la logique métier
 node tests/run-sync-tests.js      # 140 tests de la synchronisation
-node tests/run-browser-tests.js   # 513 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 519 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

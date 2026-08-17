@@ -1048,7 +1048,10 @@ const PNG_ROUGE =
     String(await pageA.locator('.carte__realisations--jamais').count())
   );
 
-  // Le filtre n apparait qu avec un historique, et separe les deux populations.
+  // Le filtre n apparait qu avec un historique, et separe les deux populations. Les
+  // filtres etant replies par defaut, on ouvre le panneau d'abord.
+  await pageA.locator('#basculer-filtres').click();
+  await attendre(400);
   verifier(
     'le filtre des realisations est propose',
     (await pageA.locator('[data-filtre="realisations:jamais"]').count()) === 1

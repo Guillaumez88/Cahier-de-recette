@@ -40,6 +40,12 @@
   --sauge-800: #3d472b;
   --sauge-900: #272e1b;
 
+  /* Un bleu-ardoise, utilisé nulle part ailleurs que sur les couvertures de livres :
+     il fallait une quatrième teinte franche, et les trois familles existantes sont
+     toutes chaudes, donc trop proches les unes des autres sur une étagère. */
+  --ardoise-600: #4c5b64;
+  --ardoise-800: #2d3941;
+
   --neutre-100: #f9f4ed;
   --neutre-200: #eee7db;
   --neutre-300: #dcd3c4;
@@ -245,6 +251,64 @@ h4,
   display: grid;
   gap: 14px;
   margin-bottom: 24px;
+}
+
+/* La recherche et le bouton des filtres, sur une ligne : la recherche prend la place
+   qui reste, le bouton garde la sienne. Sur un téléphone, le bouton passe dessous. */
+.filtres__ligne {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.filtres__ligne .champ-recherche {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Le bouton qui déplie les filtres. Il porte le nombre de filtres posés : replié, il
+   est la seule chose qui puisse dire qu'une sélection masque des recettes. */
+.bouton-filtres {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 0 16px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--texte-doux);
+  background: var(--surface);
+  border: 1px solid var(--bordure-forte);
+  border-radius: var(--rayon-md);
+  cursor: pointer;
+}
+.bouton-filtres:hover {
+  color: var(--texte);
+  border-color: var(--terracotta);
+}
+.bouton-filtres--actif {
+  color: var(--blanc);
+  background: var(--terracotta);
+  border-color: var(--terracotta);
+}
+.bouton-filtres[aria-expanded='true'] {
+  border-color: var(--terracotta);
+}
+
+/* Le panneau déplié : les rangées de pilules, séparées du reste. */
+.filtres__panneau {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon-md);
+}
+
+.filtres--themes {
+  gap: 12px;
+  margin-bottom: 18px;
+  justify-items: start;
 }
 
 .champ-recherche {
@@ -4193,6 +4257,21 @@ a.creneau__plat:hover .creneau__titre {
   padding-bottom: 4px;
 }
 
+@media (max-width: 560px) {
+  /* Sur un téléphone, le bouton des filtres passe sous la recherche : côte à côte,
+     il ne restait au champ que trois centimètres pour écrire « courgettes ». */
+  .filtres__ligne {
+    flex-wrap: wrap;
+  }
+  .bouton-filtres {
+    padding: 10px 14px;
+  }
+  .grille-livres {
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+    gap: 18px 14px;
+  }
+}
+
 .rangee-filtre--themes {
   margin: 4px 0 6px;
 }
@@ -4216,69 +4295,179 @@ a.creneau__plat:hover .creneau__titre {
 
 /* Les cartes de livre sont plus étroites que les cartes de recette : un livre porte
    un titre et un décompte, pas des ingrédients et des étapes. */
+/* --- L'étagère et ses livres -------------------------------------------------
+   Un livre se reconnaît à sa forme : plus haut que large, un dos à gauche, un titre
+   imprimé sur la couverture. Une vignette carrée avec un pictogramme ne ressemblait
+   à rien, et dix vignettes identiques encore moins à une bibliothèque.
+
+   La planche est dessinée sous chaque groupe de thème : c'est elle qui fait lire la
+   grille comme une étagère, et non comme une liste de cartes. */
+
+.etagere {
+  margin-bottom: 32px;
+  padding-bottom: 12px;
+  /* La planche : une bordure épaisse, et une ombre juste dessous qui lui donne son
+     épaisseur. Deux traits suffisent, il n'y a pas d'image à charger. */
+  border-bottom: 5px solid var(--neutre-400);
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 6px 10px -6px rgba(32, 30, 29, 0.45);
+}
+
 .grille-livres {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
-  gap: 16px;
-  margin-bottom: 8px;
+  /* Des colonnes de largeur fixe, et non des fractions : un livre a une taille, il ne
+     s'étire pas pour remplir l'étagère. Sans cela, deux livres seuls devenaient deux
+     grands panneaux, et les espaces entre eux variaient d'un thème à l'autre. */
+  grid-template-columns: repeat(auto-fill, 136px);
+  justify-content: start;
+  gap: 24px 20px;
+  /* Les livres reposent sur la planche : alignés par le bas, quelle que soit la
+     longueur de leur légende. */
+  align-items: end;
+  margin-bottom: 0;
 }
 
 .livre-carte {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  min-height: 172px;
-  background: var(--surface);
-  border: 1px solid var(--bordure);
-  border-radius: var(--rayon-lg);
   text-decoration: none;
   color: inherit;
-  transition: transform 140ms ease, box-shadow 140ms ease;
+  transition: transform 140ms ease;
 }
 .livre-carte:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 18px rgba(32, 30, 29, 0.09);
+  /* On sort le livre de l'étagère plutôt que de faire flotter une carte. */
+  transform: translateY(-5px);
 }
 
-/* La couverture : un aplat et un livre dessiné. Trois palettes, choisies par une
-   empreinte du nom du thème dans vue-bibliotheque.js, pour qu'un thème inventé plus
-   tard ait quand même une couleur stable sans table à maintenir ici. */
-.livre-carte__couverture {
+/* --- La couverture d'un livre ------------------------------------------------
+   Un rectangle portrait, deux tiers de sa hauteur en largeur, comme un ouvrage relié.
+   Le même composant sert sur l'étagère et sur l'écran d'un livre : « couverture--grande »
+   est la seule différence, sans quoi le même objet aurait eu deux allures.
+
+   Les quatre palettes sont choisies par une empreinte du titre du livre dans
+   vue-bibliotheque.js, pour qu'un ouvrage acheté plus tard ait quand même une couleur
+   stable, sans table à maintenir ici. */
+.couverture {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 124px;
-  color: var(--terracotta-sombre);
-  background: var(--accent-100);
+  overflow: hidden;
+  aspect-ratio: 2 / 3;
+  color: var(--blanc);
+  /* Une teinte franche, et un dégradé très léger : une couverture n'est pas un aplat
+     parfait, elle prend la lumière. Les tons pâles d'avant faisaient disparaître les
+     livres sur le papier de la page. */
+  background: linear-gradient(160deg, var(--accent-500), var(--accent-700));
+  /* Le coin gauche reste vif, le droit s'arrondit : c'est de ce côté que s'ouvre un
+     livre posé de face, et cela suffit à orienter l'objet. */
+  border-radius: 2px 6px 6px 2px;
+  box-shadow: 0 7px 15px -7px rgba(32, 30, 29, 0.55);
 }
-.livre-carte--p1 .livre-carte__couverture {
-  color: var(--sauge-700);
-  background: var(--sauge-100);
+.couverture--p1 {
+  background: linear-gradient(160deg, var(--sauge-600), var(--sauge-800));
 }
-/* Un livre encore vide reste neutre : sa couverture dit qu'il attend son contenu. */
-.livre-carte--vide .livre-carte__couverture {
+.couverture--p2 {
+  background: linear-gradient(160deg, var(--accent-700), var(--accent-900));
+}
+.couverture--p3 {
+  background: linear-gradient(160deg, var(--ardoise-600), var(--ardoise-800));
+}
+/* Un livre encore vide reste neutre : sa couverture dit qu'il attend son contenu. Le
+   fond est un ton plus marqué que le papier de la page, sinon le livre disparaît sur
+   l'étagère et celle-ci a l'air vide alors qu'elle porte un ouvrage. */
+.couverture--vide {
   color: var(--texte-faible);
-  background: var(--neutre-100);
+  background: linear-gradient(160deg, var(--neutre-300), var(--neutre-400));
+}
+
+/* Le dos, à gauche : une bande plus sombre que la couverture, et le pli qui la suit. */
+.couverture__dos {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 12px;
+  background: rgba(32, 30, 29, 0.22);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.28);
+}
+
+/* Le titre imprimé sur la couverture, quand il n'y a pas de photo : un cartouche clair
+   au milieu du plat, comme sur un ouvrage relié. */
+.couverture__impression {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 10px 0 20px;
+  padding: 10px 8px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(32, 30, 29, 0.18);
+}
+.couverture__titre {
+  font-family: 'Caprasimo', Georgia, serif;
+  font-size: 13px;
+  line-height: 1.22;
+  color: var(--texte);
+  /* Un titre long ne doit ni déformer la couverture ni la déborder : on le coupe. */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.couverture__auteur {
+  font-size: 10.5px;
+  color: var(--texte-doux);
+}
+
+/* La couverture photographiée. Le cadre est portrait comme l'objet : le rognage est
+   donc minime, mais il reste en « cover » parce qu'une photo prise à la main n'a jamais
+   exactement les proportions d'un livre relié. */
+.couverture__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Le haut plutôt que le centre : le titre d'un ouvrage est en haut de sa couverture,
+     et c'est lui qu'on cherche à reconnaître. */
+  object-position: center top;
+}
+.couverture--illustre {
+  background: var(--neutre-200);
+}
+
+/* Sur l'écran d'un livre, la même couverture en plus grand, à côté du titre. */
+.couverture--grande {
+  flex: 0 0 auto;
+  width: 116px;
+}
+.couverture--grande .couverture__titre {
+  font-size: 15px;
+  -webkit-line-clamp: 5;
+}
+.couverture--grande .couverture__auteur {
+  font-size: 11.5px;
 }
 
 .livre-carte__corps {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 11px 14px 14px;
+  gap: 2px;
+  padding: 8px 2px 0;
 }
 
 .livre-carte__titre {
   font-family: 'Caprasimo', Georgia, serif;
-  font-size: 15px;
+  font-size: 13.5px;
   line-height: 1.25;
   color: var(--texte);
 }
 
 .livre-carte__auteur,
 .livre-carte__compte {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--texte-doux);
 }
 .livre-carte__compte--vide {
@@ -4291,11 +4480,14 @@ a.creneau__plat:hover .creneau__titre {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  aspect-ratio: 2 / 3;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
+  text-align: center;
   color: var(--texte-doux);
   background: transparent;
   border: 1.5px dashed var(--bordure-forte);
+  border-radius: 2px 6px 6px 2px;
   cursor: pointer;
 }
 .livre-carte--ajout:hover {
@@ -4332,48 +4524,18 @@ a.creneau__plat:hover .creneau__titre {
   border-radius: 999px;
 }
 
-/* La couverture photographiée d'un livre. Elle remplace l'aplat de couleur, et le
-   cadrage est en « cover » : une couverture est plus haute que large, le cadre de la
-   carte est plus large que haut, il faut donc rogner plutôt que déformer. */
-.livre-carte__image {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  /* Le haut plutôt que le centre : le titre d'un ouvrage est en haut de sa couverture,
-     et c'est lui qu'on cherche à reconnaître. Un cadrage centré coupait justement là. */
-  object-position: center top;
-}
-.livre-carte--illustre .livre-carte__couverture {
-  padding: 0;
-  background: var(--neutre-200);
-}
-
-/* Sur l'écran d'un livre, la couverture accompagne le titre. Elle garde ses
-   proportions : c'est une photo d'objet, la déformer se voit tout de suite. */
+/* Sur l'écran d'un livre, la couverture accompagne le titre. */
 .livre__identite {
   display: flex;
   align-items: flex-start;
   gap: 16px;
 }
-.livre__couverture {
-  flex: 0 0 auto;
-  margin: 0;
-  width: 88px;
-  overflow: hidden;
-  border: 1px solid var(--bordure);
-  border-radius: var(--rayon-md);
-  background: var(--neutre-200);
-}
-.livre__couverture img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
 @media (max-width: 560px) {
-  .livre__couverture {
-    width: 64px;
+  .couverture--grande {
+    width: 84px;
+  }
+  .couverture--grande .couverture__titre {
+    font-size: 12.5px;
   }
 }
 

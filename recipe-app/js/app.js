@@ -92,6 +92,15 @@
     magasin: { voirCoches: false },
     // Section ouverte dans l'editeur en accordeon.
     sectionEditeur: 'parts',
+    // Les filtres sont replies par defaut, sur le livre comme sur la bibliotheque :
+    // quatre rangees de pilules poussaient les recettes sous la ligne de flottaison,
+    // alors qu'on ouvre le livre pour voir des recettes. Le champ de recherche, lui,
+    // reste toujours visible : c'est le filtre qu'on utilise vraiment.
+    //
+    // L'etat n'est pas persiste : il tient pour la session, et un filtre pose reste
+    // annonce sur le bouton meme replie, donc rien ne se cache en silence.
+    filtresDeplies: false,
+    filtresBiblioDeplies: false,
   };
 
   /** Route affichee, sans le dièse. Utilisee pour ne re-rendre que l'ecran courant. */
@@ -2735,10 +2744,16 @@
     fragment.appendChild(
       el('div', { class: 'livre__entete' }, [
         el('div', { class: livre ? 'livre__identite' : null }, [
-          couverture
-            ? el('figure', { class: 'livre__couverture' }, [
-                el('img', { src: couverture, alt: 'Couverture de ' + livre.titre }),
-              ])
+          // La couverture, photographiée ou dessinée, et la même que sur l'étagère :
+          // c'est ce qui fait qu'on reconnaît l'ouvrage d'un écran à l'autre. Elle
+          // n'existe que pour un livre de la bibliothèque ; le livre de cuisine, lui,
+          // n'est pas un objet posé sur une étagère.
+          livre
+            ? VBib.couvertureDe({ el: el }, livre, {
+                image: couverture,
+                vide: recettes.length === 0,
+                grande: true,
+              })
             : null,
           el('div', {}, [
           livre ? el('span', { class: 'etiquette etiquette--sobre', texte: livre.theme }) : null,
@@ -2868,7 +2883,16 @@
       },
     });
 
-    var blocFiltres = el('div', { class: 'filtres' }, [champ].concat(
+    // Les pilules posees, hors recherche : c'est ce que le bouton doit annoncer quand
+    // le panneau est replie, sans quoi un filtre oublie masquerait des recettes sans
+    // qu'on voie pourquoi.
+    var nbPosees = ['categorie', 'origine', 'difficulte', 'temps', 'realisations'].filter(function (cle) {
+      return Boolean(etat.criteres[cle]);
+    }).length;
+
+    var panneau = el(
+      'div',
+      { class: 'filtres__panneau', id: 'panneau-filtres' },
       rangees.map(function (rangee) {
         return el('div', { class: 'rangee-filtre' }, [el('span', { class: 'rangee-filtre__titre', texte: rangee.titre })].concat(
           rangee.valeurs.map(function (option) {
@@ -2889,17 +2913,31 @@
           })
         ));
       })
-    ));
+    );
+
+    var blocFiltres = el('div', { class: 'filtres' }, [
+      el('div', { class: 'filtres__ligne' }, [
+        champ,
+        el('button', {
+          type: 'button',
+          class: 'bouton-filtres' + (nbPosees ? ' bouton-filtres--actif' : ''),
+          id: 'basculer-filtres',
+          'aria-expanded': etat.filtresDeplies ? 'true' : 'false',
+          'aria-controls': 'panneau-filtres',
+          onclick: function () {
+            etat.filtresDeplies = !etat.filtresDeplies;
+            rendreLivrePartiel();
+          },
+        }, [
+          icone('poignee', { taille: 16 }),
+          el('span', { texte: nbPosees ? 'Filtres · ' + nbPosees : 'Filtres' }),
+        ]),
+      ]),
+      etat.filtresDeplies ? panneau : null,
+    ]);
     fragment.appendChild(blocFiltres);
 
-    var auMoinsUnFiltre = Boolean(
-      etat.criteres.recherche ||
-        etat.criteres.categorie ||
-        etat.criteres.origine ||
-        etat.criteres.difficulte ||
-        etat.criteres.temps ||
-        etat.criteres.realisations
-    );
+    var auMoinsUnFiltre = Boolean(etat.criteres.recherche) || nbPosees > 0;
 
     fragment.appendChild(
       el('div', { class: 'barre-resultats' }, [

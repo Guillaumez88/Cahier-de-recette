@@ -317,6 +317,12 @@ const PNG_ROUGE =
   await pageA.goto(`${BASE}#/bibliotheque`, { waitUntil: 'networkidle' });
   await attendre(700);
   verifier('les deux livres sont listés', (await pageA.locator('.livre-carte[data-livre]').count()) === 2);
+  // Chaque thème est une étagère : les livres y sont posés, et la planche se voit.
+  verifier('chaque thème forme une étagère', (await pageA.locator('.etagere').count()) === 2);
+  // Le filtre par thème est replié par défaut : ce qu'on vient voir, ce sont les livres.
+  verifier('les thèmes sont repliés par défaut', (await pageA.locator('[data-theme-livre]').count()) === 0);
+  await pageA.click('#basculer-themes');
+  await attendre(400);
   verifier('les thèmes servent de filtre', (await pageA.locator('[data-theme-livre]').count()) === 3, 'Tous + deux thèmes');
 
   await pageA.click('[data-theme-livre="Plats"]');
@@ -361,6 +367,9 @@ const PNG_ROUGE =
 
   await pageA.goto(`${BASE}#/bibliotheque/ferrandi-patisserie`, { waitUntil: 'networkidle' });
   await attendre(600);
+  // Les filtres d'un livre sont repliés comme ceux du livre de cuisine.
+  await pageA.locator('#basculer-filtres').click();
+  await attendre(400);
   const filtresDuLivre = await pageA.evaluate(() =>
     [...document.querySelectorAll('[data-filtre]')].map((n) => n.getAttribute('data-filtre'))
   );
@@ -471,13 +480,18 @@ const PNG_ROUGE =
     /Paris-Brest/.test(apresRenommage),
     'la recette a perdu son livre au renommage'
   );
-  verifier('la couverture s’affiche sur l’écran du livre', (await pageA.locator('.livre__couverture img').count()) === 1);
+  // La couverture photographiée et la couverture dessinée sont le même composant, à
+  // la taille près : c'est la classe « --illustre » qui dit que la photo a pris la place.
+  verifier(
+    'la couverture s’affiche sur l’écran du livre',
+    (await pageA.locator('.couverture--grande.couverture--illustre .couverture__image').count()) === 1
+  );
 
   await pageA.goto(`${BASE}#/bibliotheque`, { waitUntil: 'networkidle' });
   await attendre(700);
   verifier(
     'la couverture s’affiche sur la carte du livre',
-    (await pageA.locator('[data-livre="ferrandi-patisserie"] .livre-carte__image').count()) === 1
+    (await pageA.locator('[data-livre="ferrandi-patisserie"] .couverture__image').count()) === 1
   );
   verifier(
     'un livre sans couverture garde son aplat',
