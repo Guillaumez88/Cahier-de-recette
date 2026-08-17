@@ -32,9 +32,10 @@ rules_version = '2';
 //   obtenir son propre foyer, vide. Le bloquer demanderait une fonction de blocage
 //   Identity Platform, qui est payante. Un compte inconnu ne voit rien du vôtre.
 //
-// - **La lecture d'un foyer est réservée à ses membres.** Contrairement à la version
-//   précédente, un visiteur non inscrit ne lit rien : le partage se fera par des
-//   documents dédiés, pas en ouvrant la lecture à tout le monde.
+// - **La lecture d'un foyer est réservée à ses membres**, et aux comptes à qui ce
+//   foyer a explicitement ouvert une recette ou un livre. Un visiteur non inscrit ne
+//   lit rien : le partage passe par des documents dédiés (`foyers/…/partages/{uid}`),
+//   pas par une lecture ouverte à tout le monde.
 //
 // - **Chaque requête de contenu déclenche un `get()` sur le document de membre**, qui
 //   est facturé comme une lecture. C'est le prix du cloisonnement : une lecture de
@@ -60,6 +61,99 @@ service cloud.firestore {
 
     function peutModifier(foyerId) {
       return estMembre(foyerId) && membre(foyerId).role == 'modification';
+    }
+
+    // --- Ce qu'un foyer m'a ouvert -------------------------------------------
+    //
+    // Un partage est un document unique par couple (foyer, bénéficiaire), rangé sous
+    // le foyer et nommé par l'identifiant du bénéficiaire. La règle le reconstruit donc
+    // à partir du foyer visé et de l'identité de celui qui lit : personne ne lui passe
+    // son nom, et il n'y a rien à deviner.
+    //
+    // Le manifeste liste ce qui est ouvert. Les règles ne filtrent pas une requête de
+    // collection : le bénéficiaire lit donc document par document, et c'est ici qu'on
+    // vérifie que le document demandé figure bien dans ce qu'on lui a donné.
+
+    function cheminPartage(foyerId) {
+      return /databases/$(database)/documents/foyers/$(foyerId)/partages/$(request.auth.uid);
+    }
+
+    function aUnPartage(foyerId) {
+      return estConnecte() && exists(cheminPartage(foyerId));
+    }
+
+    function partage(foyerId) {
+      return get(cheminPartage(foyerId)).data;
+    }
+
+    // Le manifeste liste des **noms de documents**, et non des identifiants de
+    // recettes : une recette, sa photo et ses illustrations vivent dans trois documents
+    // aux noms différents, dérivés du même identifiant. Les règles ne savent pas
+    // refaire ce calcul ; l'application énumère donc les trois au moment du partage.
+    function documentOuvert(foyerId, nomDuDocument) {
+      return aUnPartage(foyerId) && partage(foyerId).documents.hasAny([nomDuDocument]);
+    }
+
+    // --- L'annuaire des comptes ----------------------------------------------
+    //
+    // Une fiche par adresse, l'adresse normalisée servant d'identifiant : on ne peut
+    // donc lire que la fiche d'une adresse qu'on connaît déjà, jamais parcourir
+    // l'annuaire (la lecture de la collection entière n'est autorisée nulle part).
+    // Chacun n'inscrit que lui-même, et personne ne se supprime : une fiche effacée
+    // rendrait invisible un compte avec qui d'autres partagent déjà.
+
+    match /annuaire/{adresse} {
+      allow get: if estConnecte();
+      allow list: if false;
+      allow create, update: if estConnecte()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email is string;
+      allow delete: if false;
+    }
+
+    // --- Les partages ---------------------------------------------------------
+    //
+    // Écrits par un membre en modification du foyer qui partage, lus par lui et par le
+    // bénéficiaire (qui a besoin de savoir ce qu'on lui a ouvert). L'identifiant doit
+    // être celui que la règle de lecture recalculera, sinon le partage n'ouvrirait
+    // rien : c'est vérifié à l'écriture plutôt que découvert à l'usage.
+
+    match /foyers/{foyerId}/partages/{uid} {
+      function partageValide() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['foyer', 'beneficiaire', 'recettes', 'livres', 'documents'])
+          && d.foyer == foyerId
+          && d.beneficiaire == uid
+          // On ne se partage pas à soi-même : ce serait sans effet, et cela masquerait
+          // une erreur d'adresse derrière un succès apparent.
+          && uid != request.auth.uid
+          && d.recettes is list && d.recettes.size() <= 500
+          && d.livres is list && d.livres.size() <= 100
+          // Trois documents par recette (la fiche, sa photo, ses illustrations), un par
+          // livre : la borne suit celles du dessus plutôt que de les contredire.
+          && d.documents is list && d.documents.size() <= 1600
+          && (!d.keys().hasAny(['emailBeneficiaire']) || d.emailBeneficiaire is string);
+      }
+
+      allow read: if estConnecte() && (request.auth.uid == uid || estMembre(foyerId));
+      allow create, update: if partageValide() && peutModifier(foyerId);
+      allow delete: if peutModifier(foyerId);
+    }
+
+    // --- La boîte de réception d'un compte ------------------------------------
+    //
+    // Le bénéficiaire ne peut pas parcourir les foyers du monde pour trouver ce qu'on
+    // lui a donné : le partageur dépose donc un avis chez lui. Le nom du document est
+    // l'identifiant du foyer partageur, ce qui permet à la règle de vérifier que celui
+    // qui écrit est bien de ce foyer, et non quelqu'un qui remplit les boîtes.
+
+    match /utilisateurs/{uid}/recus/{foyerId} {
+      allow read: if estConnecte() && request.auth.uid == uid;
+      allow create, update: if peutModifier(foyerId)
+        && request.resource.data.foyer == foyerId;
+      // Le bénéficiaire peut faire le ménage chez lui ; le partageur retire son avis
+      // quand il cesse de partager.
+      allow delete: if (estConnecte() && request.auth.uid == uid) || peutModifier(foyerId);
     }
 
     // --- La fiche d'un compte : son foyer -------------------------------------
@@ -171,6 +265,7 @@ service cloud.firestore {
     // serveur, seulement lue en entier. Supprimer le document rétablit la recette
     // d'origine, qui est servie avec le site et n'est jamais modifiée.
     match /foyers/{foyerId}/recettes/{recetteId} {
+      // Un membre lit tout ; un bénéficiaire lit les recettes de son manifeste.
       function recetteValide() {
         let d = request.resource.data;
         return d.keys().hasAll(['recetteId', 'json'])
@@ -183,7 +278,7 @@ service cloud.firestore {
           && (!d.keys().hasAny(['modifieLe']) || (d.modifieLe is string && d.modifieLe.size() <= 40));
       }
 
-      allow read: if estMembre(foyerId);
+      allow read: if estMembre(foyerId) || documentOuvert(foyerId, recetteId);
       allow create, update: if peutModifier(foyerId) && recetteValide();
       allow delete: if peutModifier(foyerId);
     }
@@ -243,7 +338,7 @@ service cloud.firestore {
           && (!d.keys().hasAny(['modifieLe']) || d.modifieLe == null || (d.modifieLe is string && d.modifieLe.size() <= 40));
       }
 
-      allow read: if estMembre(foyerId);
+      allow read: if estMembre(foyerId) || documentOuvert(foyerId, livreId);
       allow create, update: if peutModifier(foyerId) && livreValide();
       allow delete: if peutModifier(foyerId);
     }
@@ -268,7 +363,9 @@ service cloud.firestore {
           && (!d.keys().hasAny(['modifieLe']) || (d.modifieLe is string && d.modifieLe.size() <= 40));
       }
 
-      allow read: if estMembre(foyerId);
+      // Les illustrations d'étapes portent l'identifiant de leur recette : elles
+      // suivent donc exactement le partage de celle-ci.
+      allow read: if estMembre(foyerId) || documentOuvert(foyerId, recetteId);
       allow create, update: if peutModifier(foyerId) && illustrationsValides();
       allow delete: if peutModifier(foyerId);
     }
@@ -290,7 +387,8 @@ service cloud.firestore {
           && (!d.keys().hasAny(['modifieLe']) || (d.modifieLe is string && d.modifieLe.size() <= 40));
       }
 
-      allow read: if estMembre(foyerId);
+      // Idem pour les photos, rangées sous l'identifiant de la recette.
+      allow read: if estMembre(foyerId) || documentOuvert(foyerId, photoId);
       allow create, update: if peutModifier(foyerId) && photoValide();
       allow delete: if peutModifier(foyerId);
     }

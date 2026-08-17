@@ -4612,3 +4612,38 @@ a.creneau__plat:hover .creneau__titre {
 .lien-action--danger {
   color: var(--terracotta-sombre);
 }
+
+/* Une recette reçue d'un autre foyer : sobre et lisible, sans les commandes de la
+   fiche maison. Ses listes ont leurs propres classes, celles de la fiche portant des
+   comportements (cochage, mode cuisson) qui n'ont pas cours ici. */
+.recue__ingredients {
+  margin: 0 0 20px;
+  padding-left: 20px;
+}
+.recue__ingredients li {
+  margin-bottom: 4px;
+}
+.recue__ingredients .quantite {
+  color: var(--texte-doux);
+}
+.recue__etapes {
+  margin: 0 0 20px;
+  padding-left: 22px;
+}
+.recue__etapes li {
+  margin-bottom: 12px;
+  line-height: 1.55;
+}
+.recue__etapes .astuce,
+.recue__astuces {
+  margin: 6px 0 0;
+  color: var(--texte-doux);
+  font-size: 14px;
+}
+.recue__astuces {
+  padding-left: 20px;
+}
+#recette-recue .fiche__photo {
+  max-width: 100%;
+  border-radius: var(--rayon-lg);
+}

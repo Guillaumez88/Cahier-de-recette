@@ -11,6 +11,13 @@
  * 4. Le rôle se change, et le changement se voit à l'écran suivant.
  * 5. Une écriture forcée depuis la console est refusée par le serveur, et la file
  *    locale ne la garde pas.
+ * 6. Partager une recette avec un compte d'un autre foyer : le manifeste part, l'avis
+ *    arrive, et le bénéficiaire lit la recette sans pouvoir la modifier.
+ *
+ * Ce que cette suite ne prouve pas : le cloisonnement lui-même. L'émulation range les
+ * documents par nom de collection sans tenir compte du foyer, et n'applique pas les
+ * règles de partage. Que la lecture d'un foyer soit fermée à qui n'y a pas droit est du
+ * ressort de `firestore.rules`, et seul le vrai Firestore l'applique.
  */
 
 function chargerChromium() {
@@ -234,7 +241,81 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
     JSON.stringify(apresPromotion.membres)
   );
 
-  // --- 8. Aucune erreur JavaScript --------------------------------------------
+  // --- 8. Partager une recette avec un compte d'ailleurs -----------------------
+  //
+  // Le fondateur ouvre une recette au compte du membre (qui a son propre compte, donc
+  // sa fiche d'annuaire). Le parcours passe par les écrans, pas par la console.
+
+  await cuisinier.goto(`${BASE}#/partages`, { waitUntil: 'networkidle' });
+  await attendre(900);
+  verifier('l’écran de partage s’ouvre', (await cuisinier.locator('#partage-email').count()) === 1);
+  verifier(
+    'il dit d’abord qu’on ne partage rien',
+    /ne partagez rien/.test(await cuisinier.evaluate(() => document.body.textContent))
+  );
+
+  await cuisinier.fill('#partage-email', 'inconnu@nulle-part.fr');
+  await cuisinier.click('#partager-compte');
+  await attendre(1200);
+  verifier(
+    'une adresse inconnue est refusée franchement',
+    /Aucun compte à cette adresse/.test(await cuisinier.locator('#partages-message').textContent()),
+    await cuisinier.locator('#partages-message').textContent()
+  );
+
+  await cuisinier.fill('#partage-email', EMAIL_INVITE);
+  await cuisinier.selectOption('#partage-objet', 'recette:tapenade-maison');
+  await cuisinier.click('#partager-compte');
+  await attendre(1600);
+  verifier(
+    'le partage est confirmé',
+    /Partagé avec/.test(await cuisinier.locator('#partages-message').textContent()),
+    await cuisinier.locator('#partages-message').textContent()
+  );
+
+  const apresPartage = await (await cuisinier.request.get(new URL('__stub/etat', BASE).href)).json();
+  verifier('un manifeste est écrit', apresPartage.nbPartages === 1, String(apresPartage.nbPartages));
+  verifier('un avis est déposé', apresPartage.nbRecus === 1, String(apresPartage.nbRecus));
+  verifier(
+    'le manifeste ne contient que la recette partagée',
+    apresPartage.partages[0].recettes.length === 1 &&
+      apresPartage.partages[0].recettes[0] === 'tapenade-maison',
+    JSON.stringify(apresPartage.partages[0])
+  );
+
+  // --- 9. Le bénéficiaire lit la recette reçue ---------------------------------
+
+  await visiteur.goto(`${BASE}#/partages`, { waitUntil: 'networkidle' });
+  await attendre(1200);
+  const cheznous = await visiteur.evaluate(() => document.body.textContent);
+  verifier('le bénéficiaire voit l’avis', /Chez nous|cuisine@maison\.fr/.test(cheznous), cheznous.slice(0, 300));
+
+  await visiteur.locator('#partages-recus a').first().click();
+  await attendre(1400);
+  verifier(
+    'il voit la recette partagée',
+    /Tapenade maison/.test(await visiteur.evaluate(() => document.body.textContent)),
+    (await visiteur.evaluate(() => document.body.textContent)).slice(0, 300)
+  );
+
+  await visiteur.locator('#recu-contenu a').first().click();
+  await attendre(1400);
+  const recette = await visiteur.evaluate(() => document.body.textContent);
+  verifier('la fiche reçue montre ses ingrédients', /Olives noires/.test(recette), recette.slice(0, 400));
+  verifier('elle est annoncée comme partagée', /en lecture seule/.test(recette));
+  verifier('elle n’offre aucun bouton de modification', (await visiteur.locator('#modifier-recette').count()) === 0);
+
+  // --- 10. Fermer le partage ---------------------------------------------------
+
+  await cuisinier.goto(`${BASE}#/partages`, { waitUntil: 'networkidle' });
+  await attendre(1200);
+  await cuisinier.getByText('Ne plus partager').click();
+  await attendre(1400);
+  const apresFermeture = await (await cuisinier.request.get(new URL('__stub/etat', BASE).href)).json();
+  verifier('le manifeste est retiré', apresFermeture.nbPartages === 0, String(apresFermeture.nbPartages));
+  verifier('l’avis aussi', apresFermeture.nbRecus === 0, String(apresFermeture.nbRecus));
+
+  // --- 11. Aucune erreur JavaScript --------------------------------------------
 
   verifier('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
 

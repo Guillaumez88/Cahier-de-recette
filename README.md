@@ -169,11 +169,11 @@ qu'en une fois.
 | Ingrédients | 209 occurrences, 133 noms distincts, tous classés par rayon |
 | Étapes | 145, dont 107 portent un rappel d'ingrédients |
 | Couverture du déroulé reconstitué | 193 / 209, soit 92 % |
-| Code | 24 modules, 13 400 lignes de JavaScript |
+| Code | 25 modules, 13 900 lignes de JavaScript |
 | Poids transféré au chargement | 209 Ko compressés, 34 fichiers |
 | Coût du partage et du PDF | 13 Ko compressés (partage 3,2 Ko, PDF 7,1 + 4,1 Ko) |
 | Coût de la bibliothèque | 7,9 Ko compressés (livres 4,1 Ko, écran 3,9 Ko) |
-| Tests | 167 + 152 sous Node, 499 vérifications navigateur, 20 contre le vrai Firebase |
+| Tests | 167 + 156 sous Node, 513 vérifications navigateur, 20 contre le vrai Firebase |
 
 ---
 
@@ -229,13 +229,13 @@ sans voir ce qu'elle protégeait.
     │   └── poser-illustrations.js       Pose les photos d'étapes d'une recette déjà en base
     └── tests/
         ├── run-tests.js           167 tests de la logique métier
-        ├── run-sync-tests.js      152 tests de la synchronisation
+        ├── run-sync-tests.js      156 tests de la synchronisation
         ├── test-web.js            103 vérifications navigateur, parcours général et partage
         ├── test-partage.js         57 vérifications navigateur, liste commune, placard, magasin
         ├── test-edition.js         89 vérifications navigateur, modification, parts, nutrition, illustrations
         ├── test-semainier.js      156 vérifications navigateur, semainier, photos, PDF
         ├── test-bibliotheque.js    67 vérifications navigateur, livres, périmètres, couvertures
-        ├── test-acces.js           27 vérifications navigateur, foyers, membres et rôles
+        ├── test-acces.js           41 vérifications navigateur, foyers, membres, rôles et partages
         ├── stub-firestore.js       Émulation de Firestore pour les tests
         ├── serveur-test.js         Site + émulation sur le même port
         ├── run-browser-tests.js    Enchaîne serveur et suites navigateur
@@ -817,6 +817,30 @@ d'être envoyée » est un avertissement de ton neutre et l'éditeur se ferme no
 « refusée par le serveur » est une erreur, l'éditeur reste ouvert avec la saisie
 intacte, et le message dit quoi vérifier.
 
+## Partager avec un autre compte
+
+Ouvrir **en lecture** un livre ou une recette au compte de quelqu'un d'un autre foyer,
+depuis `#/partages` (bouton de compte, puis « les partages »), depuis l'écran d'un livre
+(« Partager ce livre ») ou depuis la boîte de partage d'une fiche.
+
+Rien n'est copié : la personne lit la fiche d'origine, avec sa photo et ses étapes, et
+voit les corrections qu'on y apporte ensuite. Elle ne peut rien modifier, et ne voit
+rien d'autre du foyer.
+
+Trois objets, et les raisons qui les imposent, sont détaillés dans
+`docs/PARTAGES-2026-08-17.md` : un annuaire pour trouver un compte par son adresse, un
+manifeste par bénéficiaire (les règles Firestore ne filtrent pas une requête de
+collection, le bénéficiaire lit donc document par document), et un avis déposé dans sa
+boîte, sans quoi il n'aurait aucun moyen de savoir qu'on lui a partagé quelque chose.
+
+Deux conséquences assumées, dites plutôt que découvertes :
+
+- **Un livre partagé ne s'élargit pas tout seul.** Le manifeste fige la liste de ses
+  recettes ; une recette ajoutée ensuite demande de repartager.
+- **Une lecture facturée par document lu chez l'autre**, plus le `get()` de règle sur le
+  manifeste. Un livre de vingt recettes coûte vingt et une lectures à l'ouverture de la
+  liste, trois de plus par fiche consultée.
+
 ## Partager une recette
 
 Le bouton « Partager » de la fiche ouvre une boîte qui propose deux choses distinctes,
@@ -1115,7 +1139,7 @@ Trois points traités, chacun parce qu'il était cassé et non par principe :
 cd recipe-app
 node tests/run-tests.js           # 167 tests de la logique métier
 node tests/run-sync-tests.js      # 140 tests de la synchronisation
-node tests/run-browser-tests.js   # 499 vérifications dans un vrai Chromium
+node tests/run-browser-tests.js   # 513 vérifications dans un vrai Chromium
 ```
 
 `run-tests.js` couvre l'analyse des durées, la normalisation des origines et difficultés en texte libre, la recherche, la combinaison des filtres, le test d'informativité du tableau de flux, le calendrier du semainier (dont les deux pièges de fuseau et les semaines à cheval sur deux mois ou deux années) et l'intégrité du jeu de données.

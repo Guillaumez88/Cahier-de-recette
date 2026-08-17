@@ -31,6 +31,12 @@
     if (typeof valeur === 'number') {
       return Number.isInteger(valeur) ? { integerValue: String(valeur) } : { doubleValue: valeur };
     }
+    // Les tableaux servent aux manifestes de partage, et à eux seuls pour l'instant.
+    // Les règles Firestore savent y chercher un identifiant (`hasAny`), ce qu'elles ne
+    // sauraient pas faire dans une chaîne JSON sans se prêter à des faux positifs.
+    if (Array.isArray(valeur)) {
+      return { arrayValue: { values: valeur.map(versFirestore) } };
+    }
     return { stringValue: String(valeur) };
   }
 
@@ -42,6 +48,7 @@
     if ('doubleValue' in champ) return Number(champ.doubleValue);
     if ('stringValue' in champ) return champ.stringValue;
     if ('timestampValue' in champ) return champ.timestampValue;
+    if ('arrayValue' in champ) return ((champ.arrayValue && champ.arrayValue.values) || []).map(depuisFirestore);
     return null;
   }
 
@@ -630,6 +637,281 @@
     }
   }
 
+  // --- Annuaire, partages, boîte de réception -----------------------------------
+  //
+  // Partager, c'est ouvrir en lecture une partie de son foyer à un compte d'ailleurs.
+  // Trois objets, et aucune copie de recette :
+  //
+  //   annuaire/{email}                   l'identifiant du compte à cette adresse
+  //   foyers/{foyer}/partages/{uid}      ce que ce foyer ouvre à ce compte
+  //   utilisateurs/{uid}/recus/{foyer}   ce que ce compte a reçu, et de qui
+  //
+  // **Pourquoi un manifeste et pas une requête.** Les règles Firestore ne filtrent pas
+  // une requête de collection : un bénéficiaire ne peut pas demander « les recettes du
+  // livre X du foyer Y ». Il lit donc chaque recette par son identifiant, et la règle
+  // vérifie que cet identifiant figure dans le manifeste du partage. Conséquence
+  // assumée : un livre partagé ne s'élargit pas tout seul quand une recette y entre,
+  // il faut repartager, ce qui réécrit le manifeste.
+  //
+  // **Pourquoi le manifeste est rangé sous le foyer, et nommé par le bénéficiaire.**
+  // La règle qui autorise la lecture doit retrouver ce document sans que personne lui
+  // passe son identifiant : elle le reconstruit à partir du foyer visé et de l'identité
+  // de celui qui lit. Et le foyer, lui, peut énumérer ses propres partages, ce qu'une
+  // collection à la racine ne lui aurait pas permis sans un index supplémentaire.
+  // Corollaire : un foyer n'a qu'un partage par bénéficiaire, qui liste tout.
+  //
+  // **Pourquoi une boîte de réception** : le bénéficiaire ne peut pas parcourir les
+  // foyers du monde pour trouver ce qu'on lui a donné. Le partageur dépose donc un
+  // petit document chez lui, dans une sous-collection qui lui appartient.
+
+  function cheminAnnuaire() {
+    return `${racine()}/annuaire`;
+  }
+
+  function cheminPartages(foyerId) {
+    return `${racine()}/foyers/${encodeURIComponent(foyerId)}/partages`;
+  }
+
+  function cheminRecus(uid) {
+    return `${cheminUtilisateurs()}/${encodeURIComponent(uid)}/recus`;
+  }
+
+  /**
+   * Normalise une adresse pour en faire un identifiant de document.
+   *
+   * Minuscules et espaces retirés : « Marie@Exemple.fr » et « marie@exemple.fr » sont
+   * le même compte. Les barres obliques sont refusées, elles couperaient le chemin.
+   */
+  function cleAnnuaire(email) {
+    var propre = String(email || '').trim().toLowerCase();
+    if (!propre || propre.indexOf('/') !== -1) return null;
+    return propre;
+  }
+
+  /**
+   * Inscrit le compte connecté dans l'annuaire, pour qu'on puisse le trouver.
+   *
+   * Le verrou de lecture seule est levé le temps de cette écriture : il protège le
+   * contenu d'un foyer, or cette fiche n'appartient à aucun foyer, elle appartient au
+   * compte. Sans cela, un membre inscrit en lecture ne serait jamais trouvable, et
+   * personne ne pourrait rien lui partager.
+   */
+  async function inscrireAnnuaire() {
+    var courant = compteCourant();
+    if (!courant || !courant.email) return null;
+    var cle = cleAnnuaire(courant.email);
+    if (!cle) return null;
+    var avant = lectureSeule;
+    lectureSeule = false;
+    try {
+      return await requete(`${cheminAnnuaire()}/${encodeURIComponent(cle)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: objetVersChamps({ uid: courant.uid, email: courant.email }) }),
+      });
+    } finally {
+      lectureSeule = avant;
+    }
+  }
+
+  /** L'identifiant du compte qui porte cette adresse, ou null s'il n'y en a pas. */
+  async function chercherDansAnnuaire(email) {
+    var cle = cleAnnuaire(email);
+    if (!cle) return null;
+    try {
+      var corps = await requete(`${cheminAnnuaire()}/${encodeURIComponent(cle)}`, { method: 'GET' });
+      return champsVersObjet((corps && corps.fields) || {});
+    } catch (erreur) {
+      if (erreur.statut === 404) return null;
+      throw erreur;
+    }
+  }
+
+  /** Le partage qu'un foyer ouvre à un compte, ou null. */
+  async function lirePartage(foyerId, uid) {
+    try {
+      var corps = await requete(`${cheminPartages(foyerId)}/${encodeURIComponent(uid)}`, {
+        method: 'GET',
+      });
+      var champs = champsVersObjet((corps && corps.fields) || {});
+      champs.recettes = champs.recettes || [];
+      champs.livres = champs.livres || [];
+      return champs;
+    } catch (erreur) {
+      if (erreur.statut === 404 || erreur.statut === 403) return null;
+      throw erreur;
+    }
+  }
+
+  /**
+   * Écrit le manifeste d'un partage.
+   *
+   * Les deux listes sont de vrais tableaux Firestore : c'est ce que les règles savent
+   * interroger (`recettes.hasAny([id])`) pour décider si un bénéficiaire a le droit de
+   * lire un document précis.
+   */
+  async function ecrirePartage(foyerId, uid, donnees) {
+    return requete(`${cheminPartages(foyerId)}/${encodeURIComponent(uid)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: objetVersChamps({
+          foyer: foyerId,
+          beneficiaire: uid,
+          emailBeneficiaire: String(donnees.emailBeneficiaire || ''),
+          recettes: (donnees.recettes || []).map(String),
+          livres: (donnees.livres || []).map(String),
+          // Ce que les règles comparent : les noms de documents, dérivés des
+          // identifiants, pour les recettes, leurs photos, leurs illustrations et les
+          // livres. Les deux listes ci-dessus, elles, servent aux écrans.
+          documents: documentsOuverts(donnees.recettes || [], donnees.livres || []),
+          modifieLe: new Date().toISOString(),
+        }),
+      }),
+    });
+  }
+
+  async function supprimerPartage(foyerId, uid) {
+    try {
+      return await requete(`${cheminPartages(foyerId)}/${encodeURIComponent(uid)}`, {
+        method: 'DELETE',
+      });
+    } catch (erreur) {
+      if (erreur.statut === 404) return null;
+      throw erreur;
+    }
+  }
+
+  /**
+   * Les noms de documents qu'un manifeste ouvre.
+   *
+   * Une recette partagée ouvre trois documents : la recette, sa photo et ses
+   * illustrations d'étapes. Les trois portent des noms différents, dérivés du même
+   * identifiant de recette, et les règles ne savent pas les recalculer : c'est donc ici
+   * qu'on les énumère, une fois, au moment du partage.
+   */
+  function documentsOuverts(recettes, livres) {
+    var noms = [];
+    (recettes || []).forEach(function (recetteId) {
+      noms.push(idDocument(recetteId));
+      noms.push(idDocument('photo::' + recetteId));
+      noms.push(idDocument('etapes::' + recetteId));
+    });
+    (livres || []).forEach(function (livreId) {
+      noms.push(idDocument(livreId));
+    });
+    return noms;
+  }
+
+  /** Tous les partages ouverts par un foyer, pour l'écran qui les gère. */
+  async function lirePartages(foyerId) {
+    var corps = await requete(`${cheminPartages(foyerId)}?pageSize=100`, { method: 'GET' });
+    return ((corps && corps.documents) || []).map(function (document_) {
+      var champs = champsVersObjet(document_.fields);
+      champs.beneficiaire = champs.beneficiaire || String(document_.name).split('/').pop();
+      champs.recettes = champs.recettes || [];
+      champs.livres = champs.livres || [];
+      return champs;
+    });
+  }
+
+  /** Dépose (ou met à jour) l'avis de partage dans la boîte du bénéficiaire. */
+  async function ecrireRecu(uid, foyerId, donnees) {
+    return requete(`${cheminRecus(uid)}/${encodeURIComponent(foyerId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: objetVersChamps({
+          foyer: foyerId,
+          nomFoyer: String(donnees.nomFoyer || ''),
+          emailPartageur: String(donnees.emailPartageur || ''),
+          modifieLe: new Date().toISOString(),
+        }),
+      }),
+    });
+  }
+
+  async function supprimerRecu(uid, foyerId) {
+    try {
+      return await requete(`${cheminRecus(uid)}/${encodeURIComponent(foyerId)}`, { method: 'DELETE' });
+    } catch (erreur) {
+      if (erreur.statut === 404) return null;
+      throw erreur;
+    }
+  }
+
+  /** Ce que le compte connecté a reçu : un avis par foyer partageur. */
+  async function lireRecus() {
+    var courant = compteCourant();
+    if (!courant) return [];
+    var corps = await requete(`${cheminRecus(courant.uid)}?pageSize=100`, { method: 'GET' });
+    return ((corps && corps.documents) || []).map(function (document_) {
+      var champs = champsVersObjet(document_.fields);
+      champs.foyer = champs.foyer || String(document_.name).split('/').pop();
+      return champs;
+    });
+  }
+
+  // --- Lire chez les autres -----------------------------------------------------
+  //
+  // Un bénéficiaire lit document par document, hors de son propre foyer. Ces fonctions
+  // ne passent donc pas par `dansLeFoyer` : le foyer est celui qu'on nomme.
+
+  function cheminDuFoyer(foyerId, nom) {
+    return `${racine()}/foyers/${encodeURIComponent(foyerId)}/${nom}`;
+  }
+
+  /**
+   * Une recette d'un autre foyer, lue par son identifiant. Null si elle est fermée.
+   *
+   * Le nom du document n'est pas l'identifiant de la recette mais son dérivé
+   * (`idDocument`), comme partout ailleurs : c'est ce nom-là que le manifeste liste et
+   * que les règles comparent.
+   */
+  async function lireRecetteDeFoyer(foyerId, recetteId) {
+    try {
+      var corps = await requete(
+        `${cheminDuFoyer(foyerId, 'recettes')}/${encodeURIComponent(idDocument(recetteId))}`,
+        { method: 'GET' }
+      );
+      var champs = champsVersObjet((corps && corps.fields) || {});
+      return champs.json ? JSON.parse(champs.json) : null;
+    } catch (erreur) {
+      if (erreur.statut === 404 || erreur.statut === 403) return null;
+      throw erreur;
+    }
+  }
+
+  /** Un livre d'un autre foyer. Null s'il est fermé. */
+  async function lireLivreDeFoyer(foyerId, livreId) {
+    try {
+      var corps = await requete(
+        `${cheminDuFoyer(foyerId, 'livres')}/${encodeURIComponent(idDocument(livreId))}`,
+        { method: 'GET' }
+      );
+      return champsVersObjet((corps && corps.fields) || {});
+    } catch (erreur) {
+      if (erreur.statut === 404 || erreur.statut === 403) return null;
+      throw erreur;
+    }
+  }
+
+  /** La grande photo d'une recette d'un autre foyer. Null si absente ou fermée. */
+  async function lirePhotoDeFoyer(foyerId, recetteId) {
+    try {
+      var corps = await requete(
+        `${cheminDuFoyer(foyerId, 'photos')}/${encodeURIComponent(idDocument('photo::' + recetteId))}` +
+          '?mask.fieldPaths=grande',
+        { method: 'GET' }
+      );
+      var champs = champsVersObjet((corps && corps.fields) || {});
+      return champs.grande || null;
+    } catch (erreur) {
+      if (erreur.statut === 404 || erreur.statut === 403) return null;
+      throw erreur;
+    }
+  }
+
   // --- Recettes modifiees -----------------------------------------------------
   //
   // Une recette modifiee est enregistree dans la collection `recettes`, un document
@@ -1069,6 +1351,19 @@
     supprimerMembre: supprimerMembre,
     creerFoyer: creerFoyer,
     inscrireMembre: inscrireMembre,
+    cleAnnuaire: cleAnnuaire,
+    inscrireAnnuaire: inscrireAnnuaire,
+    chercherDansAnnuaire: chercherDansAnnuaire,
+    lirePartage: lirePartage,
+    lirePartages: lirePartages,
+    ecrirePartage: ecrirePartage,
+    supprimerPartage: supprimerPartage,
+    ecrireRecu: ecrireRecu,
+    supprimerRecu: supprimerRecu,
+    lireRecus: lireRecus,
+    lireRecetteDeFoyer: lireRecetteDeFoyer,
+    lireLivreDeFoyer: lireLivreDeFoyer,
+    lirePhotoDeFoyer: lirePhotoDeFoyer,
     uidCourant: uidCourant,
   };
 

@@ -54,6 +54,7 @@ function chargerModules() {
     'js/livres.js',
     'js/illustrations.js',
     'js/photos.js',
+    'js/partage-compte.js',
   ].forEach((relatif) => {
     delete require.cache[require.resolve(path.join(racine, relatif))];
   });
@@ -70,11 +71,12 @@ function chargerModules() {
   const Livres = require(path.join(racine, 'js/livres.js'));
   const Illustrations = require(path.join(racine, 'js/illustrations.js'));
   const Photos = require(path.join(racine, 'js/photos.js'));
+  const PartageCompte = require(path.join(racine, 'js/partage-compte.js'));
   // Toutes les collections de contenu vivent sous un foyer : sans foyer désigné,
   // `sync.js` refuse de fabriquer un chemin, et il a raison. Les suites qui ne parlent
   // pas de comptes travaillent donc dans un foyer de test, posé une fois ici.
   Sync.definirFoyer('foyer-de-test');
-  return { config, Sync, Recettes, Storage, Semainier, Placard, Livres, Illustrations, Photos };
+  return { config, Sync, PartageCompte, Recettes, Storage, Semainier, Placard, Livres, Illustrations, Photos };
 }
 
 function neuf() {
@@ -2207,6 +2209,113 @@ serveur.listen(PORT, '127.0.0.1', async () => {
     const membre = await Sync.lireMembre(foyerId, avant);
     assert.strictEqual(membre.role, 'modification', 'toujours membre apres renouvellement');
     assert.strictEqual(Sync.uidCourant(), avant, 'meme identifiant');
+  });
+
+  // --- Partages entre foyers -------------------------------------------------
+
+  /** Crée un foyer, avec son compte, et rend { uid, foyer }. */
+  async function nouveauFoyer(Sync, email) {
+    await Sync.creerCompte(email, 'motdepasse');
+    const uid = Sync.compteCourant().uid;
+    const foyer = await Sync.creerFoyer('Foyer de ' + email);
+    await Sync.inscrireAnnuaire();
+    return { uid, foyer };
+  }
+
+  await test('on ne partage qu avec un compte qui existe', async () => {
+    const { Sync, PartageCompte } = neuf();
+    stub.etat.exigerMaison = true;
+    await nouveauFoyer(Sync, 'moi@maison.fr');
+
+    const inconnu = await PartageCompte.partagerRecette('personne@nulle-part.fr', 'tapenade-maison');
+    assert.strictEqual(inconnu.ok, false);
+    assert.match(inconnu.raison, /Aucun compte à cette adresse/);
+
+    const soi = await PartageCompte.partagerRecette('MOI@maison.fr', 'tapenade-maison');
+    assert.strictEqual(soi.ok, false, 'se partager a soi-meme n a pas de sens');
+    assert.match(soi.raison, /votre propre adresse/);
+  });
+
+  await test('partager ecrit un manifeste et depose un avis', async () => {
+    const { Sync, PartageCompte } = neuf();
+    stub.etat.exigerMaison = true;
+
+    // Le bénéficiaire s'inscrit d'abord : sans annuaire, il est introuvable.
+    const invite = await nouveauFoyer(Sync, 'invite@ailleurs.fr');
+    Sync.deconnecter();
+    const moi = await nouveauFoyer(Sync, 'moi@maison.fr');
+
+    const resultat = await PartageCompte.partagerRecette('invite@ailleurs.fr', 'tapenade-maison', 'Chez nous');
+    assert.strictEqual(resultat.ok, true, resultat.raison);
+    assert.strictEqual(resultat.uid, invite.uid);
+
+    const partages = await PartageCompte.mesPartages();
+    assert.strictEqual(partages.length, 1);
+    assert.deepStrictEqual(partages[0].recettes, ['tapenade-maison']);
+    assert.strictEqual(partages[0].beneficiaire, invite.uid);
+    assert.strictEqual(stub.etat.recus.size, 1, 'un avis est depose chez le beneficiaire');
+
+    // Partager une seconde recette complète le manifeste au lieu de le remplacer.
+    await PartageCompte.partagerRecette('invite@ailleurs.fr', 'brookies');
+    const apres = await PartageCompte.mesPartages();
+    assert.deepStrictEqual(apres[0].recettes.sort(), ['brookies', 'tapenade-maison']);
+    assert.strictEqual(stub.etat.partages.size, 1, 'toujours un seul partage par beneficiaire');
+
+    // Un livre emmène ses recettes avec lui.
+    await PartageCompte.partagerLivre('invite@ailleurs.fr', 'ferrandi', ['tarte-au-citron']);
+    const avecLivre = (await PartageCompte.mesPartages())[0];
+    assert.deepStrictEqual(avecLivre.livres, ['ferrandi']);
+    assert.ok(avecLivre.recettes.indexOf('tarte-au-citron') !== -1);
+    assert.strictEqual(avecLivre.recettes.length, 3, 'aucun doublon');
+  });
+
+  await test('le beneficiaire voit ce qu on lui a ouvert, et rien de plus', async () => {
+    const { Sync, PartageCompte, Recettes } = neuf();
+    stub.etat.exigerMaison = true;
+    Recettes.definirBase(CARNET);
+
+    const invite = await nouveauFoyer(Sync, 'invite@ailleurs.fr');
+    Sync.deconnecter();
+    const moi = await nouveauFoyer(Sync, 'moi@maison.fr');
+
+    // Deux recettes dans mon foyer, une seule partagée.
+    await Recettes.enregistrer(JSON.parse(JSON.stringify(Recettes.parId(ID_LASAGNES))));
+    await Recettes.enregistrer(JSON.parse(JSON.stringify(Recettes.parId('brookies'))));
+    await PartageCompte.partagerRecette('invite@ailleurs.fr', ID_LASAGNES, 'Chez nous');
+
+    // On passe du côté du bénéficiaire.
+    Sync.deconnecter();
+    await Sync.connecter('invite@ailleurs.fr', 'motdepasse');
+    Sync.definirFoyer(invite.foyer);
+
+    const recus = await PartageCompte.recus();
+    assert.strictEqual(recus.length, 1, 'un avis recu');
+    assert.strictEqual(recus[0].foyer, moi.foyer);
+    assert.strictEqual(recus[0].nomFoyer, 'Chez nous');
+
+    const contenu = await PartageCompte.contenuRecu(moi.foyer);
+    assert.strictEqual(contenu.recettes.length, 1, 'une seule recette ouverte');
+    // Le manifeste ouvre trois documents par recette : la fiche, sa photo, ses
+    // illustrations. C'est ce que les règles comparent.
+    assert.strictEqual(contenu.manifeste.documents.length, 3, JSON.stringify(contenu.manifeste.documents));
+    assert.strictEqual(contenu.recettes[0].id, ID_LASAGNES);
+    assert.deepStrictEqual(contenu.manifeste.recettes, [ID_LASAGNES], 'brookies n est pas dans le manifeste');
+  });
+
+  await test('fermer un partage retire le manifeste et l avis', async () => {
+    const { Sync, PartageCompte } = neuf();
+    stub.etat.exigerMaison = true;
+    const invite = await nouveauFoyer(Sync, 'invite@ailleurs.fr');
+    Sync.deconnecter();
+    await nouveauFoyer(Sync, 'moi@maison.fr');
+    await PartageCompte.partagerRecette('invite@ailleurs.fr', 'tapenade-maison');
+    assert.strictEqual(stub.etat.partages.size, 1);
+    assert.strictEqual(stub.etat.recus.size, 1);
+
+    const ferme = await PartageCompte.fermer(invite.uid);
+    assert.strictEqual(ferme.ok, true, ferme.raison);
+    assert.strictEqual(stub.etat.partages.size, 0, 'le manifeste est parti');
+    assert.strictEqual(stub.etat.recus.size, 0, 'l avis aussi');
   });
 
   // --- Restitution -----------------------------------------------------------

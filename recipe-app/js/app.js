@@ -29,6 +29,10 @@
   var MPdf = window.CarnetMenuPdf;
   var Ill = window.CarnetIllustrations;
   var Acc = window.CarnetAcces;
+  var Pc = window.CarnetPartageCompte;
+  // Utilisé seulement pour lire une recette d'un autre foyer : le reste de l'accès
+  // aux données passe par les modules qui la mettent en cache.
+  var Sync = window.CarnetSync;
 
   /**
    * Vrai si cet appareil peut modifier le carnet. Voir js/acces.js : le vrai verrou
@@ -1519,14 +1523,19 @@
             ? el('p', { class: 'ecran-acces__note' }, [
                 el('span', { texte: 'Pour donner accès au carnet à quelqu’un du foyer : ' }),
                 el('a', { href: '#/foyer/membres', id: 'lien-membres', texte: 'les membres du foyer' }),
+                el('span', { texte: '. Pour ouvrir un livre ou une recette à quelqu’un d’ailleurs : ' }),
+                el('a', { href: '#/partages', id: 'lien-partages', texte: 'les partages' }),
                 el('span', { texte: '.' }),
               ])
-            : el('p', {
-                class: 'ecran-acces__note',
-                texte:
-                  'Le rôle se change depuis la page des membres, par quelqu’un du foyer ' +
-                  'qui peut déjà modifier.',
-              }),
+            : el('p', { class: 'ecran-acces__note' }, [
+                el('span', {
+                  texte:
+                    'Le rôle se change depuis la page des membres, par quelqu’un du foyer ' +
+                    'qui peut déjà modifier. Ce qu’on vous a partagé se lit ici : ',
+                }),
+                el('a', { href: '#/partages', id: 'lien-partages', texte: 'les partages' }),
+                el('span', { texte: '.' }),
+              ]),
           el('p', {
             class: 'ecran-acces__note',
             texte:
@@ -1665,6 +1674,396 @@
             }),
       ])
     );
+    return fragment;
+  }
+
+  /**
+   * Partager avec un autre compte, à l'adresse #/partages.
+   *
+   * Deux moitiés sur un seul écran, parce qu'elles répondent à la même question posée
+   * dans les deux sens : ce que j'ouvre aux autres, ce que les autres m'ont ouvert.
+   *
+   * `#/partages?livre=<id>` ou `?recette=<id>` présélectionne ce qu'on vient partager :
+   * c'est ce que font les boutons de l'écran d'un livre et d'une fiche.
+   */
+  function vuePartages(preselection) {
+    document.title = 'Partages — Miam miam !';
+    var fragment = document.createDocumentFragment();
+    fragment.appendChild(el('a', { class: 'retour', href: '#/compte', texte: '‹ Retour au compte' }));
+
+    var message = el('p', { class: 'ecran-acces__message', id: 'partages-message' });
+    var listeSortants = el('div', { class: 'membres__liste', id: 'partages-sortants' }, [
+      el('p', { class: 'membres__attente', texte: 'Lecture des partages…' }),
+    ]);
+    var listeRecus = el('div', { class: 'membres__liste', id: 'partages-recus' }, [
+      el('p', { class: 'membres__attente', texte: 'Lecture de ce que vous avez reçu…' }),
+    ]);
+
+    var champEmail = el('input', {
+      type: 'email',
+      class: 'champ-edition',
+      id: 'partage-email',
+      autocomplete: 'off',
+      'aria-label': 'Adresse du compte avec qui partager',
+      placeholder: 'Adresse e-mail du compte',
+    });
+
+    // Ce qu'on peut partager : chaque livre entier, puis chaque recette. Les livres
+    // d'abord : c'est le partage le plus courant, et le plus utile.
+    var choix = el('select', { class: 'champ-edition', id: 'partage-objet', 'aria-label': 'Ce qui est partagé' });
+    Lv.tous().forEach(function (livre) {
+      choix.appendChild(
+        el('option', { value: 'livre:' + livre.id, texte: 'Le livre « ' + livre.titre + ' » et ses recettes' })
+      );
+    });
+    Rc.toutes().forEach(function (recette) {
+      choix.appendChild(el('option', { value: 'recette:' + recette.id, texte: 'La recette « ' + recette.titre + ' »' }));
+    });
+    if (preselection) choix.value = preselection;
+
+    function rafraichirSortants() {
+      Pc.mesPartages()
+        .then(function (partages) {
+          listeSortants.textContent = '';
+          if (!partages.length) {
+            listeSortants.appendChild(
+              el('p', { class: 'membres__attente', texte: 'Vous ne partagez rien pour l’instant.' })
+            );
+            return;
+          }
+          partages.forEach(function (partage) {
+            listeSortants.appendChild(lignePartage(partage, rafraichirSortants, message));
+          });
+        })
+        .catch(function (erreur) {
+          listeSortants.textContent = '';
+          listeSortants.appendChild(
+            el('p', { class: 'membres__attente', texte: 'Partages illisibles : ' + erreur.message })
+          );
+        });
+    }
+
+    function rafraichirRecus() {
+      Pc.recus()
+        .then(function (recus) {
+          listeRecus.textContent = '';
+          if (!recus.length) {
+            listeRecus.appendChild(
+              el('p', { class: 'membres__attente', texte: 'Personne ne vous a encore partagé de recette.' })
+            );
+            return;
+          }
+          recus.forEach(function (recu) {
+            listeRecus.appendChild(
+              el('div', { class: 'membres__ligne' }, [
+                el('span', { class: 'membres__email', texte: recu.emailPartageur || recu.foyer }),
+                recu.nomFoyer ? el('span', { class: 'membres__role', texte: recu.nomFoyer }) : null,
+                el('a', {
+                  class: 'lien-action',
+                  href: '#/recu/' + encodeURIComponent(recu.foyer),
+                  texte: 'Voir ce qui est partagé',
+                }),
+              ])
+            );
+          });
+        })
+        .catch(function (erreur) {
+          listeRecus.textContent = '';
+          listeRecus.appendChild(
+            el('p', { class: 'membres__attente', texte: 'Réception illisible : ' + erreur.message })
+          );
+        });
+    }
+
+    fragment.appendChild(
+      el('section', { class: 'ecran-acces ecran-acces--large' }, [
+        el('h1', { texte: 'Partager' }),
+        el('p', {
+          texte:
+            'Partager ouvre en lecture un livre ou une recette au compte de quelqu’un ' +
+            'd’autre. Rien n’est copié : la personne lit votre fiche, et voit vos ' +
+            'corrections. Elle ne peut rien modifier, et ne voit rien d’autre de votre ' +
+            'carnet, ni la liste de courses ni le semainier.',
+        }),
+        el('h2', { texte: 'Partager quelque chose' }),
+        el('form', {
+          class: 'ecran-acces__forme ecran-acces__forme--colonne',
+          onsubmit: function (evenement) {
+            evenement.preventDefault();
+            message.textContent = 'Partage…';
+            var valeur = String(choix.value || '');
+            var identifiant = valeur.slice(valeur.indexOf(':') + 1);
+            var nomFoyer = Acc.nomFoyer ? Acc.nomFoyer() : '';
+            var promesse = /^livre:/.test(valeur)
+              ? Pc.partagerLivre(
+                  champEmail.value,
+                  identifiant,
+                  Rc.duLivre(identifiant).map(function (r) {
+                    return r.id;
+                  }),
+                  nomFoyer
+                )
+              : Pc.partagerRecette(champEmail.value, identifiant, nomFoyer);
+
+            promesse.then(function (resultat) {
+              if (!resultat.ok) {
+                message.textContent = resultat.raison;
+                return;
+              }
+              message.textContent = 'Partagé avec ' + resultat.email + '.';
+              champEmail.value = '';
+              rafraichirSortants();
+            });
+          },
+        }, [
+          champEmail,
+          choix,
+          el('button', { type: 'submit', class: 'bouton', id: 'partager-compte', texte: 'Partager' }),
+        ]),
+        message,
+        el('h2', { texte: 'Ce que je partage' }),
+        listeSortants,
+        el('h2', { texte: 'Ce qu’on m’a partagé' }),
+        listeRecus,
+      ])
+    );
+
+    rafraichirSortants();
+    rafraichirRecus();
+    return fragment;
+  }
+
+  /** Une ligne de « ce que je partage » : avec qui, quoi, et de quoi tout fermer. */
+  function lignePartage(partage, rafraichir, message) {
+    var nbRecettes = (partage.recettes || []).length;
+    var nbLivres = (partage.livres || []).length;
+    var contenu = [];
+    if (nbLivres) contenu.push(nbLivres + (nbLivres > 1 ? ' livres' : ' livre'));
+    if (nbRecettes) contenu.push(nbRecettes + (nbRecettes > 1 ? ' recettes' : ' recette'));
+
+    return el('div', { class: 'membres__ligne' }, [
+      el('span', { class: 'membres__email', texte: partage.emailBeneficiaire || partage.beneficiaire }),
+      el('span', { class: 'membres__role', texte: contenu.join(', ') || 'rien' }),
+      el('button', {
+        type: 'button',
+        class: 'lien-action lien-action--danger',
+        texte: 'Ne plus partager',
+        onclick: function () {
+          message.textContent = 'Fermeture…';
+          Pc.fermer(partage.beneficiaire).then(function (resultat) {
+            message.textContent = resultat.ok ? 'Partage fermé.' : resultat.raison;
+            rafraichir();
+          });
+        },
+      }),
+    ]);
+  }
+
+  /**
+   * Ce qu'un autre foyer m'a partagé, à l'adresse #/recu/<foyer>.
+   *
+   * Les recettes reçues ne rejoignent pas le carnet : elles ne sont ni planifiables ni
+   * modifiables, et n'entrent pas dans la liste de courses. Les mélanger aux siennes
+   * ferait croire qu'on les possède, et le jour où le partage se ferme, elles
+   * disparaîtraient sans explication.
+   */
+  function vueRecu(foyerId) {
+    document.title = 'Partagé avec moi — Miam miam !';
+    var fragment = document.createDocumentFragment();
+    fragment.appendChild(el('a', { class: 'retour', href: '#/partages', texte: '‹ Retour aux partages' }));
+
+    var corps = el('div', { id: 'recu-contenu' }, [
+      el('p', { class: 'membres__attente', texte: 'Lecture du partage…' }),
+    ]);
+
+    Pc.contenuRecu(foyerId)
+      .then(function (contenu) {
+        corps.textContent = '';
+        if (contenu.absent) {
+          corps.appendChild(
+            el('p', {
+              texte:
+                'Ce partage n’existe plus : la personne a cessé de partager, ou le ' +
+                'contenu a été retiré.',
+            })
+          );
+          return;
+        }
+        if (contenu.livres.length) {
+          corps.appendChild(el('h2', { texte: contenu.livres.length > 1 ? 'Les livres' : 'Le livre' }));
+          contenu.livres.forEach(function (livre) {
+            corps.appendChild(
+              el('p', { class: 'recu__livre' }, [
+                el('strong', { texte: livre.titre || livre.id }),
+                livre.auteur ? el('span', { texte: ' — ' + livre.auteur }) : null,
+              ])
+            );
+          });
+        }
+        // Une recette du carnet d'origine n'a pas de document chez celui qui la partage :
+        // elle est servie avec le site, donc déjà là. On la retrouve dans sa propre base
+        // plutôt que d'afficher un trou.
+        var lisibles = contenu.recettes.concat(
+          (contenu.sansDocument || [])
+            .map(function (id) {
+              return Rc.originale(id);
+            })
+            .filter(Boolean)
+        );
+
+        corps.appendChild(el('h2', { texte: lisibles.length > 1 ? 'Les recettes' : 'La recette' }));
+        if (!lisibles.length) {
+          corps.appendChild(el('p', { class: 'membres__attente', texte: 'Aucune recette lisible.' }));
+          return;
+        }
+        lisibles.forEach(function (recette) {
+          corps.appendChild(
+            el('div', { class: 'membres__ligne' }, [
+              el('span', { class: 'membres__email', texte: recette.titre }),
+              recette.portions ? el('span', { class: 'membres__role', texte: recette.portions }) : null,
+              el('a', {
+                class: 'lien-action',
+                href: '#/recu/' + encodeURIComponent(foyerId) + '/' + encodeURIComponent(recette.id),
+                texte: 'Ouvrir',
+              }),
+            ])
+          );
+        });
+      })
+      .catch(function (erreur) {
+        corps.textContent = '';
+        corps.appendChild(el('p', { texte: 'Partage illisible : ' + erreur.message }));
+      });
+
+    fragment.appendChild(
+      el('section', { class: 'ecran-acces ecran-acces--large' }, [
+        el('h1', { texte: 'Partagé avec moi' }),
+        el('p', {
+          texte:
+            'Ces recettes appartiennent à un autre foyer : elles se lisent, ne se ' +
+            'modifient pas, et n’entrent ni dans votre semainier ni dans votre liste ' +
+            'de courses.',
+        }),
+        corps,
+      ])
+    );
+    return fragment;
+  }
+
+  /**
+   * Une recette reçue, en lecture seule, à l'adresse #/recu/<foyer>/<recette>.
+   *
+   * Volontairement sobre : le titre, ce qu'il faut, et les étapes. Pas de bouton, pas
+   * de mode cuisson, pas d'ajout aux courses. Tout cela suppose que la recette est à
+   * vous, ce qui n'est pas le cas.
+   */
+  function vueRecetteRecue(foyerId, recetteId) {
+    document.title = 'Recette partagée — Miam miam !';
+    var fragment = document.createDocumentFragment();
+    fragment.appendChild(
+      el('a', {
+        class: 'retour',
+        href: '#/recu/' + encodeURIComponent(foyerId),
+        texte: '‹ Retour au partage',
+      })
+    );
+
+    var corps = el('article', { class: 'fiche', id: 'recette-recue' }, [
+      el('p', { class: 'membres__attente', texte: 'Lecture de la recette…' }),
+    ]);
+    fragment.appendChild(corps);
+
+    Sync.lireRecetteDeFoyer(foyerId, recetteId)
+      .then(function (recetteDuFoyer) {
+        // Même repli que sur l'écran précédent : une recette du carnet d'origine se lit
+        // dans le fichier servi avec le site.
+        var recette = recetteDuFoyer || Rc.originale(recetteId);
+        corps.textContent = '';
+        if (!recette) {
+          corps.appendChild(
+            el('p', { texte: 'Cette recette n’est plus partagée, ou elle a été supprimée.' })
+          );
+          return;
+        }
+        document.title = recette.titre + ' — Miam miam !';
+        corps.appendChild(el('h1', { class: 'fiche__titre', texte: recette.titre }));
+        corps.appendChild(
+          el('p', { class: 'fiche__meta', texte: [recette.portions, recette.temps && recette.temps.total]
+            .filter(Boolean)
+            .join(' · ') })
+        );
+
+        var image = el('img', { class: 'fiche__photo', alt: '', loading: 'lazy' });
+        Sync.lirePhotoDeFoyer(foyerId, recetteId).then(function (grande) {
+          if (grande) {
+            image.src = grande;
+            corps.insertBefore(image, corps.children[2] || null);
+          }
+        });
+
+        (recette.ingredients || []).forEach(function (groupe) {
+          if (groupe.groupe) corps.appendChild(el('h3', { texte: groupe.groupe }));
+          corps.appendChild(
+            el(
+              'ul',
+              { class: 'recue__ingredients' },
+              (groupe.items || []).map(function (item) {
+                return el('li', {}, [
+                  el('span', { class: 'nom', texte: item.nom }),
+                  item.quantite ? el('span', { class: 'quantite', texte: ' ' + item.quantite }) : null,
+                ]);
+              })
+            )
+          );
+        });
+
+        // Le champ s'appelle `instructions` dans le carnet, et chaque entrée porte son
+        // texte et parfois une astuce. On rend les deux : une astuce omise, c'est la
+        // moitié de ce que la fiche apprend.
+        var etapes = recette.instructions || recette.etapes || [];
+        if (etapes.length) {
+          corps.appendChild(el('h2', { texte: 'Préparation' }));
+          corps.appendChild(
+            el(
+              'ol',
+              { class: 'recue__etapes' },
+              etapes.map(function (etape) {
+                var texte = typeof etape === 'string' ? etape : etape.texte || '';
+                var astuce = typeof etape === 'string' ? null : etape.astuce;
+                return el('li', {}, [
+                  el('span', { texte: texte }),
+                  astuce ? el('p', { class: 'astuce', texte: stripTipPrefix(astuce) }) : null,
+                ]);
+              })
+            )
+          );
+        }
+
+        if ((recette.astuces || []).length) {
+          corps.appendChild(el('h2', { texte: 'Astuces' }));
+          corps.appendChild(
+            el(
+              'ul',
+              { class: 'recue__astuces' },
+              recette.astuces.map(function (astuce) {
+                return el('li', { texte: stripTipPrefix(typeof astuce === 'string' ? astuce : astuce.texte || '') });
+              })
+            )
+          );
+        }
+
+        corps.appendChild(
+          el('p', {
+            class: 'ecran-acces__note',
+            texte: 'Recette partagée par un autre foyer, en lecture seule.',
+          })
+        );
+      })
+      .catch(function (erreur) {
+        corps.textContent = '';
+        corps.appendChild(el('p', { texte: 'Recette illisible : ' + erreur.message }));
+      });
+
     return fragment;
   }
 
@@ -2399,6 +2798,16 @@
                   supprimerLivre(livre);
                 },
               }, [icone('croix', { taille: 16 }), el('span', { texte: 'Supprimer ce livre' })])
+            : null,
+          // Ouvrir ce livre à quelqu'un d'un autre foyer, en lecture. L'écran de
+          // partage s'ouvre avec ce livre déjà choisi : c'est la question qu'on se
+          // pose en étant dessus.
+          livre && peutModifier()
+            ? el('a', {
+                class: 'bouton bouton--sobre',
+                id: 'partager-livre',
+                href: '#/partages?livre=' + encodeURIComponent(livre.id),
+              }, [icone('partager', { taille: 16 }), el('span', { texte: 'Partager ce livre' })])
             : null,
         ]),
       ])
@@ -4184,6 +4593,29 @@
         );
       }
 
+      // Partager avec un compte du carnet, c'est autre chose qu'envoyer un texte :
+      // la personne lira la fiche à jour, avec sa photo et ses étapes, et verra les
+      // corrections. Le lien seul ne suffit plus depuis les foyers, il mène à un
+      // écran de connexion pour qui n'est pas du foyer.
+      if (peutModifier()) {
+        elements.push(el('h3', { class: 'boite__section', texte: 'Ouvrir à un autre compte' }));
+        elements.push(
+          el('p', { class: 'apercu-import__note' }, [
+            el('span', {
+              texte:
+                'Une personne qui a un compte sur le carnet peut lire cette recette ' +
+                'chez elle, sans pouvoir la modifier : ',
+            }),
+            el('a', {
+              href: '#/partages?recette=' + encodeURIComponent(recette.id),
+              id: 'partager-a-un-compte',
+              texte: 'partager avec un compte',
+            }),
+            el('span', { texte: '.' }),
+          ])
+        );
+      }
+
       elements.push(
         el('h3', { class: 'boite__section', texte: 'Le texte envoyé' })
       );
@@ -5878,6 +6310,41 @@
     // #/compte est l'adresse ; #/acces reste acceptée, elle a circulé.
     if (ancre === '/compte' || ancre === '/acces') {
       afficher(vueCompte());
+      return;
+    }
+
+    // #/partages, éventuellement avec une présélection : ?livre=<id> ou ?recette=<id>.
+    if (ancre === '/partages' || ancre.indexOf('/partages?') === 0) {
+      var question = ancre.indexOf('?');
+      var parametres = question === -1 ? '' : ancre.slice(question + 1);
+      var preselection = null;
+      parametres.split('&').forEach(function (couple) {
+        var morceaux = couple.split('=');
+        if (morceaux[0] === 'livre' || morceaux[0] === 'recette') {
+          preselection = morceaux[0] + ':' + decodeURIComponent(morceaux[1] || '');
+        }
+      });
+      if (!peutModifier()) {
+        // Un membre en lecture seule ne partage pas ce qui n'est pas à lui, mais il a
+        // le droit de voir ce qu'on lui a partagé : il n'est renvoyé que s'il n'a pas
+        // de foyer du tout.
+        if (!Acc.aUnFoyer()) {
+          window.location.hash = '#/compte';
+          return;
+        }
+      }
+      afficher(vuePartages(preselection));
+      return;
+    }
+
+    // #/recu/<foyer> et #/recu/<foyer>/<recette>
+    if (ancre.indexOf('/recu/') === 0) {
+      var reste = ancre.slice('/recu/'.length).split('/');
+      if (reste.length >= 2 && reste[1]) {
+        afficher(vueRecetteRecue(decodeURIComponent(reste[0]), decodeURIComponent(reste[1])));
+        return;
+      }
+      afficher(vueRecu(decodeURIComponent(reste[0])));
       return;
     }
 

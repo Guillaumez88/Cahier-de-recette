@@ -57,7 +57,7 @@ jobs:
           # Node, qui chargent les modules directement, et casserait le site.
           node -e "
             const html = require('fs').readFileSync('index.html', 'utf8');
-            const attendus = ['firebase-config', 'logic', 'quantites', 'rayons', 'flux', 'semaine', 'icones', 'sync', 'acces', 'collection', 'recettes', 'storage', 'semainier', 'placard', 'livres', 'photos', 'illustrations', 'cuisson', 'import-recette', 'partage', 'pdf', 'menu-pdf', 'vue-magasin', 'vue-bibliotheque', 'app'];
+            const attendus = ['firebase-config', 'logic', 'quantites', 'rayons', 'flux', 'semaine', 'icones', 'sync', 'acces', 'partage-compte', 'collection', 'recettes', 'storage', 'semainier', 'placard', 'livres', 'photos', 'illustrations', 'cuisson', 'import-recette', 'partage', 'pdf', 'menu-pdf', 'vue-magasin', 'vue-bibliotheque', 'app'];
             const presents = [...html.matchAll(/<script src=\"js\/([a-z-]+)\.js\">/g)].map((m) => m[1]);
             if (presents.join(',') !== attendus.join(',')) {
               throw new Error('scripts de index.html : ' + presents.join(',') + '\nattendu : ' + attendus.join(','));

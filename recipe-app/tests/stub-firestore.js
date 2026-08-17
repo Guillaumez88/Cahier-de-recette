@@ -34,6 +34,11 @@ const etat = {
   fiches: new Map(), // uid -> { fields }, collection utilisateurs
   foyers: new Map(), // foyerId -> { fields }, collection foyers
   membres: new Map(), // uid -> { fields }, foyers/<id>/membres (un seul foyer par test)
+  // Le partage entre foyers : l'annuaire des comptes, les manifestes, et les avis
+  // déposés chez les bénéficiaires.
+  annuaire: new Map(), // adresse normalisée -> { fields }
+  partages: new Map(), // uid du bénéficiaire -> { fields }
+  recus: new Map(), // identifiant du foyer partageur -> { fields }
   codeMaison: 'code-de-la-maison',
   // Quand vrai, l'écriture est refusée à qui n'est pas membre du foyer en modification :
   // c'est le comportement réel des règles. Faux par défaut, pour que les suites écrites
@@ -88,6 +93,9 @@ function reinitialiser(avecFoyer = true) {
   etat.fiches.clear();
   etat.foyers.clear();
   etat.membres.clear();
+  etat.annuaire.clear();
+  etat.partages.clear();
+  etat.recus.clear();
   etat.sessions.clear();
   etat.panne = false;
   etat.refuserRecettes = false;
@@ -213,6 +221,19 @@ async function traiter(requete, reponse) {
       nbComptes: etat.comptes.size,
       nbFoyers: etat.foyers.size,
       nbMembres: etat.membres.size,
+      nbAnnuaire: etat.annuaire.size,
+      nbPartages: etat.partages.size,
+      nbRecus: etat.recus.size,
+      partages: [...etat.partages.entries()].map(([uid, doc]) => ({
+        uid,
+        email: ((doc.fields || {}).emailBeneficiaire || {}).stringValue || '',
+        recettes: (((doc.fields || {}).recettes || {}).arrayValue || {}).values
+          ? doc.fields.recettes.arrayValue.values.map((v) => v.stringValue)
+          : [],
+        livres: (((doc.fields || {}).livres || {}).arrayValue || {}).values
+          ? doc.fields.livres.arrayValue.values.map((v) => v.stringValue)
+          : [],
+      })),
       membres: [...etat.membres.entries()].map(([uid, doc]) => ({
         uid,
         email: ((doc.fields || {}).email || {}).stringValue || '',
@@ -395,6 +416,11 @@ async function traiter(requete, reponse) {
   const NOMS = {
     appareils: 'appareils',
     comptes: 'comptes',
+    annuaire: 'annuaire',
+    // « recus » et « partages » avant « utilisateurs » et « foyers » : ce sont des
+    // sous-collections, et c'est leur propre nom qui doit les désigner.
+    recus: 'recus',
+    partages: 'partages',
     utilisateurs: 'fiches',
     membres: 'membres',
     articles: 'articles',
@@ -525,7 +551,13 @@ async function traiter(requete, reponse) {
   // Le verrou des règles, côté contenu : écrire exige d'être membre du foyer, en
   // modification. Les collections de l'amorçage (le foyer, ses membres, la fiche du
   // compte) en sont exclues, sinon personne ne pourrait jamais créer le premier foyer.
-  const amorcage = collection === etat.foyers || collection === etat.membres || collection === etat.fiches;
+  // L'amorçage et l'annuaire échappent au verrou : sans eux, un compte neuf ne
+  // pourrait ni se doter d'un foyer ni se rendre trouvable.
+  const amorcage =
+    collection === etat.foyers ||
+    collection === etat.membres ||
+    collection === etat.fiches ||
+    collection === etat.annuaire;
   if (etat.exigerMaison && requete.method !== 'GET' && !amorcage) {
     const membre = etat.membres.get(appareil);
     const role = membre && ((membre.fields || {}).role || {}).stringValue;

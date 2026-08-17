@@ -263,6 +263,22 @@
     OPERATION_NOT_ALLOWED: 'La connexion par e-mail n’est pas activée sur le projet Firebase.',
   };
 
+  /**
+   * Inscrit le compte dans l'annuaire, pour qu'on puisse partager avec lui.
+   *
+   * À la création et à chaque connexion : une écriture par connexion, ce qui est rare,
+   * et cela répare une fiche perdue sans que personne ait à s'en occuper. L'échec est
+   * silencieux, volontairement : ne pas être trouvable est un désagrément, pas une
+   * raison de refuser une connexion par ailleurs valable.
+   */
+  async function inscrireDansAnnuaire() {
+    try {
+      await Sync.inscrireAnnuaire();
+    } catch (erreur) {
+      /* l'annuaire n'est pas indispensable pour se servir du carnet */
+    }
+  }
+
   function raison(erreur) {
     var code = String(erreur.message || '').split(' : ')[0].trim();
     return MESSAGES[code] || 'Échec : ' + erreur.message;
@@ -284,6 +300,7 @@
     try {
       var foyerId = await Sync.creerFoyer(String(nomDuFoyer || '').trim() || 'Ma cuisine');
       poser(foyerId, 'modification', String(nomDuFoyer || '').trim());
+      await inscrireDansAnnuaire();
     } catch (erreur) {
       // Le compte existe, son foyer non : se reconnecter ne réparerait rien tout seul,
       // et l'écran doit le dire au lieu d'afficher un carnet vide.
@@ -309,6 +326,7 @@
       return { ok: false, raison: raison(erreur) };
     }
     await verifier();
+    await inscrireDansAnnuaire();
     if (!etat.foyer) {
       return {
         ok: false,
@@ -397,8 +415,14 @@
     return { ok: true };
   }
 
+  /** Le nom du foyer courant, tel qu'il a été saisi à sa création. */
+  function nomFoyer() {
+    return etat.nom || '';
+  }
+
   var api = {
     CLE: CLE,
+    nomFoyer: nomFoyer,
     surChangement: surChangement,
     compte: compte,
     foyer: foyer,
